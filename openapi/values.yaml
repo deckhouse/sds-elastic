@@ -4,4 +4,4 @@ type: object
 properties:
   namespace:
     type: string
-    default: d8-operator-ceph
+    default: d8-sds-elastic

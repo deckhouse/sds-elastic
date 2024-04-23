@@ -1,4 +1,4 @@
-project: operator-ceph
+project: sds-elastic
 configVersion: 1
 
 # modules_images
