@@ -28,7 +28,7 @@ beforeHelm: 5
 
 def main(ctx: hook.Context):
     # Manipulate kubernetes state
-    ns = {"kind": "Namespace", "apiVersion": "v1", "metadata": {"name": ctx.values['operatorCeph']['namespace']}}
+    ns = {"kind": "Namespace", "apiVersion": "v1", "metadata": {"name": ctx.values['sds-elastic']['namespace']}}
     ctx.kubernetes.create_if_not_exists(ns)
 
 
