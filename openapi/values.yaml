@@ -1,0 +1,7 @@
+x-extend:
+  schema: config-values.yaml
+type: object
+properties:
+  namespace:
+    type: string
+    default: d8-operator-ceph
