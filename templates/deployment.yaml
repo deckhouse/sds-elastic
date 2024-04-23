@@ -3,7 +3,7 @@ apiVersion: apps/v1
 kind: Deployment
 metadata:
   name: {{ .Chart.Name }}
-  namespace: {{ .Values.operatorCeph.namespace }}
+  namespace: {{ .Values.sdsElastic.namespace }}
   {{- include "helm_lib_module_labels" (list . (dict "app" .Chart.Name )) | nindent 2 }}
 spec:
   replicas: 1
@@ -19,7 +19,7 @@ spec:
       labels:
         app: {{ .Chart.Name }}
     spec:
-      {{- with .Values.operatorCeph.registry }}
+      {{- with .Values.sdsElastic.registry }}
       imagePullSecrets:
         - name: {{ $.Chart.Name }}-registrysecret
       {{- end }}
@@ -71,7 +71,7 @@ spec:
             fieldRef:
               fieldPath: metadata.namespace
         resources:
-          {{ include "helm_lib_resources_management_pod_resources" (list $.Values.operatorCeph.resourcesManagement) | nindent 10 }}
+          {{ include "helm_lib_resources_management_pod_resources" (list $.Values.sdsElastic.resourcesManagement) | nindent 10 }}
       volumes:
       - name: tmp
         emptyDir: {}

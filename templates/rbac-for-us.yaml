@@ -3,7 +3,7 @@ apiVersion: v1
 kind: ServiceAccount
 metadata:
   name: rook-ceph-system
-  namespace: {{ .Values.operatorCeph.namespace }}
+  namespace: {{ .Values.sdsElastic.namespace }}
 imagePullSecrets:
   - name: {{ .Chart.Name }}-registrysecret
 ---
@@ -12,7 +12,7 @@ apiVersion: v1
 kind: ServiceAccount
 metadata:
   name: rook-csi-cephfs-plugin-sa
-  namespace: {{ .Values.operatorCeph.namespace }}
+  namespace: {{ .Values.sdsElastic.namespace }}
 imagePullSecrets:
   - name: {{ .Chart.Name }}-registrysecret
 ---
@@ -21,7 +21,7 @@ apiVersion: v1
 kind: ServiceAccount
 metadata:
   name: rook-csi-cephfs-provisioner-sa
-  namespace: {{ .Values.operatorCeph.namespace }}
+  namespace: {{ .Values.sdsElastic.namespace }}
 imagePullSecrets:
   - name: {{ .Chart.Name }}-registrysecret
 ---
@@ -30,7 +30,7 @@ apiVersion: v1
 kind: ServiceAccount
 metadata:
   name: rook-csi-rbd-plugin-sa
-  namespace: {{ .Values.operatorCeph.namespace }}
+  namespace: {{ .Values.sdsElastic.namespace }}
 imagePullSecrets:
   - name: {{ .Chart.Name }}-registrysecret
 ---
@@ -39,7 +39,7 @@ apiVersion: v1
 kind: ServiceAccount
 metadata:
   name: rook-csi-rbd-provisioner-sa
-  namespace: {{ .Values.operatorCeph.namespace }}
+  namespace: {{ .Values.sdsElastic.namespace }}
 imagePullSecrets:
   - name: {{ .Chart.Name }}-registrysecret
 
@@ -572,7 +572,7 @@ roleRef:
 subjects:
   - kind: ServiceAccount
     name: rook-ceph-mgr
-    namespace: {{ .Values.operatorCeph.namespace }}
+    namespace: {{ .Values.sdsElastic.namespace }}
 ---
 # Allow the ceph osd to access cluster-wide resources necessary for determining their topology location
 kind: ClusterRoleBinding
@@ -586,7 +586,7 @@ roleRef:
 subjects:
   - kind: ServiceAccount
     name: rook-ceph-osd
-    namespace: {{ .Values.operatorCeph.namespace }}
+    namespace: {{ .Values.sdsElastic.namespace }}
 ---
 kind: ClusterRoleBinding
 apiVersion: rbac.authorization.k8s.io/v1
@@ -599,7 +599,7 @@ roleRef:
 subjects:
   - kind: ServiceAccount
     name: rook-ceph-system
-    namespace: {{ .Values.operatorCeph.namespace }}
+    namespace: {{ .Values.sdsElastic.namespace }}
 ---
 # Grant the rook system daemons cluster-wide access to manage the Rook CRDs, PVCs, and storage classes
 kind: ClusterRoleBinding
@@ -613,7 +613,7 @@ roleRef:
 subjects:
   - kind: ServiceAccount
     name: rook-ceph-system
-    namespace: {{ .Values.operatorCeph.namespace }}
+    namespace: {{ .Values.sdsElastic.namespace }}
 ---
 kind: ClusterRoleBinding
 # Give Rook-Ceph Operator permissions to provision ObjectBuckets in response to ObjectBucketClaims.
@@ -627,7 +627,7 @@ roleRef:
 subjects:
   - kind: ServiceAccount
     name: rook-ceph-system
-    namespace: {{ .Values.operatorCeph.namespace }}
+    namespace: {{ .Values.sdsElastic.namespace }}
 ---
 kind: ClusterRoleBinding
 apiVersion: rbac.authorization.k8s.io/v1
@@ -636,7 +636,7 @@ metadata:
 subjects:
   - kind: ServiceAccount
     name: rook-csi-rbd-plugin-sa
-    namespace: {{ .Values.operatorCeph.namespace }}
+    namespace: {{ .Values.sdsElastic.namespace }}
 roleRef:
   kind: ClusterRole
   name: rbd-csi-nodeplugin
@@ -649,7 +649,7 @@ metadata:
 subjects:
   - kind: ServiceAccount
     name: rook-csi-cephfs-provisioner-sa
-    namespace: {{ .Values.operatorCeph.namespace }}
+    namespace: {{ .Values.sdsElastic.namespace }}
 roleRef:
   kind: ClusterRole
   name: cephfs-external-provisioner-runner
@@ -664,7 +664,7 @@ metadata:
 subjects:
   - kind: ServiceAccount
     name: rook-csi-cephfs-plugin-sa
-    namespace: {{ .Values.operatorCeph.namespace }}
+    namespace: {{ .Values.sdsElastic.namespace }}
 roleRef:
   kind: ClusterRole
   name: cephfs-csi-nodeplugin
@@ -677,7 +677,7 @@ metadata:
 subjects:
   - kind: ServiceAccount
     name: rook-csi-rbd-provisioner-sa
-    namespace: {{ .Values.operatorCeph.namespace }}
+    namespace: {{ .Values.sdsElastic.namespace }}
 roleRef:
   kind: ClusterRole
   name: rbd-external-provisioner-runner
@@ -687,7 +687,7 @@ kind: Role
 apiVersion: rbac.authorization.k8s.io/v1
 metadata:
   name: rook-ceph-osd
-  namespace: {{ .Values.operatorCeph.namespace }}
+  namespace: {{ .Values.sdsElastic.namespace }}
 rules:
   # this is needed for rook's "key-management" CLI to fetch the vault token from the secret when
   # validating the connection details
@@ -705,7 +705,7 @@ kind: Role
 apiVersion: rbac.authorization.k8s.io/v1
 metadata:
   name: rook-ceph-rgw
-  namespace: {{ .Values.operatorCeph.namespace }}
+  namespace: {{ .Values.sdsElastic.namespace }}
 rules:
   # Placeholder role so the rgw service account will
   # be generated in the csv. Remove this role and role binding
@@ -722,7 +722,7 @@ kind: Role
 apiVersion: rbac.authorization.k8s.io/v1
 metadata:
   name: rook-ceph-mgr
-  namespace: {{ .Values.operatorCeph.namespace }}
+  namespace: {{ .Values.sdsElastic.namespace }}
 rules:
   - apiGroups:
       - ""
@@ -794,7 +794,7 @@ kind: Role
 apiVersion: rbac.authorization.k8s.io/v1
 metadata:
   name: rook-ceph-cmd-reporter
-  namespace: {{ .Values.operatorCeph.namespace }}
+  namespace: {{ .Values.sdsElastic.namespace }}
 rules:
   - apiGroups:
       - ""
@@ -814,7 +814,7 @@ kind: Role
 apiVersion: rbac.authorization.k8s.io/v1
 metadata:
   name: rook-ceph-purge-osd
-  namespace: {{ .Values.operatorCeph.namespace }}
+  namespace: {{ .Values.sdsElastic.namespace }}
 rules:
   - apiGroups: [""]
     resources: ["configmaps"]
@@ -834,7 +834,7 @@ apiVersion: rbac.authorization.k8s.io/v1
 kind: Role
 metadata:
   name: rook-ceph-system
-  namespace: {{ .Values.operatorCeph.namespace }}
+  namespace: {{ .Values.sdsElastic.namespace }}
 rules:
   - apiGroups:
       - ""
@@ -891,7 +891,7 @@ kind: Role
 apiVersion: rbac.authorization.k8s.io/v1
 metadata:
   name: cephfs-external-provisioner-cfg
-  namespace: {{ .Values.operatorCeph.namespace }}
+  namespace: {{ .Values.sdsElastic.namespace }}
 rules:
   - apiGroups: ["coordination.k8s.io"]
     resources: ["leases"]
@@ -901,7 +901,7 @@ kind: Role
 apiVersion: rbac.authorization.k8s.io/v1
 metadata:
   name: rbd-external-provisioner-cfg
-  namespace: {{ .Values.operatorCeph.namespace }}
+  namespace: {{ .Values.sdsElastic.namespace }}
 rules:
   - apiGroups: ["coordination.k8s.io"]
     resources: ["leases"]
@@ -912,7 +912,7 @@ kind: RoleBinding
 apiVersion: rbac.authorization.k8s.io/v1
 metadata:
   name: rook-ceph-cluster-mgmt
-  namespace: {{ .Values.operatorCeph.namespace }}
+  namespace: {{ .Values.sdsElastic.namespace }}
 roleRef:
   apiGroup: rbac.authorization.k8s.io
   kind: ClusterRole
@@ -920,14 +920,14 @@ roleRef:
 subjects:
   - kind: ServiceAccount
     name: rook-ceph-system
-    namespace: {{ .Values.operatorCeph.namespace }}
+    namespace: {{ .Values.sdsElastic.namespace }}
 ---
 # Allow the osd pods in this namespace to work with configmaps
 kind: RoleBinding
 apiVersion: rbac.authorization.k8s.io/v1
 metadata:
   name: rook-ceph-osd
-  namespace: {{ .Values.operatorCeph.namespace }}
+  namespace: {{ .Values.sdsElastic.namespace }}
 roleRef:
   apiGroup: rbac.authorization.k8s.io
   kind: Role
@@ -935,14 +935,14 @@ roleRef:
 subjects:
   - kind: ServiceAccount
     name: rook-ceph-osd
-    namespace: {{ .Values.operatorCeph.namespace }}
+    namespace: {{ .Values.sdsElastic.namespace }}
 ---
 # Allow the rgw pods in this namespace to work with configmaps
 kind: RoleBinding
 apiVersion: rbac.authorization.k8s.io/v1
 metadata:
   name: rook-ceph-rgw
-  namespace: {{ .Values.operatorCeph.namespace }}
+  namespace: {{ .Values.sdsElastic.namespace }}
 roleRef:
   apiGroup: rbac.authorization.k8s.io
   kind: Role
@@ -950,14 +950,14 @@ roleRef:
 subjects:
   - kind: ServiceAccount
     name: rook-ceph-rgw
-    namespace: {{ .Values.operatorCeph.namespace }}
+    namespace: {{ .Values.sdsElastic.namespace }}
 ---
 # Allow the ceph mgr to access resources scoped to the CephCluster namespace necessary for mgr modules
 kind: RoleBinding
 apiVersion: rbac.authorization.k8s.io/v1
 metadata:
   name: rook-ceph-mgr
-  namespace: {{ .Values.operatorCeph.namespace }}
+  namespace: {{ .Values.sdsElastic.namespace }}
 roleRef:
   apiGroup: rbac.authorization.k8s.io
   kind: Role
@@ -965,14 +965,14 @@ roleRef:
 subjects:
   - kind: ServiceAccount
     name: rook-ceph-mgr
-    namespace: {{ .Values.operatorCeph.namespace }}
+    namespace: {{ .Values.sdsElastic.namespace }}
 ---
 # Allow the ceph mgr to access resources in the Rook operator namespace necessary for mgr modules
 kind: RoleBinding
 apiVersion: rbac.authorization.k8s.io/v1
 metadata:
   name: rook-ceph-mgr-system
-  namespace: {{ .Values.operatorCeph.namespace }}
+  namespace: {{ .Values.sdsElastic.namespace }}
 roleRef:
   apiGroup: rbac.authorization.k8s.io
   kind: ClusterRole
@@ -980,13 +980,13 @@ roleRef:
 subjects:
   - kind: ServiceAccount
     name: rook-ceph-mgr
-    namespace: {{ .Values.operatorCeph.namespace }}
+    namespace: {{ .Values.sdsElastic.namespace }}
 ---
 kind: RoleBinding
 apiVersion: rbac.authorization.k8s.io/v1
 metadata:
   name: rook-ceph-cmd-reporter
-  namespace: {{ .Values.operatorCeph.namespace }}
+  namespace: {{ .Values.sdsElastic.namespace }}
 roleRef:
   apiGroup: rbac.authorization.k8s.io
   kind: Role
@@ -994,14 +994,14 @@ roleRef:
 subjects:
   - kind: ServiceAccount
     name: rook-ceph-cmd-reporter
-    namespace: {{ .Values.operatorCeph.namespace }}
+    namespace: {{ .Values.sdsElastic.namespace }}
 ---
 # Allow the osd purge job to run in this namespace
 kind: RoleBinding
 apiVersion: rbac.authorization.k8s.io/v1
 metadata:
   name: rook-ceph-purge-osd
-  namespace: {{ .Values.operatorCeph.namespace }}
+  namespace: {{ .Values.sdsElastic.namespace }}
 roleRef:
   apiGroup: rbac.authorization.k8s.io
   kind: Role
@@ -1009,14 +1009,14 @@ roleRef:
 subjects:
   - kind: ServiceAccount
     name: rook-ceph-purge-osd
-    namespace: {{ .Values.operatorCeph.namespace }}
+    namespace: {{ .Values.sdsElastic.namespace }}
 ---
 # Grant the operator, agent, and discovery agents access to resources in the rook-ceph-system namespace
 kind: RoleBinding
 apiVersion: rbac.authorization.k8s.io/v1
 metadata:
   name: rook-ceph-system
-  namespace: {{ .Values.operatorCeph.namespace }}
+  namespace: {{ .Values.sdsElastic.namespace }}
 roleRef:
   apiGroup: rbac.authorization.k8s.io
   kind: Role
@@ -1024,17 +1024,17 @@ roleRef:
 subjects:
   - kind: ServiceAccount
     name: rook-ceph-system
-    namespace: {{ .Values.operatorCeph.namespace }}
+    namespace: {{ .Values.sdsElastic.namespace }}
 ---
 kind: RoleBinding
 apiVersion: rbac.authorization.k8s.io/v1
 metadata:
   name: cephfs-csi-provisioner-role-cfg
-  namespace: {{ .Values.operatorCeph.namespace }}
+  namespace: {{ .Values.sdsElastic.namespace }}
 subjects:
   - kind: ServiceAccount
     name: rook-csi-cephfs-provisioner-sa
-    namespace: {{ .Values.operatorCeph.namespace }}
+    namespace: {{ .Values.sdsElastic.namespace }}
 roleRef:
   kind: Role
   name: cephfs-external-provisioner-cfg
@@ -1044,11 +1044,11 @@ kind: RoleBinding
 apiVersion: rbac.authorization.k8s.io/v1
 metadata:
   name: rbd-csi-provisioner-role-cfg
-  namespace: {{ .Values.operatorCeph.namespace }}
+  namespace: {{ .Values.sdsElastic.namespace }}
 subjects:
   - kind: ServiceAccount
     name: rook-csi-rbd-provisioner-sa
-    namespace: {{ .Values.operatorCeph.namespace }}
+    namespace: {{ .Values.sdsElastic.namespace }}
 roleRef:
   kind: Role
   name: rbd-external-provisioner-cfg
