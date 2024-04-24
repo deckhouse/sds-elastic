@@ -30,7 +30,7 @@ data:
   ROOK_CSI_ENABLE_GRPC_METRICS: "false"
   ROOK_CSI_IMAGE_PULL_POLICY: "IfNotPresent"
   CSI_ENABLE_CSIADDONS: "false"
-  ROOK_CSIADDONS_IMAGE: "quay.io/csiaddons/k8s-sidecar:v0.5.0"
+  ROOK_CSIADDONS_IMAGE: "quay.io/csiaddons/k8s-sidecar:v0.8.0"
   CSI_ENABLE_TOPOLOGY: "false"
   CSI_ENABLE_READ_AFFINITY: "false"
   ROOK_CSI_ENABLE_NFS: "false"
