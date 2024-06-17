@@ -537,8 +537,7 @@ metadata:
     app.kubernetes.io/name: cosi-driver-ceph
 rules:
   - apiGroups: ["objectstorage.k8s.io"]
-    resources: ["buckets", "bucketaccesses", "bucketclaims", "bucketaccessclasses", "buckets/status"
-      , "bucketaccesses/status", "bucketclaims/status", "bucketaccessclasses/status"]
+    resources: ["buckets", "bucketaccesses", "bucketclaims", "bucketaccessclasses", "buckets/status", "bucketaccesses/status", "bucketclaims/status", "bucketaccessclasses/status"]
     verbs: ["get", "list", "watch", "update", "create", "delete"]
   - apiGroups: ["coordination.k8s.io"]
     resources: ["leases"]
