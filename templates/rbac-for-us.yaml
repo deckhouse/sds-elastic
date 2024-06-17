@@ -7,6 +7,17 @@ metadata:
 imagePullSecrets:
   - name: {{ .Chart.Name }}-registrysecret
 ---
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: objectstorage-provisioner
+  labels:
+    app.kubernetes.io/component: driver-ceph
+    app.kubernetes.io/name: cosi-driver-ceph
+    app.kubernetes.io/part-of: container-object-storage-interface
+imagePullSecrets:
+  - name: {{ .Chart.Name }}-registrysecret
+---
 # Service account for Ceph mgrs
 apiVersion: v1
 kind: ServiceAccount
