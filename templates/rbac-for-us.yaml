@@ -1,3 +1,11 @@
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: rook-ceph-default
+  namespace: {{ .Values.sdsElastic.namespace }}
+imagePullSecrets:
+  - name: {{ .Chart.Name }}-registrysecret
+---
 # Service account for the job that reports the Ceph version in an image
 apiVersion: v1
 kind: ServiceAccount
