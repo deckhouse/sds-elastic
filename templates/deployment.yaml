@@ -1,0 +1,83 @@
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ .Chart.Name }}
+  namespace: {{ .Values.sdsElastic.namespace }}
+  {{- include "helm_lib_module_labels" (list . (dict "app" .Chart.Name )) | nindent 2 }}
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: {{ .Chart.Name }}
+  strategy:
+    type: Recreate
+  template:
+    metadata:
+      annotations:
+        checksum/config: {{ include (print $.Template.BasePath "/configmap.yaml") . | sha256sum }}
+      labels:
+        app: {{ .Chart.Name }}
+    spec:
+      {{- with .Values.sdsElastic.registry }}
+      imagePullSecrets:
+        - name: {{ $.Chart.Name }}-registrysecret
+      {{- end }}
+      serviceAccountName: rook-ceph-system
+      {{- include "helm_lib_node_selector" (tuple . "system") | nindent 6 }}
+      {{- include "helm_lib_tolerations" (tuple . "system") | nindent 6 }}
+      {{- include "helm_lib_priority_class" (tuple . "cluster-low") | nindent 6 }}
+      {{- include "helm_lib_module_pod_security_context_run_as_user_root" . | nindent 6 }}
+      containers:
+      - name: operator
+        {{- include "helm_lib_module_container_security_context_read_only_root_filesystem" . | nindent 8 }}
+        image: "{{ include "helm_lib_module_image" (list . "operator") }}"
+        args: ["ceph", "operator"]
+        imagePullPolicy: IfNotPresent
+        volumeMounts:
+        - mountPath: /tmp
+          name: tmp
+        - mountPath: /var/lib/rook
+          name: rook-config
+        - mountPath: /etc/ceph
+          name: default-config-dir
+        - mountPath: /etc/webhook
+          name: webhook-cert
+        ports:
+          - containerPort: 9443
+            name: https-webhook
+            protocol: TCP
+        env:
+        - name: ROOK_CURRENT_NAMESPACE_ONLY
+          value: "false"
+        - name: ROOK_HOSTPATH_REQUIRES_PRIVILEGED
+          value: "false"
+        - name: ROOK_DISABLE_DEVICE_HOTPLUG
+          value: "false"
+        - name: DISCOVER_DAEMON_UDEV_BLACKLIST
+          value: ""
+        - name: ROOK_ENABLE_DISCOVERY_DAEMON
+          value: "false"
+        - name: NODE_NAME
+          valueFrom:
+            fieldRef:
+              fieldPath: spec.nodeName
+        - name: POD_NAME
+          valueFrom:
+            fieldRef:
+              fieldPath: metadata.name
+        - name: POD_NAMESPACE
+          valueFrom:
+            fieldRef:
+              fieldPath: metadata.namespace
+        resources:
+          {{ include "helm_lib_resources_management_pod_resources" (list $.Values.sdsElastic.resourcesManagement) | nindent 10 }}
+      volumes:
+      - name: tmp
+        emptyDir: {}
+      - name: rook-config
+        emptyDir: {}
+      - name: default-config-dir
+        emptyDir: {}
+      - name: webhook-cert
+        emptyDir: {}
