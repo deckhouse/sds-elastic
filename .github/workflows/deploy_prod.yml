@@ -68,21 +68,6 @@ jobs:
           echo $MODULES_MODULE_SOURCE
       - uses: actions/checkout@v4
       - uses: deckhouse/modules-actions/setup@v1
-      - uses: deckhouse/modules-actions/deploy@v1
-  
-    name: Edition CE
-    runs-on: ubuntu-latest
-    if: github.event.inputs.ce == 'true'
-    steps:
-      - run: echo "CE"
-      - name: SET VAR
-        run: |
-          echo "MODULES_MODULE_SOURCE=$MODULES_REGISTRY/$MODULE_SOURCE_NAME/ce/modules" >> "$GITHUB_ENV"
-      - name: ECHO VAR
-        run: |
-          echo $MODULES_MODULE_SOURCE
-      - uses: actions/checkout@v4
-      - uses: deckhouse/modules-actions/setup@v1
       - name: Check previous release
         run: |
           chmod +x .github/check_previous_channel_release.sh
