@@ -2,7 +2,8 @@ apiVersion: apiextensions.k8s.io/v1
 kind: CustomResourceDefinition
 metadata:
   annotations:
-    controller-gen.kubebuilder.io/version: v0.16.1
+    controller-gen.kubebuilder.io/version: v0.11.3
+  creationTimestamp: null
   name: cephrbdmirrors.ceph.rook.io
 spec:
   group: ceph.rook.io
@@ -17,72 +18,37 @@ spec:
     - jsonPath: .status.phase
       name: Phase
       type: string
-    - jsonPath: .metadata.creationTimestamp
-      name: Age
-      type: date
     name: v1
     schema:
       openAPIV3Schema:
-        description: CephRBDMirror represents a Ceph RBD Mirror
         properties:
           apiVersion:
-            description: 'APIVersion defines the versioned schema of this representation
-              of an object.
-
-              Servers should convert recognized schemas to the latest internal value,
-              and
-
-              may reject unrecognized values.
-
-              More info: https://git.k8s.io/community/contributors/devel/sig-architecture/api-conventions.md#resources'
             type: string
           kind:
-            description: 'Kind is a string value representing the REST resource this
-              object represents.
-
-              Servers may infer this from the endpoint the client submits requests
-              to.
-
-              Cannot be updated.
-
-              In CamelCase.
-
-              More info: https://git.k8s.io/community/contributors/devel/sig-architecture/api-conventions.md#types-kinds'
             type: string
           metadata:
             type: object
           spec:
-            description: RBDMirroringSpec represents the specification of an RBD mirror
-              daemon
             properties:
               annotations:
                 additionalProperties:
                   type: string
-                description: The annotations-related configuration to add/set on each
-                  Pod related object.
                 nullable: true
                 type: object
                 x-kubernetes-preserve-unknown-fields: true
               count:
-                description: Count represents the number of rbd mirror instance to
-                  run
                 minimum: 1
                 type: integer
               labels:
                 additionalProperties:
                   type: string
-                description: The labels-related configuration to add/set on each Pod
-                  related object.
                 nullable: true
                 type: object
                 x-kubernetes-preserve-unknown-fields: true
               peers:
-                description: Peers represents the peers spec
                 nullable: true
                 properties:
                   secretNames:
-                    description: SecretNames represents the Kubernetes Secret names
-                      to add rbd-mirror or cephfs-mirror peers
                     items:
                       type: string
                     type: array
@@ -108,13 +74,11 @@ spec:
                                         items:
                                           type: string
                                         type: array
-                                        x-kubernetes-list-type: atomic
                                     required:
                                     - key
                                     - operator
                                     type: object
                                   type: array
-                                  x-kubernetes-list-type: atomic
                                 matchFields:
                                   items:
                                     properties:
@@ -126,13 +90,11 @@ spec:
                                         items:
                                           type: string
                                         type: array
-                                        x-kubernetes-list-type: atomic
                                     required:
                                     - key
                                     - operator
                                     type: object
                                   type: array
-                                  x-kubernetes-list-type: atomic
                               type: object
                               x-kubernetes-map-type: atomic
                             weight:
@@ -143,7 +105,6 @@ spec:
                           - weight
                           type: object
                         type: array
-                        x-kubernetes-list-type: atomic
                       requiredDuringSchedulingIgnoredDuringExecution:
                         properties:
                           nodeSelectorTerms:
@@ -160,13 +121,11 @@ spec:
                                         items:
                                           type: string
                                         type: array
-                                        x-kubernetes-list-type: atomic
                                     required:
                                     - key
                                     - operator
                                     type: object
                                   type: array
-                                  x-kubernetes-list-type: atomic
                                 matchFields:
                                   items:
                                     properties:
@@ -178,17 +137,14 @@ spec:
                                         items:
                                           type: string
                                         type: array
-                                        x-kubernetes-list-type: atomic
                                     required:
                                     - key
                                     - operator
                                     type: object
                                   type: array
-                                  x-kubernetes-list-type: atomic
                               type: object
                               x-kubernetes-map-type: atomic
                             type: array
-                            x-kubernetes-list-type: atomic
                         required:
                         - nodeSelectorTerms
                         type: object
@@ -214,29 +170,17 @@ spec:
                                             items:
                                               type: string
                                             type: array
-                                            x-kubernetes-list-type: atomic
                                         required:
                                         - key
                                         - operator
                                         type: object
                                       type: array
-                                      x-kubernetes-list-type: atomic
                                     matchLabels:
                                       additionalProperties:
                                         type: string
                                       type: object
                                   type: object
                                   x-kubernetes-map-type: atomic
-                                matchLabelKeys:
-                                  items:
-                                    type: string
-                                  type: array
-                                  x-kubernetes-list-type: atomic
-                                mismatchLabelKeys:
-                                  items:
-                                    type: string
-                                  type: array
-                                  x-kubernetes-list-type: atomic
                                 namespaceSelector:
                                   properties:
                                     matchExpressions:
@@ -250,13 +194,11 @@ spec:
                                             items:
                                               type: string
                                             type: array
-                                            x-kubernetes-list-type: atomic
                                         required:
                                         - key
                                         - operator
                                         type: object
                                       type: array
-                                      x-kubernetes-list-type: atomic
                                     matchLabels:
                                       additionalProperties:
                                         type: string
@@ -267,7 +209,6 @@ spec:
                                   items:
                                     type: string
                                   type: array
-                                  x-kubernetes-list-type: atomic
                                 topologyKey:
                                   type: string
                               required:
@@ -281,7 +222,6 @@ spec:
                           - weight
                           type: object
                         type: array
-                        x-kubernetes-list-type: atomic
                       requiredDuringSchedulingIgnoredDuringExecution:
                         items:
                           properties:
@@ -298,29 +238,17 @@ spec:
                                         items:
                                           type: string
                                         type: array
-                                        x-kubernetes-list-type: atomic
                                     required:
                                     - key
                                     - operator
                                     type: object
                                   type: array
-                                  x-kubernetes-list-type: atomic
                                 matchLabels:
                                   additionalProperties:
                                     type: string
                                   type: object
                               type: object
                               x-kubernetes-map-type: atomic
-                            matchLabelKeys:
-                              items:
-                                type: string
-                              type: array
-                              x-kubernetes-list-type: atomic
-                            mismatchLabelKeys:
-                              items:
-                                type: string
-                              type: array
-                              x-kubernetes-list-type: atomic
                             namespaceSelector:
                               properties:
                                 matchExpressions:
@@ -334,13 +262,11 @@ spec:
                                         items:
                                           type: string
                                         type: array
-                                        x-kubernetes-list-type: atomic
                                     required:
                                     - key
                                     - operator
                                     type: object
                                   type: array
-                                  x-kubernetes-list-type: atomic
                                 matchLabels:
                                   additionalProperties:
                                     type: string
@@ -351,14 +277,12 @@ spec:
                               items:
                                 type: string
                               type: array
-                              x-kubernetes-list-type: atomic
                             topologyKey:
                               type: string
                           required:
                           - topologyKey
                           type: object
                         type: array
-                        x-kubernetes-list-type: atomic
                     type: object
                   podAntiAffinity:
                     properties:
@@ -380,29 +304,17 @@ spec:
                                             items:
                                               type: string
                                             type: array
-                                            x-kubernetes-list-type: atomic
                                         required:
                                         - key
                                         - operator
                                         type: object
                                       type: array
-                                      x-kubernetes-list-type: atomic
                                     matchLabels:
                                       additionalProperties:
                                         type: string
                                       type: object
                                   type: object
                                   x-kubernetes-map-type: atomic
-                                matchLabelKeys:
-                                  items:
-                                    type: string
-                                  type: array
-                                  x-kubernetes-list-type: atomic
-                                mismatchLabelKeys:
-                                  items:
-                                    type: string
-                                  type: array
-                                  x-kubernetes-list-type: atomic
                                 namespaceSelector:
                                   properties:
                                     matchExpressions:
@@ -416,13 +328,11 @@ spec:
                                             items:
                                               type: string
                                             type: array
-                                            x-kubernetes-list-type: atomic
                                         required:
                                         - key
                                         - operator
                                         type: object
                                       type: array
-                                      x-kubernetes-list-type: atomic
                                     matchLabels:
                                       additionalProperties:
                                         type: string
@@ -433,7 +343,6 @@ spec:
                                   items:
                                     type: string
                                   type: array
-                                  x-kubernetes-list-type: atomic
                                 topologyKey:
                                   type: string
                               required:
@@ -447,7 +356,6 @@ spec:
                           - weight
                           type: object
                         type: array
-                        x-kubernetes-list-type: atomic
                       requiredDuringSchedulingIgnoredDuringExecution:
                         items:
                           properties:
@@ -464,29 +372,17 @@ spec:
                                         items:
                                           type: string
                                         type: array
-                                        x-kubernetes-list-type: atomic
                                     required:
                                     - key
                                     - operator
                                     type: object
                                   type: array
-                                  x-kubernetes-list-type: atomic
                                 matchLabels:
                                   additionalProperties:
                                     type: string
                                   type: object
                               type: object
                               x-kubernetes-map-type: atomic
-                            matchLabelKeys:
-                              items:
-                                type: string
-                              type: array
-                              x-kubernetes-list-type: atomic
-                            mismatchLabelKeys:
-                              items:
-                                type: string
-                              type: array
-                              x-kubernetes-list-type: atomic
                             namespaceSelector:
                               properties:
                                 matchExpressions:
@@ -500,13 +396,11 @@ spec:
                                         items:
                                           type: string
                                         type: array
-                                        x-kubernetes-list-type: atomic
                                     required:
                                     - key
                                     - operator
                                     type: object
                                   type: array
-                                  x-kubernetes-list-type: atomic
                                 matchLabels:
                                   additionalProperties:
                                     type: string
@@ -517,14 +411,12 @@ spec:
                               items:
                                 type: string
                               type: array
-                              x-kubernetes-list-type: atomic
                             topologyKey:
                               type: string
                           required:
                           - topologyKey
                           type: object
                         type: array
-                        x-kubernetes-list-type: atomic
                     type: object
                   tolerations:
                     items:
@@ -558,13 +450,11 @@ spec:
                                     items:
                                       type: string
                                     type: array
-                                    x-kubernetes-list-type: atomic
                                 required:
                                 - key
                                 - operator
                                 type: object
                               type: array
-                              x-kubernetes-list-type: atomic
                             matchLabels:
                               additionalProperties:
                                 type: string
@@ -599,46 +489,14 @@ spec:
                 type: object
                 x-kubernetes-preserve-unknown-fields: true
               priorityClassName:
-                description: PriorityClassName sets priority class on the rbd mirror
-                  pods
                 type: string
               resources:
-                description: The resource requirements for the rbd mirror pods
                 nullable: true
                 properties:
                   claims:
-                    description: 'Claims lists the names of resources, defined in
-                      spec.resourceClaims,
-
-                      that are used by this container.
-
-
-                      This is an alpha field and requires enabling the
-
-                      DynamicResourceAllocation feature gate.
-
-
-                      This field is immutable. It can only be set for containers.'
                     items:
-                      description: ResourceClaim references one entry in PodSpec.ResourceClaims.
                       properties:
                         name:
-                          description: 'Name must match the name of one entry in pod.spec.resourceClaims
-                            of
-
-                            the Pod where this field is used. It makes that resource
-                            available
-
-                            inside a container.'
-                          type: string
-                        request:
-                          description: 'Request is the name chosen for a request in
-                            the referenced claim.
-
-                            If empty, everything from the claim is made available,
-                            otherwise
-
-                            only the result of this request.'
                           type: string
                       required:
                       - name
@@ -654,10 +512,6 @@ spec:
                       - type: string
                       pattern: ^(\+|-)?(([0-9]+(\.[0-9]*)?)|(\.[0-9]+))(([KMGTPE]i)|[numkMGTPE]|([eE](\+|-)?(([0-9]+(\.[0-9]*)?)|(\.[0-9]+))))?$
                       x-kubernetes-int-or-string: true
-                    description: 'Limits describes the maximum amount of compute resources
-                      allowed.
-
-                      More info: https://kubernetes.io/docs/concepts/configuration/manage-resources-containers/'
                     type: object
                   requests:
                     additionalProperties:
@@ -666,16 +520,6 @@ spec:
                       - type: string
                       pattern: ^(\+|-)?(([0-9]+(\.[0-9]*)?)|(\.[0-9]+))(([KMGTPE]i)|[numkMGTPE]|([eE](\+|-)?(([0-9]+(\.[0-9]*)?)|(\.[0-9]+))))?$
                       x-kubernetes-int-or-string: true
-                    description: 'Requests describes the minimum amount of compute
-                      resources required.
-
-                      If Requests is omitted for a container, it defaults to Limits
-                      if that is explicitly specified,
-
-                      otherwise to an implementation-defined value. Requests cannot
-                      exceed Limits.
-
-                      More info: https://kubernetes.io/docs/concepts/configuration/manage-resources-containers/'
                     type: object
                 type: object
                 x-kubernetes-preserve-unknown-fields: true
@@ -683,12 +527,9 @@ spec:
             - count
             type: object
           status:
-            description: Status represents the status of an object
             properties:
               conditions:
                 items:
-                  description: Condition represents a status condition on any Rook-Ceph
-                    Custom Resource.
                   properties:
                     lastHeartbeatTime:
                       format: date-time
@@ -699,18 +540,14 @@ spec:
                     message:
                       type: string
                     reason:
-                      description: ConditionReason is a reason for a condition
                       type: string
                     status:
                       type: string
                     type:
-                      description: ConditionType represent a resource's status
                       type: string
                   type: object
                 type: array
               observedGeneration:
-                description: ObservedGeneration is the latest generation observed
-                  by the controller.
                 format: int64
                 type: integer
               phase:
@@ -725,3 +562,9 @@ spec:
     storage: true
     subresources:
       status: {}
+status:
+  acceptedNames:
+    kind: ""
+    plural: ""
+  conditions: null
+  storedVersions: null
