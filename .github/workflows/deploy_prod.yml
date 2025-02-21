@@ -56,23 +56,8 @@ jobs:
         shell: bash
 
   job-CE:
-     name: Edition CE
-     runs-on: [self-hosted, regular, selectel]
-     if: github.event.inputs.ce == 'true'
-     steps:
-       - run: echo "CE"
-       - name: SET VAR
-         run: |
-           echo "MODULES_MODULE_SOURCE=$MODULES_REGISTRY/$MODULE_SOURCE_NAME/ce/modules" >> "$GITHUB_ENV"
-       - name: ECHO VAR
-         run: |
-           echo $MODULES_MODULE_SOURCE
-       - uses: actions/checkout@v4
-       - uses: deckhouse/modules-actions/setup@v1
-       - uses: deckhouse/modules-actions/deploy@v1
-  
     name: Edition CE
-    runs-on: ubuntu-latest
+    runs-on: [self-hosted, regular, selectel]
     if: github.event.inputs.ce == 'true'
     steps:
       - run: echo "CE"
