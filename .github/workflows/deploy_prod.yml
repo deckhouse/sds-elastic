@@ -42,7 +42,7 @@ on:
 
 jobs:
   print-vars:
-    runs-on: [self-hosted, regular, selectel]
+    runs-on: [self-hosted, large]
     name: Print vars
     steps:
       - name: PRINT VARS
@@ -57,7 +57,7 @@ jobs:
 
   job-CE:
     name: Edition CE
-    runs-on: [self-hosted, regular, selectel]
+    runs-on: [self-hosted, large]
     if: github.event.inputs.ce == 'true'
     steps:
       - run: echo "CE"
@@ -77,7 +77,7 @@ jobs:
 
   job-EE:
     name: Edition EE
-    runs-on: [self-hosted, regular, selectel]
+    runs-on: [self-hosted, large]
     if: github.event.inputs.ee == 'true'
     steps:
       - run: echo "EE"
@@ -97,7 +97,7 @@ jobs:
 
   job-FE:
     name: Edition FE
-    runs-on: [self-hosted, regular, selectel]
+    runs-on: [self-hosted, large]
     if: github.event.inputs.fe == 'true'
     steps:
       - run: echo "FE"
