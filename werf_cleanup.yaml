@@ -1,4 +1,4 @@
-project: sds-elastic
+project: sds-replicated-volume
 configVersion: 1
 cleanup:
   keepPolicies:
