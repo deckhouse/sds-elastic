@@ -9,6 +9,7 @@ config:
       - GOPROXY
       - SOURCE_REPO
       - SOURCE_REPO_TAG
+      - MODULE_EDITION
     allowUncommittedFiles:
       - "base_images.yml"
   stapel:
