@@ -1,2 +1,9 @@
-weight: 915
-description: "SDS Elastic"
+name: "sds-elastic"
+weight: 920
+descriptions:
+  en: "SDS ELASTIC"
+requirements:
+  bootstrapped: true
+  modules:
+    sds-node-configurator: ">= 0.0.0"
+namespace: d8-sds-elastic
