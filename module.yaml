@@ -1,4 +1,5 @@
 name: "sds-elastic"
+stage: "Experimental"
 weight: 920
 descriptions:
   en: "SDS ELASTIC"
