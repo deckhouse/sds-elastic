@@ -1,3 +1,27 @@
+---
+image: docs-generator
+fromImage: builder/alt
+final: false
+
+git:
+  - add: /
+    to: /
+    includePaths:
+      - CHANGELOG
+      - hack/generate_release_notes
+    stageDependencies:
+      setup:
+        - "**/*"
+
+shell:
+  setup:
+    - cd /
+    - mkdir -p /docs
+    - /hack/generate_release_notes
+    - rm -rf CHANGELOG hack
+    - cat /docs/RELEASE_NOTES.md
+    - cat /docs/RELEASE_NOTES.ru.md
+
 # Bundle image, stored in your.registry.io/modules/<module-name>:<semver>
 ---
 image: bundle
@@ -14,18 +38,20 @@ import:
     add: /openapi
     to: /openapi
     after: setup
+  - image: docs-generator
+    add: /docs/RELEASE_NOTES.md
+    to: /docs/RELEASE_NOTES.md
+    after: setup
+  - image: docs-generator
+    add: /docs/RELEASE_NOTES.ru.md
+    to: /docs/RELEASE_NOTES.ru.md
+    after: setup
 git:
   - add: /
     to: /
-    excludePaths:
-      - hooks/go
     includePaths:
       - .helmignore
-      - charts
       - crds
-      - docs
-      - hooks
-      - monitoring
       - templates
       - Chart.yaml
       - module.yaml
