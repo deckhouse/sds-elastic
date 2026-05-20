@@ -110,6 +110,56 @@ func (r *SdsElasticClusterReconciler) deleteUnstructuredIfExists(ctx context.Con
 	return false, nil
 }
 
+// forceDeleteUnstructured issues a Delete and, if the object is stuck on
+// foreign finalizers (typical Rook / csi-ceph behaviour when their owner
+// controllers cannot perform graceful cleanup — e.g. MONs never reached
+// quorum), strips those finalizers via merge-patch so the object is
+// actually removed by the API server.
+//
+// This is intentionally aggressive: by the time reconcileDelete reaches a
+// Rook resource the user has already requested SdsElasticCluster removal
+// and accepts that downstream graceful cleanup may be skipped. Mirrors
+// the OnAfterDeleteHelm hook logic for individual CR deletes.
+//
+// Returns the same tri-state as deleteUnstructuredIfExists.
+func (r *SdsElasticClusterReconciler) forceDeleteUnstructured(ctx context.Context, gvk schema.GroupVersionKind, namespace, name string) (bool, error) {
+	obj := &unstructured.Unstructured{}
+	obj.SetGroupVersionKind(gvk)
+	obj.SetName(name)
+	if namespace != "" {
+		obj.SetNamespace(namespace)
+	}
+
+	err := r.Client.Get(ctx, client.ObjectKeyFromObject(obj), obj)
+	if apierrors.IsNotFound(err) || apimeta.IsNoMatchError(err) {
+		return true, nil
+	}
+	if err != nil {
+		return false, err
+	}
+
+	if obj.GetDeletionTimestamp() == nil {
+		if err := r.Client.Delete(ctx, obj); err != nil && !apierrors.IsNotFound(err) {
+			return false, err
+		}
+		if err := r.Client.Get(ctx, client.ObjectKeyFromObject(obj), obj); err != nil {
+			if apierrors.IsNotFound(err) {
+				return true, nil
+			}
+			return false, err
+		}
+	}
+
+	if len(obj.GetFinalizers()) > 0 {
+		patch := client.MergeFrom(obj.DeepCopy())
+		obj.SetFinalizers(nil)
+		if err := r.Client.Patch(ctx, obj, patch); err != nil && !apierrors.IsNotFound(err) {
+			return false, fmt.Errorf("strip finalizers from %s %s/%s: %w", gvk.Kind, namespace, name, err)
+		}
+	}
+	return false, nil
+}
+
 // listOwnedUnstructured fetches all objects of the given GVK that carry our
 // ClusterOwnerLabel = cluster.Name.
 func (r *SdsElasticClusterReconciler) listOwnedUnstructured(ctx context.Context, gvk schema.GroupVersionKind, namespace, clusterName string) (*unstructured.UnstructuredList, error) {

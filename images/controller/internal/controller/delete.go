@@ -78,6 +78,13 @@ func (r *SdsElasticClusterReconciler) reconcileDelete(ctx context.Context, clust
 
 // teardownOwned returns a step that deletes every cluster- or namespace-
 // scoped resource of the given GVK that we previously owned.
+//
+// Rook (CephCluster/Pool/Filesystem/ObjectStore) and csi-ceph
+// (CephClusterConnection/CephStorageClass) put their own finalizers on
+// these CRs and refuse to drop them when the upstream cluster cannot do
+// graceful cleanup (e.g. MONs never reached quorum). We use
+// forceDeleteUnstructured so the SdsElasticCluster CR is not held
+// hostage by a half-bootstrapped Ceph cluster.
 func (r *SdsElasticClusterReconciler) teardownOwned(gvk schema.GroupVersionKind, namespace string) func(context.Context, *v1alpha1.SdsElasticCluster) (bool, error) {
 	return func(ctx context.Context, cluster *v1alpha1.SdsElasticCluster) (bool, error) {
 		list, err := r.listOwnedUnstructured(ctx, gvk, namespace, cluster.Name)
@@ -89,7 +96,7 @@ func (r *SdsElasticClusterReconciler) teardownOwned(gvk schema.GroupVersionKind,
 		}
 		for i := range list.Items {
 			item := &list.Items[i]
-			if _, err := r.deleteUnstructuredIfExists(ctx, gvk, item.GetNamespace(), item.GetName()); err != nil {
+			if _, err := r.forceDeleteUnstructured(ctx, gvk, item.GetNamespace(), item.GetName()); err != nil {
 				return false, err
 			}
 		}
@@ -126,7 +133,10 @@ func (r *SdsElasticClusterReconciler) teardownCephCluster(ctx context.Context, c
 		Namespace: r.Cfg.ControllerNamespace,
 		Name:      builder.CephClusterName,
 	}
-	gone, err := r.deleteUnstructuredIfExists(ctx, external.CephClusterGVK, cephClusterKey.Namespace, cephClusterKey.Name)
+	// Force-strip rook's finalizer: a CephCluster that never had MONs
+	// running cannot be drained by Rook itself and will otherwise keep
+	// the SdsElasticCluster CR stuck on its finalizer forever.
+	gone, err := r.forceDeleteUnstructured(ctx, external.CephClusterGVK, cephClusterKey.Namespace, cephClusterKey.Name)
 	if err != nil {
 		return false, err
 	}
