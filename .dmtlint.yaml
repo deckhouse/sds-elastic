@@ -1,3 +1,17 @@
+linters-settings:
+  templates:
+    # The pre-existing rook-ceph-operator Deployment (named `sds-elastic`)
+    # does not have a matching VPA/PDB yet. Exclude it from the templates
+    # linter while the operator chart is still being migrated to lib-helm
+    # helpers.
+    exclude-rules:
+      vpa:
+        - kind: Deployment
+          name: sds-elastic
+      pdb:
+        - kind: Deployment
+          name: sds-elastic
+
 global:
   linters-settings:
     container:
@@ -10,10 +24,11 @@ global:
       #
       # `object-recommended-labels` and `object-revision-history-limit` are
       # non-configurable per object in dmt (see deckhouse/dmt
-      # pkg/linters/container/README.md), so demote them to warnings until the
-      # operator chart is migrated to lib-helm helpers. For the probes /
-      # seccomp issues on the single rook-ceph-operator container, demote the
-      # same rules to warnings (cheaper than adding per-container exclusions).
+      # pkg/linters/container/README.md), so demote them to warnings until
+      # the operator chart is migrated to lib-helm helpers. For the probes /
+      # seccomp issues on the single rook-ceph-operator container, demote
+      # the same rules to warnings (cheaper than adding per-container
+      # exclusions).
       rules:
         object-recommended-labels:
           impact: warn
@@ -25,15 +40,3 @@ global:
           impact: warn
         seccomp-profile:
           impact: warn
-    templates:
-      # The pre-existing rook-ceph-operator Deployment (named `sds-elastic`)
-      # does not have a matching VPA/PDB yet. Exclude it from the templates
-      # linter while the operator chart is still being migrated to lib-helm
-      # helpers.
-      exclude-rules:
-        vpa:
-          - kind: Deployment
-            name: sds-elastic
-        pdb:
-          - kind: Deployment
-            name: sds-elastic
