@@ -2063,3 +2063,43 @@ metadata:
     app.kubernetes.io/part-of: rook-ceph-operator
 imagePullSecrets:
 - name: {{ .Chart.Name }}-registrysecret
+---
+# Direct binding for the static kubeadm cluster-admins group (the default
+# subject of the kubernetes-admin client cert produced by kubeadm-style
+# control-plane installs). Deckhouse user-authz maps managed users via
+# ClusterAuthorizationRule, but the bootstrap kubernetes-admin identity is
+# outside that flow, so we mirror the csi-scsi-generic pattern and grant
+# full CRUD on the module's storage.deckhouse.io CRDs explicitly.
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: d8:sds-elastic:admin-kubeconfig
+  {{- include "helm_lib_module_labels" (list .) | nindent 2 }}
+rules:
+- apiGroups:
+  - storage.deckhouse.io
+  resources:
+  - sdselasticclusters
+  verbs:
+  - get
+  - list
+  - watch
+  - create
+  - delete
+  - deletecollection
+  - patch
+  - update
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: d8:sds-elastic:admin-kubeconfig
+  {{- include "helm_lib_module_labels" (list .) | nindent 2 }}
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: ClusterRole
+  name: d8:sds-elastic:admin-kubeconfig
+subjects:
+- apiGroup: rbac.authorization.k8s.io
+  kind: Group
+  name: kubeadm:cluster-admins
