@@ -40,7 +40,7 @@ import (
 // reconcile-on-event from controller-runtime watches.
 func (r *SdsElasticClusterReconciler) ensureStorage(ctx context.Context, cluster *v1alpha1.SdsElasticCluster) (bool, string, error) {
 	if cluster.Spec.Storage.LVM == nil {
-		return true, "raw devices mode, nothing to do", nil
+		return true, "raw devices mode, Rook consumes /dev/* directly", nil
 	}
 
 	lvm := cluster.Spec.Storage.LVM
@@ -56,7 +56,7 @@ func (r *SdsElasticClusterReconciler) ensureStorage(ctx context.Context, cluster
 		}
 	}
 
-	return true, "", nil
+	return true, "LLV and PVs are provisioned", nil
 }
 
 // upsertPV creates or updates a PersistentVolume. We compare only the

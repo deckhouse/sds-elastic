@@ -102,7 +102,9 @@ func (r *SdsElasticClusterReconciler) reconcileNormal(ctx context.Context, clust
 		status.setCondition(v1alpha1.ConditionStorageReady, metav1.ConditionFalse, "InProgress", msg)
 		requeue = true
 	} else {
-		status.setCondition(v1alpha1.ConditionStorageReady, metav1.ConditionTrue, "Ready", "LLV and PVs are provisioned")
+		// Message is mode-specific (LVM vs raw devices), produced by
+		// ensureStorage itself.
+		status.setCondition(v1alpha1.ConditionStorageReady, metav1.ConditionTrue, "Ready", msg)
 	}
 
 	clusterDone, fsid, msg, err := r.ensureCephCluster(ctx, cluster)
