@@ -58,6 +58,7 @@ git:
       - hooks/go
     includePaths:
       - .helmignore
+      - charts
       - crds
       - hooks
       - templates
