@@ -174,7 +174,13 @@ type DevicesStorageSpec struct {
 	// +kubebuilder:default=false
 	UseAllDevices bool `json:"useAllDevices,omitempty"`
 
-	// DeviceFilter is a regex over device names, e.g. "^vd[b-f]".
+	// DeviceFilter is a regex that selects which block devices Rook
+	// consumes as OSDs on each selected node. Two forms are accepted:
+	//   - device-name regex, e.g. "^vd[b-f]" or "^sdc$"; routed to Rook
+	//     spec.storage.deviceFilter.
+	//   - device-path regex (anchored with "/" or containing "/dev/"),
+	//     e.g. "^/dev/sdc$"; routed to Rook spec.storage.devicePathFilter.
+	// The controller picks the correct Rook field automatically.
 	// +optional
 	DeviceFilter string `json:"deviceFilter,omitempty"`
 }

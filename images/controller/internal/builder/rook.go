@@ -18,6 +18,7 @@ package builder
 
 import (
 	"fmt"
+	"strings"
 
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
 
@@ -155,8 +156,19 @@ func buildStorage(cluster *v1alpha1.SdsElasticCluster, osdStorageClassName strin
 		d := cluster.Spec.Storage.Devices
 		storage["useAllNodes"] = d.UseAllNodes
 		storage["useAllDevices"] = d.UseAllDevices
+		// Rook has two separate fields: `deviceFilter` matches the device
+		// short name ("sdc"), while `devicePathFilter` matches the full
+		// path ("/dev/sdc"). Users routinely write `^/dev/sdc$` in their
+		// CR, which silently never matches the short-name regex and the
+		// OSD prepare jobs come back with empty `osd versions detected`.
+		// Auto-route the filter to the correct Rook field by looking at
+		// whether the regex contains the `/dev/` prefix or a literal "/".
 		if d.DeviceFilter != "" {
-			storage["deviceFilter"] = d.DeviceFilter
+			if isDevicePathRegex(d.DeviceFilter) {
+				storage["devicePathFilter"] = d.DeviceFilter
+			} else {
+				storage["deviceFilter"] = d.DeviceFilter
+			}
 		}
 		return storage
 	}
@@ -189,6 +201,17 @@ func buildStorage(cluster *v1alpha1.SdsElasticCluster, osdStorageClassName strin
 		}
 	}
 	return storage
+}
+
+// isDevicePathRegex returns true if the user-supplied DeviceFilter looks
+// like a regex over absolute device paths (anything containing "/dev/"
+// or starting with "/") and therefore must be passed to Rook as
+// devicePathFilter rather than deviceFilter.
+func isDevicePathRegex(filter string) bool {
+	// Trim the standard regex anchor so "^/dev/sdc$" is recognised as a
+	// path filter even when authored with a leading "^".
+	probe := strings.TrimPrefix(filter, "^")
+	return strings.HasPrefix(probe, "/") || strings.Contains(filter, "/dev/")
 }
 
 func defaultIfEmpty(v, def string) string {
