@@ -4,6 +4,8 @@ apiVersion: rbac.authorization.k8s.io/v1
 metadata:
   name: cephfs-csi-nodeplugin
   labels:
+    module: sds-elastic
+    heritage: deckhouse
     operator: rook
     storage-backend: ceph
     app.kubernetes.io/name: rook-ceph
@@ -45,6 +47,8 @@ apiVersion: rbac.authorization.k8s.io/v1
 metadata:
   name: cephfs-external-provisioner-runner
   labels:
+    module: sds-elastic
+    heritage: deckhouse
     operator: rook
     storage-backend: ceph
     app.kubernetes.io/name: rook-ceph
@@ -230,6 +234,8 @@ apiVersion: rbac.authorization.k8s.io/v1
 metadata:
   name: objectstorage-provisioner-role
   labels:
+    module: sds-elastic
+    heritage: deckhouse
     app.kubernetes.io/part-of: container-object-storage-interface
     app.kubernetes.io/component: driver-ceph
     app.kubernetes.io/name: cosi-driver-ceph
@@ -287,6 +293,8 @@ apiVersion: rbac.authorization.k8s.io/v1
 metadata:
   name: rbd-csi-nodeplugin
   labels:
+    module: sds-elastic
+    heritage: deckhouse
     operator: rook
     storage-backend: ceph
     app.kubernetes.io/name: rook-ceph
@@ -349,6 +357,8 @@ apiVersion: rbac.authorization.k8s.io/v1
 metadata:
   name: rbd-external-provisioner-runner
   labels:
+    module: sds-elastic
+    heritage: deckhouse
     operator: rook
     storage-backend: ceph
     app.kubernetes.io/name: rook-ceph
@@ -566,6 +576,8 @@ apiVersion: rbac.authorization.k8s.io/v1
 metadata:
   name: rook-ceph-cluster-mgmt
   labels:
+    module: sds-elastic
+    heritage: deckhouse
     operator: rook
     storage-backend: ceph
     app.kubernetes.io/name: rook-ceph
@@ -597,6 +609,8 @@ apiVersion: rbac.authorization.k8s.io/v1
 metadata:
   name: rook-ceph-global
   labels:
+    module: sds-elastic
+    heritage: deckhouse
     operator: rook
     storage-backend: ceph
     app.kubernetes.io/name: rook-ceph
@@ -796,6 +810,8 @@ apiVersion: rbac.authorization.k8s.io/v1
 metadata:
   name: rook-ceph-mgr-cluster
   labels:
+    module: sds-elastic
+    heritage: deckhouse
     operator: rook
     storage-backend: ceph
     app.kubernetes.io/name: rook-ceph
@@ -843,6 +859,8 @@ apiVersion: rbac.authorization.k8s.io/v1
 metadata:
   name: rook-ceph-mgr-system
   labels:
+    module: sds-elastic
+    heritage: deckhouse
     operator: rook
     storage-backend: ceph
     app.kubernetes.io/name: rook-ceph
@@ -862,6 +880,8 @@ apiVersion: rbac.authorization.k8s.io/v1
 metadata:
   name: rook-ceph-object-bucket
   labels:
+    module: sds-elastic
+    heritage: deckhouse
     operator: rook
     storage-backend: ceph
     app.kubernetes.io/name: rook-ceph
@@ -923,6 +943,8 @@ apiVersion: rbac.authorization.k8s.io/v1
 metadata:
   name: rook-ceph-osd
   labels:
+    module: sds-elastic
+    heritage: deckhouse
     operator: rook
     storage-backend: ceph
     app.kubernetes.io/name: rook-ceph
@@ -941,6 +963,8 @@ apiVersion: rbac.authorization.k8s.io/v1
 metadata:
   name: rook-ceph-system
   labels:
+    module: sds-elastic
+    heritage: deckhouse
     operator: rook
     storage-backend: ceph
     app.kubernetes.io/name: rook-ceph
@@ -1028,6 +1052,8 @@ apiVersion: rbac.authorization.k8s.io/v1
 metadata:
   name: cephfs-csi-nodeplugin-role
   labels:
+    module: sds-elastic
+    heritage: deckhouse
     operator: rook
     storage-backend: ceph
     app.kubernetes.io/name: rook-ceph
@@ -1046,6 +1072,8 @@ apiVersion: rbac.authorization.k8s.io/v1
 metadata:
   name: cephfs-csi-provisioner-role
   labels:
+    module: sds-elastic
+    heritage: deckhouse
     operator: rook
     storage-backend: ceph
     app.kubernetes.io/name: rook-ceph
@@ -1064,6 +1092,8 @@ apiVersion: rbac.authorization.k8s.io/v1
 metadata:
   name: objectstorage-provisioner-role-binding
   labels:
+    module: sds-elastic
+    heritage: deckhouse
     app.kubernetes.io/part-of: container-object-storage-interface
     app.kubernetes.io/component: driver-ceph
     app.kubernetes.io/name: cosi-driver-ceph
@@ -1081,6 +1111,8 @@ apiVersion: rbac.authorization.k8s.io/v1
 metadata:
   name: rbd-csi-nodeplugin
   labels:
+    module: sds-elastic
+    heritage: deckhouse
     operator: rook
     storage-backend: ceph
     app.kubernetes.io/name: rook-ceph
@@ -1099,6 +1131,8 @@ apiVersion: rbac.authorization.k8s.io/v1
 metadata:
   name: rbd-csi-provisioner-role
   labels:
+    module: sds-elastic
+    heritage: deckhouse
     operator: rook
     storage-backend: ceph
     app.kubernetes.io/name: rook-ceph
@@ -1117,6 +1151,8 @@ apiVersion: rbac.authorization.k8s.io/v1
 metadata:
   name: rook-ceph-global
   labels:
+    module: sds-elastic
+    heritage: deckhouse
     operator: rook
     storage-backend: ceph
     app.kubernetes.io/name: rook-ceph
@@ -1135,6 +1171,8 @@ apiVersion: rbac.authorization.k8s.io/v1
 metadata:
   name: rook-ceph-mgr-cluster
   labels:
+    module: sds-elastic
+    heritage: deckhouse
     operator: rook
     storage-backend: ceph
     app.kubernetes.io/name: rook-ceph
@@ -1153,6 +1191,8 @@ apiVersion: rbac.authorization.k8s.io/v1
 metadata:
   name: rook-ceph-object-bucket
   labels:
+    module: sds-elastic
+    heritage: deckhouse
     operator: rook
     storage-backend: ceph
     app.kubernetes.io/name: rook-ceph
@@ -1171,6 +1211,8 @@ apiVersion: rbac.authorization.k8s.io/v1
 metadata:
   name: rook-ceph-osd
   labels:
+    module: sds-elastic
+    heritage: deckhouse
     operator: rook
     storage-backend: ceph
     app.kubernetes.io/name: rook-ceph
@@ -1189,6 +1231,8 @@ apiVersion: rbac.authorization.k8s.io/v1
 metadata:
   name: rook-ceph-system
   labels:
+    module: sds-elastic
+    heritage: deckhouse
     operator: rook
     storage-backend: ceph
     app.kubernetes.io/name: rook-ceph
@@ -1208,6 +1252,8 @@ metadata:
   name: cephfs-external-provisioner-cfg
   namespace: {{ .Values.sdsElastic.namespace }}
   labels:
+    module: sds-elastic
+    heritage: deckhouse
     operator: rook
     storage-backend: ceph
     app.kubernetes.io/name: rook-ceph
@@ -1261,6 +1307,8 @@ metadata:
   name: rbd-csi-nodeplugin
   namespace: {{ .Values.sdsElastic.namespace }}
   labels:
+    module: sds-elastic
+    heritage: deckhouse
     operator: rook
     storage-backend: ceph
     app.kubernetes.io/name: rook-ceph
@@ -1303,6 +1351,8 @@ metadata:
   name: rbd-external-provisioner-cfg
   namespace: {{ .Values.sdsElastic.namespace }}
   labels:
+    module: sds-elastic
+    heritage: deckhouse
     operator: rook
     storage-backend: ceph
     app.kubernetes.io/name: rook-ceph
@@ -1356,6 +1406,8 @@ metadata:
   name: rook-ceph-cmd-reporter
   namespace: {{ .Values.sdsElastic.namespace }}
   labels:
+    module: sds-elastic
+    heritage: deckhouse
     operator: rook
     storage-backend: ceph
     app.kubernetes.io/name: rook-ceph
@@ -1380,6 +1432,8 @@ metadata:
   name: rook-ceph-mgr
   namespace: {{ .Values.sdsElastic.namespace }}
   labels:
+    module: sds-elastic
+    heritage: deckhouse
     operator: rook
     storage-backend: ceph
     app.kubernetes.io/name: rook-ceph
@@ -1460,6 +1514,8 @@ metadata:
   name: rook-ceph-osd
   namespace: {{ .Values.sdsElastic.namespace }}
   labels:
+    module: sds-elastic
+    heritage: deckhouse
     operator: rook
     storage-backend: ceph
     app.kubernetes.io/name: rook-ceph
@@ -1501,6 +1557,8 @@ metadata:
   name: rook-ceph-purge-osd
   namespace: {{ .Values.sdsElastic.namespace }}
   labels:
+    module: sds-elastic
+    heritage: deckhouse
     operator: rook
     storage-backend: ceph
     app.kubernetes.io/name: rook-ceph
@@ -1543,6 +1601,8 @@ metadata:
   name: rook-ceph-system
   namespace: {{ .Values.sdsElastic.namespace }}
   labels:
+    module: sds-elastic
+    heritage: deckhouse
     operator: rook
     storage-backend: ceph
     app.kubernetes.io/name: rook-ceph
@@ -1606,6 +1666,8 @@ metadata:
   name: cephfs-csi-provisioner-role-cfg
   namespace: {{ .Values.sdsElastic.namespace }}
   labels:
+    module: sds-elastic
+    heritage: deckhouse
     operator: rook
     storage-backend: ceph
     app.kubernetes.io/name: rook-ceph
@@ -1625,6 +1687,8 @@ metadata:
   name: rbd-csi-nodeplugin-role-cfg
   namespace: {{ .Values.sdsElastic.namespace }}
   labels:
+    module: sds-elastic
+    heritage: deckhouse
     operator: rook
     storage-backend: ceph
     app.kubernetes.io/name: rook-ceph
@@ -1644,6 +1708,8 @@ metadata:
   name: rbd-csi-provisioner-role-cfg
   namespace: {{ .Values.sdsElastic.namespace }}
   labels:
+    module: sds-elastic
+    heritage: deckhouse
     operator: rook
     storage-backend: ceph
     app.kubernetes.io/name: rook-ceph
@@ -1663,6 +1729,8 @@ metadata:
   name: rook-ceph-cluster-mgmt
   namespace: {{ .Values.sdsElastic.namespace }}
   labels:
+    module: sds-elastic
+    heritage: deckhouse
     operator: rook
     storage-backend: ceph
     app.kubernetes.io/name: rook-ceph
@@ -1682,6 +1750,8 @@ metadata:
   name: rook-ceph-cmd-reporter
   namespace: {{ .Values.sdsElastic.namespace }}
   labels:
+    module: sds-elastic
+    heritage: deckhouse
     operator: rook
     storage-backend: ceph
     app.kubernetes.io/name: rook-ceph
@@ -1701,6 +1771,8 @@ metadata:
   name: rook-ceph-mgr
   namespace: {{ .Values.sdsElastic.namespace }}
   labels:
+    module: sds-elastic
+    heritage: deckhouse
     operator: rook
     storage-backend: ceph
     app.kubernetes.io/name: rook-ceph
@@ -1720,6 +1792,8 @@ metadata:
   name: rook-ceph-mgr-system
   namespace: {{ .Values.sdsElastic.namespace }}
   labels:
+    module: sds-elastic
+    heritage: deckhouse
     operator: rook
     storage-backend: ceph
     app.kubernetes.io/name: rook-ceph
@@ -1739,6 +1813,8 @@ metadata:
   name: rook-ceph-osd
   namespace: {{ .Values.sdsElastic.namespace }}
   labels:
+    module: sds-elastic
+    heritage: deckhouse
     operator: rook
     storage-backend: ceph
     app.kubernetes.io/name: rook-ceph
@@ -1758,6 +1834,8 @@ metadata:
   name: rook-ceph-purge-osd
   namespace: {{ .Values.sdsElastic.namespace }}
   labels:
+    module: sds-elastic
+    heritage: deckhouse
     operator: rook
     storage-backend: ceph
     app.kubernetes.io/name: rook-ceph
@@ -1777,6 +1855,8 @@ metadata:
   name: rook-ceph-system
   namespace: {{ .Values.sdsElastic.namespace }}
   labels:
+    module: sds-elastic
+    heritage: deckhouse
     operator: rook
     storage-backend: ceph
     app.kubernetes.io/name: rook-ceph
@@ -1796,6 +1876,8 @@ metadata:
   name: objectstorage-provisioner
   namespace: {{ .Values.sdsElastic.namespace }}
   labels:
+    module: sds-elastic
+    heritage: deckhouse
     app.kubernetes.io/part-of: container-object-storage-interface
     app.kubernetes.io/component: driver-ceph
     app.kubernetes.io/name: cosi-driver-ceph
@@ -1808,6 +1890,8 @@ metadata:
   name: rook-ceph-cmd-reporter
   namespace: {{ .Values.sdsElastic.namespace }}
   labels:
+    module: sds-elastic
+    heritage: deckhouse
     operator: rook
     storage-backend: ceph
     app.kubernetes.io/name: rook-ceph
@@ -1821,6 +1905,8 @@ metadata:
   name: rook-ceph-default
   namespace: {{ .Values.sdsElastic.namespace }}
   labels:
+    module: sds-elastic
+    heritage: deckhouse
     operator: rook
     storage-backend: ceph
     app.kubernetes.io/name: rook-ceph
@@ -1834,6 +1920,8 @@ metadata:
   name: rook-ceph-mgr
   namespace: {{ .Values.sdsElastic.namespace }}
   labels:
+    module: sds-elastic
+    heritage: deckhouse
     operator: rook
     storage-backend: ceph
     app.kubernetes.io/name: rook-ceph
@@ -1847,6 +1935,8 @@ metadata:
   name: rook-ceph-nvmeof
   namespace: {{ .Values.sdsElastic.namespace }}
   labels:
+    module: sds-elastic
+    heritage: deckhouse
     operator: rook
     storage-backend: ceph
     app.kubernetes.io/name: rook-ceph
@@ -1860,6 +1950,8 @@ metadata:
   name: rook-ceph-osd
   namespace: {{ .Values.sdsElastic.namespace }}
   labels:
+    module: sds-elastic
+    heritage: deckhouse
     operator: rook
     storage-backend: ceph
     app.kubernetes.io/name: rook-ceph
@@ -1873,6 +1965,8 @@ metadata:
   name: rook-ceph-purge-osd
   namespace: {{ .Values.sdsElastic.namespace }}
   labels:
+    module: sds-elastic
+    heritage: deckhouse
     operator: rook
     storage-backend: ceph
     app.kubernetes.io/name: rook-ceph
@@ -1886,6 +1980,8 @@ metadata:
   name: rook-ceph-rgw
   namespace: {{ .Values.sdsElastic.namespace }}
   labels:
+    module: sds-elastic
+    heritage: deckhouse
     operator: rook
     storage-backend: ceph
     app.kubernetes.io/name: rook-ceph
@@ -1899,6 +1995,8 @@ metadata:
   name: rook-ceph-system
   namespace: {{ .Values.sdsElastic.namespace }}
   labels:
+    module: sds-elastic
+    heritage: deckhouse
     operator: rook
     storage-backend: ceph
     app.kubernetes.io/name: rook-ceph
@@ -1912,6 +2010,8 @@ metadata:
   name: rook-csi-cephfs-plugin-sa
   namespace: {{ .Values.sdsElastic.namespace }}
   labels:
+    module: sds-elastic
+    heritage: deckhouse
     operator: rook
     storage-backend: ceph
     app.kubernetes.io/name: rook-ceph
@@ -1925,6 +2025,8 @@ metadata:
   name: rook-csi-cephfs-provisioner-sa
   namespace: {{ .Values.sdsElastic.namespace }}
   labels:
+    module: sds-elastic
+    heritage: deckhouse
     operator: rook
     storage-backend: ceph
     app.kubernetes.io/name: rook-ceph
@@ -1938,6 +2040,8 @@ metadata:
   name: rook-csi-rbd-plugin-sa
   namespace: {{ .Values.sdsElastic.namespace }}
   labels:
+    module: sds-elastic
+    heritage: deckhouse
     operator: rook
     storage-backend: ceph
     app.kubernetes.io/name: rook-ceph
@@ -1951,6 +2055,8 @@ metadata:
   name: rook-csi-rbd-provisioner-sa
   namespace: {{ .Values.sdsElastic.namespace }}
   labels:
+    module: sds-elastic
+    heritage: deckhouse
     operator: rook
     storage-backend: ceph
     app.kubernetes.io/name: rook-ceph
