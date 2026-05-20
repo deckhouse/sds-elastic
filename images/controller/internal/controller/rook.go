@@ -21,6 +21,7 @@ import (
 	"fmt"
 
 	appsv1 "k8s.io/api/apps/v1"
+	corev1 "k8s.io/api/core/v1"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	"k8s.io/apimachinery/pkg/api/equality"
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
@@ -45,6 +46,19 @@ func (r *SdsElasticClusterReconciler) ensureCephCluster(ctx context.Context, clu
 		return false, "", "", fmt.Errorf("upsert CephCluster: %w", err)
 	}
 
+	// rook-ceph-tools mounts the `rook-ceph-mon-endpoints` ConfigMap and
+	// reads creds from the `rook-ceph-mon` Secret. Both are created by the
+	// Rook operator only after the CephCluster MONs reach quorum, so
+	// deploying the tools pod earlier produces FailedMount until then.
+	// Skip the upsert until the operator has published both.
+	ready, err := r.rookMonReady(ctx)
+	if err != nil {
+		return false, "", "", err
+	}
+	if !ready {
+		return false, "", "waiting for rook-ceph-mon Secret and rook-ceph-mon-endpoints ConfigMap", nil
+	}
+
 	if err := r.upsertCephToolsDeployment(ctx, cluster); err != nil {
 		return false, "", "", fmt.Errorf("upsert rook-ceph-tools Deployment: %w", err)
 	}
@@ -58,6 +72,35 @@ func (r *SdsElasticClusterReconciler) ensureCephCluster(ctx context.Context, clu
 	}
 
 	return true, fsid, "", nil
+}
+
+// rookMonReady returns true iff both the rook-ceph-mon Secret and the
+// rook-ceph-mon-endpoints ConfigMap exist in the controller namespace.
+// Either being absent means the Rook operator has not finished bringing
+// up the MONs yet and we must not create the rook-ceph-tools Deployment.
+func (r *SdsElasticClusterReconciler) rookMonReady(ctx context.Context) (bool, error) {
+	secret := &corev1.Secret{}
+	if err := r.Client.Get(ctx, types.NamespacedName{
+		Namespace: r.Cfg.ControllerNamespace,
+		Name:      external.RookCephMonSecretName,
+	}, secret); err != nil {
+		if apierrors.IsNotFound(err) {
+			return false, nil
+		}
+		return false, err
+	}
+
+	cm := &corev1.ConfigMap{}
+	if err := r.Client.Get(ctx, types.NamespacedName{
+		Namespace: r.Cfg.ControllerNamespace,
+		Name:      external.RookCephMonEndpointsConfigMap,
+	}, cm); err != nil {
+		if apierrors.IsNotFound(err) {
+			return false, nil
+		}
+		return false, err
+	}
+	return true, nil
 }
 
 // readCephFSID returns the cluster FSID by checking, in order, the
