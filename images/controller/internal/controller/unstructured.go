@@ -22,6 +22,7 @@ import (
 	"reflect"
 
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
+	apimeta "k8s.io/apimachinery/pkg/api/meta"
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
 	"k8s.io/apimachinery/pkg/runtime/schema"
 	"k8s.io/apimachinery/pkg/types"
@@ -91,6 +92,12 @@ func (r *SdsElasticClusterReconciler) deleteUnstructuredIfExists(ctx context.Con
 	if apierrors.IsNotFound(err) {
 		return true, nil
 	}
+	// If the CRD itself is not registered, there is nothing to delete and
+	// nothing depends on this kind being present (csi-ceph / Rook CRDs are
+	// optional from the SdsElasticCluster point of view). Treat as deleted.
+	if apimeta.IsNoMatchError(err) {
+		return true, nil
+	}
 	if err != nil {
 		return false, err
 	}
@@ -119,6 +126,16 @@ func (r *SdsElasticClusterReconciler) listOwnedUnstructured(ctx context.Context,
 		opts = append(opts, client.InNamespace(namespace))
 	}
 	if err := r.Client.List(ctx, list, opts...); err != nil {
+		// The third-party CRD (csi-ceph: CephStorageClass /
+		// CephClusterConnection, Rook: CephBlockPool / CephFilesystem /
+		// CephObjectStore, sds-node-configurator: LVMLogicalVolume) might
+		// not be installed in the cluster — for example during teardown
+		// after csi-ceph or Rook has already been removed. In that case
+		// there are no objects to enumerate, so return an empty list
+		// instead of failing the whole reconcile/teardown.
+		if apimeta.IsNoMatchError(err) {
+			return list, nil
+		}
 		return nil, err
 	}
 	return list, nil
