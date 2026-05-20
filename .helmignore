@@ -1,13 +1,9 @@
-crds
-docs
-enabled
-hooks
-images
-lib
-Makefile
-openapi
 *.md
-release.yaml
+CHANGELOG
+crds
+images
+images_digests.json
+openapi
 werf*.yaml
 
 # Patterns to ignore when building packages.
@@ -31,4 +27,3 @@ werf*.yaml
 .project
 .idea/
 *.tmproj
-
