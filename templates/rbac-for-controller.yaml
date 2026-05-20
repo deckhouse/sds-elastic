@@ -1,9 +1,16 @@
 {{- /* RBAC for the sds-elastic-controller */ -}}
+{{- /*
+  The controller-runtime cache is cluster-scoped by default, so any
+  namespaced resource that the manager watches (Secret, ConfigMap,
+  Deployment) requires cluster-wide get/list/watch on the ServiceAccount.
+  Keep mutation verbs for those resources in the namespaced Role -
+  we only ever create/update/delete them in d8-sds-elastic.
+*/ -}}
 {{- $rbacConfig := dict
   "roleRules" (list
-    (dict "apiGroups" (list "") "resources" (list "secrets" "configmaps") "verbs" (list "get" "list" "watch"))
     (dict "apiGroups" (list "") "resources" (list "events") "verbs" (list "create" "list" "patch"))
-    (dict "apiGroups" (list "apps") "resources" (list "deployments") "verbs" (list "get" "list" "watch" "create" "update" "patch" "delete"))
+    (dict "apiGroups" (list "") "resources" (list "secrets" "configmaps") "verbs" (list "create" "update" "patch" "delete"))
+    (dict "apiGroups" (list "apps") "resources" (list "deployments") "verbs" (list "create" "update" "patch" "delete"))
     (dict "apiGroups" (list "coordination.k8s.io") "resources" (list "leases") "verbs" (list "get" "list" "watch" "create" "update" "patch" "delete"))
   )
   "clusterRoleRules" (list
@@ -11,6 +18,8 @@
     (dict "apiGroups" (list "storage.deckhouse.io") "resources" (list "lvmlogicalvolumes") "verbs" (list "get" "list" "watch" "create" "update" "patch" "delete"))
     (dict "apiGroups" (list "storage.deckhouse.io") "resources" (list "cephclusterconnections" "cephclusterconnections/status" "cephstorageclasses" "cephstorageclasses/status") "verbs" (list "get" "list" "watch" "create" "update" "patch" "delete"))
     (dict "apiGroups" (list "ceph.rook.io") "resources" (list "cephclusters" "cephblockpools" "cephfilesystems" "cephobjectstores") "verbs" (list "get" "list" "watch" "create" "update" "patch" "delete"))
+    (dict "apiGroups" (list "apps") "resources" (list "deployments") "verbs" (list "get" "list" "watch"))
+    (dict "apiGroups" (list "") "resources" (list "secrets" "configmaps") "verbs" (list "get" "list" "watch"))
     (dict "apiGroups" (list "") "resources" (list "persistentvolumes") "verbs" (list "get" "list" "watch" "create" "update" "patch" "delete"))
     (dict "apiGroups" (list "") "resources" (list "nodes") "verbs" (list "get" "list" "watch"))
   )
