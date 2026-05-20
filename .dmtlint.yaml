@@ -1,28 +1,39 @@
-linters-settings:
-  container:
-    # The Rook RBAC stack (templates/rbac-for-us.yaml, ~60 ServiceAccount/Role/
-    # ClusterRole/RoleBinding/ClusterRoleBinding objects + Namespace) and the
-    # rook-ceph-operator Deployment (templates/deployment.yaml) are imported
-    # verbatim from upstream Rook and do not carry the deckhouse "module" /
-    # "heritage" labels, container probes, seccompProfile, or
-    # revisionHistoryLimit <= 2 that the container linter enforces.
-    #
-    # The `object-recommended-labels` and `object-revision-history-limit` rules
-    # are non-configurable per object (see deckhouse/dmt pkg/linters/container
-    # README), so the only way to keep the lint job green without rewriting the
-    # vendored Rook chart is to demote container-rule violations to warnings.
-    # The probe / seccomp issues on the operator container are covered by the
-    # same demotion. Re-enable `impact: error` once the Rook operator chart is
-    # migrated to lib-helm-managed manifests.
-    impact: warning
-  templates:
-    # The pre-existing rook-ceph-operator Deployment (named `sds-elastic`) does
-    # not have a matching VPA/PDB yet. Exclude it from the templates linter
-    # while the operator chart is still being migrated to lib-helm helpers.
-    exclude-rules:
-      vpa:
-        - kind: Deployment
-          name: sds-elastic
-      pdb:
-        - kind: Deployment
-          name: sds-elastic
+global:
+  linters-settings:
+    container:
+      # The Rook RBAC stack (templates/rbac-for-us.yaml, ~60 ServiceAccount/
+      # Role/ClusterRole/RoleBinding/ClusterRoleBinding objects + Namespace)
+      # and the rook-ceph-operator Deployment (templates/deployment.yaml) are
+      # imported verbatim from upstream Rook and do not carry the deckhouse
+      # `module`/`heritage` labels, container probes, seccompProfile, or
+      # `revisionHistoryLimit <= 2` that the container linter enforces.
+      #
+      # `object-recommended-labels` and `object-revision-history-limit` are
+      # non-configurable per object in dmt (see deckhouse/dmt
+      # pkg/linters/container/README.md), so demote them to warnings until the
+      # operator chart is migrated to lib-helm helpers. For the probes /
+      # seccomp issues on the single rook-ceph-operator container, demote the
+      # same rules to warnings (cheaper than adding per-container exclusions).
+      rules:
+        object-recommended-labels:
+          impact: warn
+        object-revision-history-limit:
+          impact: warn
+        liveness-probe:
+          impact: warn
+        readiness-probe:
+          impact: warn
+        seccomp-profile:
+          impact: warn
+    templates:
+      # The pre-existing rook-ceph-operator Deployment (named `sds-elastic`)
+      # does not have a matching VPA/PDB yet. Exclude it from the templates
+      # linter while the operator chart is still being migrated to lib-helm
+      # helpers.
+      exclude-rules:
+        vpa:
+          - kind: Deployment
+            name: sds-elastic
+        pdb:
+          - kind: Deployment
+            name: sds-elastic
