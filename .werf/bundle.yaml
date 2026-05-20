@@ -33,6 +33,11 @@ import:
     add: /images_digests.json
     to: /images_digests.json
     after: setup
+  # go-hooks: compiled by images/go-hooks/werf.inc.yaml.
+  - image: go-hooks-artifact
+    add: /go-hooks
+    to: /hooks/go-hooks
+    after: setup
   # Rendering .werf/choose-edition.yaml is required!
   - image: choose-edition
     add: /openapi
@@ -49,9 +54,12 @@ import:
 git:
   - add: /
     to: /
+    excludePaths:
+      - hooks/go
     includePaths:
       - .helmignore
       - crds
+      - hooks
       - templates
       - Chart.yaml
       - module.yaml

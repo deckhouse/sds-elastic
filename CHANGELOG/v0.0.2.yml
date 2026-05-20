@@ -1,0 +1,6 @@
+Changes:
+  - Added the SdsElasticCluster Custom Resource (`storage.deckhouse.io/v1alpha1`) and the sds-elastic-controller that reconciles the full Rook Ceph stack from a single aggregate spec.
+  - The controller provisions the OSD storage backing (LVMLogicalVolumes + local PVs in LVM mode), the CephCluster, the rook-ceph-tools Deployment, and the requested CephBlockPool / CephFilesystem / CephObjectStore resources.
+  - Added optional csi-ceph integration: the controller auto-populates CephClusterConnection (monitors / FSID / userKey from rook-ceph-mon) and creates a CephStorageClass per pool / filesystem.
+  - Added a manual `kubernetes.io/no-provisioner` StorageClass (name from `osdStorageClassName`, default `sds-elastic-osd-manual`) used for OSD-backing local PVs.
+  - Added the `030-remove-finalizers-on-module-delete` hook that strips the controller's finalizer from SdsElasticCluster CRs on module removal.

@@ -1,0 +1,6 @@
+Изменения:
+  - Добавлен Custom Resource `SdsElasticCluster` (`storage.deckhouse.io/v1alpha1`) и контроллер `sds-elastic-controller`, который реконсайлит весь стек Rook Ceph из одного агрегатного описания.
+  - Контроллер разворачивает подкладку под OSD (`LVMLogicalVolume` + локальные PV в режиме LVM), CephCluster, Deployment `rook-ceph-tools`, а также запрошенные `CephBlockPool` / `CephFilesystem` / `CephObjectStore`.
+  - Добавлена опциональная интеграция с csi-ceph: контроллер автоматически заполняет `CephClusterConnection` (мониторы / FSID / userKey из секрета `rook-ceph-mon`) и создаёт `CephStorageClass` под каждый пул и файловую систему.
+  - Добавлен manual StorageClass с провизионером `kubernetes.io/no-provisioner` (имя берётся из `osdStorageClassName`, по умолчанию `sds-elastic-osd-manual`), используемый для локальных PV под OSD.
+  - Добавлен hook `030-remove-finalizers-on-module-delete`, который снимает finalizer контроллера c CR `SdsElasticCluster` при удалении модуля.

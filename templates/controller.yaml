@@ -1,0 +1,12 @@
+{{- /* Controller Deployment + VPA + PDB */ -}}
+{{- $config := dict
+  "valuesKey" "sdsElastic"
+  "onMasterNode" true
+  "podSecurityContext" "deckhouse"
+  "additionalControllerEnvs" (list
+    (dict "name" "CONTROLLER_NAMESPACE" "value" .Values.sdsElastic.namespace)
+    (dict "name" "OSD_STORAGE_CLASS_NAME" "value" .Values.sdsElastic.osdStorageClassName)
+    (dict "name" "LOG_LEVEL" "value" "3")
+  )
+}}
+{{ include "helm_lib_module_controller_manifests" (list . $config) }}
