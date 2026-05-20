@@ -160,6 +160,27 @@ func (r *SdsElasticClusterReconciler) forceDeleteUnstructured(ctx context.Contex
 	return false, nil
 }
 
+// crdRegistered returns true iff the cluster has a CRD registered for the
+// given GroupVersionKind. It is used to gate steps that depend on
+// optional third-party operators (csi-ceph, Rook) without crash-looping
+// the controller with NoKindMatchError when their module is not yet
+// installed.
+func (r *SdsElasticClusterReconciler) crdRegistered(ctx context.Context, gvk schema.GroupVersionKind) (bool, error) {
+	list := &unstructured.UnstructuredList{}
+	list.SetGroupVersionKind(schema.GroupVersionKind{
+		Group:   gvk.Group,
+		Version: gvk.Version,
+		Kind:    gvk.Kind + "List",
+	})
+	if err := r.Client.List(ctx, list, client.Limit(1)); err != nil {
+		if apimeta.IsNoMatchError(err) {
+			return false, nil
+		}
+		return false, err
+	}
+	return true, nil
+}
+
 // listOwnedUnstructured fetches all objects of the given GVK that carry our
 // ClusterOwnerLabel = cluster.Name.
 func (r *SdsElasticClusterReconciler) listOwnedUnstructured(ctx context.Context, gvk schema.GroupVersionKind, namespace, clusterName string) (*unstructured.UnstructuredList, error) {

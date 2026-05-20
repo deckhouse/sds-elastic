@@ -24,6 +24,7 @@ import (
 
 	corev1 "k8s.io/api/core/v1"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
+	"k8s.io/apimachinery/pkg/runtime/schema"
 	"k8s.io/apimachinery/pkg/types"
 
 	v1alpha1 "github.com/deckhouse/sds-elastic/api/v1alpha1"
@@ -103,6 +104,24 @@ func parseMonEndpoints(data string) []string {
 func (r *SdsElasticClusterReconciler) ensureCsiCephIntegration(ctx context.Context, cluster *v1alpha1.SdsElasticCluster, fsidHint string) (bool, string, error) {
 	if cluster.Spec.CsiCephIntegration == nil || !cluster.Spec.CsiCephIntegration.Enabled {
 		return true, "csi-ceph integration disabled", nil
+	}
+
+	// csi-ceph is an optional dependency. If its module is not installed,
+	// the CephClusterConnection / CephStorageClass CRDs are missing and
+	// upsertUnstructured would crash the reconcile with NoKindMatchError.
+	// Report a clear in-progress condition and keep polling — the user
+	// may install csi-ceph after the SdsElasticCluster CR is created.
+	for _, gvk := range []schema.GroupVersionKind{
+		external.CephClusterConnectionGVK,
+		external.CephStorageClassGVK,
+	} {
+		installed, err := r.crdRegistered(ctx, gvk)
+		if err != nil {
+			return false, "", fmt.Errorf("check CRD %s: %w", gvk.Kind, err)
+		}
+		if !installed {
+			return false, fmt.Sprintf("waiting for csi-ceph module: CRD %s is not installed", gvk.Kind), nil
+		}
 	}
 
 	monitors, userID, fsidFromMon, userKey, ok := r.readRookMon(ctx)
