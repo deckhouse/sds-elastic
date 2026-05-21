@@ -21,6 +21,19 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 )
 
+// Supported Ceph container image tags built by the sds-elastic module
+// (images/ceph/werf.inc.yaml, one variant per tag).
+const (
+	CephVersionV1923 = "v19.2.3"
+	CephVersionV2021 = "v20.2.1"
+)
+
+// DefaultCephVersion is used when spec.cephVersion is omitted.
+const DefaultCephVersion = CephVersionV1923
+
+// SupportedCephVersions lists every allowed spec.cephVersion value.
+var SupportedCephVersions = []string{CephVersionV1923, CephVersionV2021}
+
 // SdsElasticCluster is a cluster-scoped aggregate CR that describes the desired
 // state of the Rook Ceph cluster managed by the sds-elastic module: storage
 // backing for OSDs (LVM or raw devices), the CephCluster itself, block pools,
@@ -53,9 +66,10 @@ type SdsElasticClusterList struct {
 
 // +k8s:deepcopy-gen=true
 type SdsElasticClusterSpec struct {
-	// CephVersion is the container image tag for the Ceph daemons,
-	// e.g. "v18.2.7". Mapped into spec.cephVersion.image of CephCluster.
-	// +kubebuilder:default="v18.2.7"
+	// CephVersion selects which module-built Ceph image variant to run.
+	// Mapped into spec.cephVersion.image of CephCluster (and rook-ceph-tools).
+	// +kubebuilder:validation:Enum=v19.2.3;v20.2.1
+	// +kubebuilder:default=v19.2.3
 	CephVersion string `json:"cephVersion,omitempty"`
 
 	// Network configures public/cluster CIDRs for the Ceph cluster.

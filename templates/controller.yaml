@@ -5,12 +5,16 @@
   CONTROLLER_NAMESPACE (valueFrom fieldRef metadata.namespace). Adding them
   again here triggers the env-variables-duplicates lint rule.
 */ -}}
+{{- $cephImages := dict }}
+{{- $_ := set $cephImages "v19.2.3" (include "helm_lib_module_image" (list . "cephV1923")) }}
+{{- $_ := set $cephImages "v20.2.1" (include "helm_lib_module_image" (list . "cephV2021")) }}
 {{- $config := dict
   "valuesKey" "sdsElastic"
   "onMasterNode" true
   "podSecurityContext" "deckhouse"
   "additionalControllerEnvs" (list
     (dict "name" "OSD_STORAGE_CLASS_NAME" "value" .Values.sdsElastic.osdStorageClassName)
+    (dict "name" "CEPH_IMAGES" "value" ($cephImages | toJson))
   )
 }}
 {{ include "helm_lib_module_controller_manifests" (list . $config) }}

@@ -66,6 +66,9 @@ func main() {
 	log.Info(fmt.Sprintf("[main] OS/Arch: %s/%s", goruntime.GOOS, goruntime.GOARCH))
 	log.Info(fmt.Sprintf("[main] ControllerNamespace=%s", cfgParams.ControllerNamespace))
 	log.Info(fmt.Sprintf("[main] OSDStorageClassName=%s", cfgParams.OSDStorageClassName))
+	for _, ver := range v1alpha1.SupportedCephVersions {
+		log.Info(fmt.Sprintf("[main] CephImages[%s]=%s", ver, cfgParams.CephImages[ver]))
+	}
 	log.Info(fmt.Sprintf("[main] MaxConcurrentReconciles=%d", cfgParams.MaxConcurrentReconciles))
 	log.Info(fmt.Sprintf("[main] RequeueInterval=%s", cfgParams.RequeueInterval))
 

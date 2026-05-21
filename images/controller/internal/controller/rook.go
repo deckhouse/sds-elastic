@@ -41,7 +41,12 @@ const registrySecretName = "sds-elastic-registrysecret"
 // observed (status.ceph.fsid or rook-ceph-mon secret data.fsid). Until then
 // the reconciler keeps requeuing.
 func (r *SdsElasticClusterReconciler) ensureCephCluster(ctx context.Context, cluster *v1alpha1.SdsElasticCluster) (bool, string, string, error) {
-	desired := builder.CephCluster(cluster, r.Cfg.ControllerNamespace, r.Cfg.OSDStorageClassName)
+	cephImage, err := builder.CephImage(r.Cfg.CephImages, cluster.Spec.CephVersion)
+	if err != nil {
+		return false, "", "", err
+	}
+
+	desired := builder.CephCluster(cluster, r.Cfg.ControllerNamespace, r.Cfg.OSDStorageClassName, cephImage)
 	if err := r.upsertUnstructured(ctx, desired); err != nil {
 		return false, "", "", fmt.Errorf("upsert CephCluster: %w", err)
 	}
@@ -133,10 +138,15 @@ func (r *SdsElasticClusterReconciler) readCephFSID(ctx context.Context) (string,
 // Deployment. Only the pod template is compared; immutable fields like
 // .spec.selector are never touched.
 func (r *SdsElasticClusterReconciler) upsertCephToolsDeployment(ctx context.Context, cluster *v1alpha1.SdsElasticCluster) error {
-	desired := builder.CephToolsDeployment(cluster, r.Cfg.ControllerNamespace, registrySecretName)
+	cephImage, err := builder.CephImage(r.Cfg.CephImages, cluster.Spec.CephVersion)
+	if err != nil {
+		return err
+	}
+
+	desired := builder.CephToolsDeployment(cluster, r.Cfg.ControllerNamespace, registrySecretName, cephImage)
 
 	existing := &appsv1.Deployment{}
-	err := r.Client.Get(ctx, types.NamespacedName{
+	err = r.Client.Get(ctx, types.NamespacedName{
 		Namespace: desired.Namespace,
 		Name:      desired.Name,
 	}, existing)

@@ -44,10 +44,12 @@ spec:
                 cephVersion:
                   type: string
                   description: |
-                    Ceph container image tag (e.g. "v18.2.7"). Mapped into
-                    spec.cephVersion.image of the underlying CephCluster.
-                  default: "v18.2.7"
-                  minLength: 1
+                    Ceph version backed by a module-built image (not quay.io).
+                    Mapped into spec.cephVersion.image of the underlying CephCluster.
+                  enum:
+                    - v19.2.3
+                    - v20.2.1
+                  default: v19.2.3
                 network:
                   type: object
                   required:

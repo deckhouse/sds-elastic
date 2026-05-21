@@ -17,8 +17,6 @@ limitations under the License.
 package builder
 
 import (
-	"fmt"
-
 	appsv1 "k8s.io/api/apps/v1"
 	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
@@ -33,9 +31,8 @@ const CephToolsDeploymentName = "rook-ceph-tools"
 
 // CephToolsDeployment builds the Deployment from instruction.md
 // "Создаём под ceph-tools".
-func CephToolsDeployment(cluster *v1alpha1.SdsElasticCluster, namespace, registrySecretName string) *appsv1.Deployment {
-	cephVersion := defaultIfEmpty(cluster.Spec.CephVersion, "v18.2.7")
-	image := fmt.Sprintf("quay.io/ceph/ceph:%s", cephVersion)
+func CephToolsDeployment(cluster *v1alpha1.SdsElasticCluster, namespace, registrySecretName, cephImage string) *appsv1.Deployment {
+	image := cephImage
 
 	labels := map[string]string{
 		"app": "ceph-tools",

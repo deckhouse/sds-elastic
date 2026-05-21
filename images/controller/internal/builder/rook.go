@@ -17,7 +17,6 @@ limitations under the License.
 package builder
 
 import (
-	"fmt"
 	"strings"
 
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
@@ -38,10 +37,10 @@ const (
 
 // CephCluster builds the unstructured CephCluster CR, equivalent to the YAML
 // from instruction.md "Поднимаем Ceph кластер с использованием Rook".
-func CephCluster(cluster *v1alpha1.SdsElasticCluster, namespace, osdStorageClassName string) *unstructured.Unstructured {
+func CephCluster(cluster *v1alpha1.SdsElasticCluster, namespace, osdStorageClassName, cephImage string) *unstructured.Unstructured {
 	spec := map[string]interface{}{
 		"cephVersion": map[string]interface{}{
-			"image":              fmt.Sprintf("quay.io/ceph/ceph:%s", defaultIfEmpty(cluster.Spec.CephVersion, "v18.2.7")),
+			"image":              cephImage,
 			"allowUnsupported":   true,
 		},
 		"dataDirHostPath":                            "/var/lib/rook",

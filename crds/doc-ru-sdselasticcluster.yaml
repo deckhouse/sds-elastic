@@ -14,7 +14,7 @@ spec:
               properties:
                 cephVersion:
                   description: |
-                    Тег контейнерного образа Ceph (например, "v18.2.7").
+                    Версия Ceph из образов, собранных модулем (v19.2.3 или v20.2.1).
                     Подставляется в `spec.cephVersion.image` ресурса CephCluster.
                 network:
                   description: |

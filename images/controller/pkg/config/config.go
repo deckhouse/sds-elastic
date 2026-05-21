@@ -17,11 +17,15 @@ limitations under the License.
 package config
 
 import (
+	"encoding/json"
+	"fmt"
 	"log"
 	"os"
 	"strconv"
+	"strings"
 	"time"
 
+	v1alpha1 "github.com/deckhouse/sds-elastic/api/v1alpha1"
 	"github.com/deckhouse/sds-elastic/images/controller/pkg/logger"
 )
 
@@ -30,6 +34,7 @@ const (
 	ControllerNamespaceEnv    = "CONTROLLER_NAMESPACE"
 	HealthProbeBindAddressEnv = "HEALTH_PROBE_BIND_ADDRESS"
 	OSDStorageClassNameEnv    = "OSD_STORAGE_CLASS_NAME"
+	CephImagesEnv             = "CEPH_IMAGES"
 	MaxConcurrentReconcilesEnv = "MAX_CONCURRENT_RECONCILES"
 	RequeueIntervalEnv        = "REQUEUE_INTERVAL_SECONDS"
 
@@ -46,6 +51,7 @@ type Options struct {
 	HealthProbeBindAddress  string
 	ControllerNamespace     string
 	OSDStorageClassName     string
+	CephImages              map[string]string
 	MaxConcurrentReconciles int
 	RequeueInterval         time.Duration
 }
@@ -95,5 +101,31 @@ func NewConfig() *Options {
 		}
 	}
 
+	cephImages, err := loadCephImages()
+	if err != nil {
+		log.Fatalf("invalid %s: %v", CephImagesEnv, err)
+	}
+	opts.CephImages = cephImages
+
 	return &opts
+}
+
+func loadCephImages() (map[string]string, error) {
+	raw := strings.TrimSpace(os.Getenv(CephImagesEnv))
+	if raw == "" {
+		return nil, fmt.Errorf("environment variable is empty")
+	}
+
+	var images map[string]string
+	if err := json.Unmarshal([]byte(raw), &images); err != nil {
+		return nil, fmt.Errorf("JSON decode: %w", err)
+	}
+
+	for _, ver := range v1alpha1.SupportedCephVersions {
+		if images[ver] == "" {
+			return nil, fmt.Errorf("missing image reference for version %q", ver)
+		}
+	}
+
+	return images, nil
 }
