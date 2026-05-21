@@ -1,0 +1,133 @@
+spec:
+  versions:
+    - name: v1alpha1
+      schema:
+        openAPIV3Schema:
+          description: |
+            SdsElasticCluster — агрегатный CR, описывающий желаемое состояние
+            кластера Rook Ceph, разворачиваемого модулем sds-elastic: хранилище
+            под OSD, сам CephCluster, блочные пулы, файловые системы, объектные
+            хранилища и (опционально) интеграция с csi-ceph
+            (CephClusterConnection + CephStorageClass).
+          properties:
+            spec:
+              properties:
+                cephVersion:
+                  description: |
+                    Версия Ceph из образов, собранных модулем (v19.2.3 или v20.2.1).
+                    Подставляется в `spec.cephVersion.image` ресурса CephCluster.
+                network:
+                  description: |
+                    Подсети для трафика Ceph.
+                  properties:
+                    public:
+                      description: |
+                        CIDR публичной подсети для трафика клиентов Ceph.
+                    cluster:
+                      description: |
+                        CIDR кластерной подсети для репликации и heartbeat-трафика Ceph.
+                mon:
+                  description: |
+                    Параметры демонов ceph-mon.
+                  properties:
+                    count:
+                      description: Размер кворума ceph-mon.
+                mgr:
+                  description: |
+                    Параметры демонов ceph-mgr.
+                  properties:
+                    count:
+                      description: Количество реплик ceph-mgr.
+                storage:
+                  description: |
+                    Выбор способа подкладки под OSD: либо `lvm` (LLV + локальные PV
+                    через sds-node-configurator), либо `devices` (сырые блочные
+                    устройства на ноде). Должен быть задан ровно один из
+                    вариантов.
+                  properties:
+                    lvm:
+                      description: |
+                        Подкладка под OSD на базе LVMLogicalVolume и локальных PV.
+                      properties:
+                        lvgNamePrefix:
+                          description: |
+                            Префикс имён LVMVolumeGroup. На каждой ноде будет
+                            создан LLV в группе `<lvgNamePrefix>-<i>`.
+                        actualLVName:
+                          description: |
+                            Имя фактического LV, создаваемого в каждой VG.
+                        actualVGName:
+                          description: |
+                            Имя фактической VG на ноде; формирует путь
+                            `/dev/<actualVGName>/<actualLVName>` для локального PV.
+                        lvSize:
+                          description: |
+                            Размер каждого пер-нодного LV (например, `100Gi`).
+                        nodeNamePrefix:
+                          description: |
+                            Префикс hostname; каждая нода сопоставляется как
+                            `<nodeNamePrefix>-<i>` через `kubernetes.io/hostname`.
+                        nodeCount:
+                          description: |
+                            Количество нод/OSD, под которые создаются LLV и PV.
+                    devices:
+                      description: |
+                        Подкладка под OSD на сырых блочных устройствах ноды.
+                      properties:
+                        useAllNodes:
+                          description: |
+                            Использовать все ноды кластера для размещения OSD.
+                        useAllDevices:
+                          description: |
+                            Использовать все подходящие устройства на ноде
+                            (игнорирует `deviceFilter`).
+                        deviceFilter:
+                          description: |
+                            Регулярное выражение для имён устройств (например,
+                            `^vd[b-f]`).
+                blockPools:
+                  description: |
+                    Список CephBlockPool, создаваемых в кластере. Для каждого
+                    пула указывается либо `replicated`, либо `erasureCoded`.
+                filesystems:
+                  description: |
+                    Список CephFilesystem, создаваемых в кластере.
+                objectStores:
+                  description: |
+                    Список CephObjectStore (RGW), создаваемых в кластере.
+                csiCephIntegration:
+                  description: |
+                    Автоматическое создание ресурсов csi-ceph
+                    (`CephClusterConnection` + `CephStorageClass` под каждый
+                    пул/FS). Контроллер сам прочитает monitors / FSID / userKey
+                    из секретов Rook.
+                  properties:
+                    enabled:
+                      description: Включить интеграцию с csi-ceph.
+                    connectionName:
+                      description: Имя ресурса CephClusterConnection.
+                    userID:
+                      description: |
+                        Имя пользователя Ceph для записи в `spec.userID`. По
+                        умолчанию подставляется из секрета `rook-ceph-mon`
+                        (обычно `admin`).
+            status:
+              description: |
+                Текущее состояние ресурсов, управляемых SdsElasticCluster.
+              properties:
+                observedGeneration:
+                  description: |
+                    Последнее значение `metadata.generation`, обработанное
+                    контроллером.
+                phase:
+                  description: |
+                    Обобщённое состояние: `Pending`, `InProgress`, `Ready` или
+                    `Error`.
+                clusterID:
+                  description: |
+                    FSID развёрнутого Ceph-кластера (для удобства).
+                conditions:
+                  description: |
+                    Состояние отдельных стадий: StorageReady, CephClusterReady,
+                    PoolsReady, FilesystemsReady, ObjectStoresReady,
+                    CsiCephReady, Ready.

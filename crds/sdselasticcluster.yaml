@@ -1,0 +1,390 @@
+apiVersion: apiextensions.k8s.io/v1
+kind: CustomResourceDefinition
+metadata:
+  name: sdselasticclusters.storage.deckhouse.io
+  labels:
+    heritage: deckhouse
+    module: sds-elastic
+    backup.deckhouse.io/cluster-config: "true"
+spec:
+  group: storage.deckhouse.io
+  scope: Cluster
+  names:
+    plural: sdselasticclusters
+    singular: sdselasticcluster
+    kind: SdsElasticCluster
+    shortNames:
+      - sdsec
+  preserveUnknownFields: false
+  versions:
+    - name: v1alpha1
+      served: true
+      storage: true
+      schema:
+        openAPIV3Schema:
+          type: object
+          description: |
+            SdsElasticCluster is the aggregate top-level CR that describes the
+            desired state of the Rook Ceph cluster managed by the sds-elastic
+            module: storage backing for OSDs, the CephCluster itself, block
+            pools, filesystems, object stores and the optional csi-ceph
+            integration (CephClusterConnection + CephStorageClass).
+          required:
+            - spec
+          properties:
+            spec:
+              type: object
+              required:
+                - network
+                - storage
+              x-kubernetes-validations:
+                - rule: 'has(self.storage.lvm) != has(self.storage.devices)'
+                  message: "Exactly one of spec.storage.lvm or spec.storage.devices must be set."
+              properties:
+                cephVersion:
+                  type: string
+                  description: |
+                    Ceph version backed by a module-built image (not quay.io).
+                    Mapped into spec.cephVersion.image of the underlying CephCluster.
+                  enum:
+                    - v19.2.3
+                    - v20.2.1
+                  default: v19.2.3
+                network:
+                  type: object
+                  required:
+                    - public
+                    - cluster
+                  properties:
+                    public:
+                      type: string
+                      minLength: 1
+                    cluster:
+                      type: string
+                      minLength: 1
+                mon:
+                  type: object
+                  default: { count: 3 }
+                  properties:
+                    count:
+                      type: integer
+                      minimum: 1
+                      default: 3
+                mgr:
+                  type: object
+                  default: { count: 3 }
+                  properties:
+                    count:
+                      type: integer
+                      minimum: 1
+                      default: 3
+                storage:
+                  type: object
+                  properties:
+                    lvm:
+                      type: object
+                      required:
+                        - lvgNamePrefix
+                        - actualLVName
+                        - actualVGName
+                        - lvSize
+                        - nodeNamePrefix
+                        - nodeCount
+                      properties:
+                        lvgNamePrefix:
+                          type: string
+                          minLength: 1
+                        actualLVName:
+                          type: string
+                          minLength: 1
+                        actualVGName:
+                          type: string
+                          minLength: 1
+                        lvSize:
+                          x-kubernetes-int-or-string: true
+                          pattern: '^[0-9]+(\.[0-9]+)?(E|P|T|G|M|k|Ei|Pi|Ti|Gi|Mi|Ki)?$'
+                        nodeNamePrefix:
+                          type: string
+                          minLength: 1
+                        nodeCount:
+                          type: integer
+                          minimum: 1
+                    devices:
+                      type: object
+                      properties:
+                        useAllNodes:
+                          type: boolean
+                          default: true
+                        useAllDevices:
+                          type: boolean
+                          default: false
+                        deviceFilter:
+                          type: string
+                blockPools:
+                  type: array
+                  items:
+                    type: object
+                    required:
+                      - name
+                    x-kubernetes-validations:
+                      - rule: 'has(self.replicated) != has(self.erasureCoded)'
+                        message: "Exactly one of replicated or erasureCoded must be set."
+                    properties:
+                      name:
+                        type: string
+                        minLength: 1
+                      failureDomain:
+                        type: string
+                        default: host
+                      replicated:
+                        type: object
+                        required:
+                          - size
+                        properties:
+                          size:
+                            type: integer
+                            minimum: 1
+                          requireSafeReplicaSize:
+                            type: boolean
+                      erasureCoded:
+                        type: object
+                        required:
+                          - dataChunks
+                          - codingChunks
+                        properties:
+                          dataChunks:
+                            type: integer
+                            minimum: 1
+                          codingChunks:
+                            type: integer
+                            minimum: 1
+                filesystems:
+                  type: array
+                  items:
+                    type: object
+                    required:
+                      - name
+                      - metadataPool
+                      - dataPools
+                    properties:
+                      name:
+                        type: string
+                        minLength: 1
+                      preserveFilesystemOnDelete:
+                        type: boolean
+                        default: true
+                      metadataPool:
+                        type: object
+                        properties:
+                          failureDomain:
+                            type: string
+                            default: host
+                          replicated:
+                            type: object
+                            required: [size]
+                            properties:
+                              size:
+                                type: integer
+                                minimum: 1
+                              requireSafeReplicaSize:
+                                type: boolean
+                          erasureCoded:
+                            type: object
+                            required: [dataChunks, codingChunks]
+                            properties:
+                              dataChunks:
+                                type: integer
+                                minimum: 1
+                              codingChunks:
+                                type: integer
+                                minimum: 1
+                      dataPools:
+                        type: array
+                        minItems: 1
+                        items:
+                          type: object
+                          required:
+                            - name
+                          properties:
+                            name:
+                              type: string
+                              minLength: 1
+                            failureDomain:
+                              type: string
+                              default: host
+                            replicated:
+                              type: object
+                              required: [size]
+                              properties:
+                                size:
+                                  type: integer
+                                  minimum: 1
+                                requireSafeReplicaSize:
+                                  type: boolean
+                            erasureCoded:
+                              type: object
+                              required: [dataChunks, codingChunks]
+                              properties:
+                                dataChunks:
+                                  type: integer
+                                  minimum: 1
+                                codingChunks:
+                                  type: integer
+                                  minimum: 1
+                      metadataServer:
+                        type: object
+                        properties:
+                          activeCount:
+                            type: integer
+                            minimum: 1
+                            default: 1
+                          activeStandby:
+                            type: boolean
+                            default: true
+                objectStores:
+                  type: array
+                  items:
+                    type: object
+                    required:
+                      - name
+                      - metadataPool
+                      - dataPool
+                    properties:
+                      name:
+                        type: string
+                        minLength: 1
+                      preservePoolsOnDelete:
+                        type: boolean
+                        default: true
+                      metadataPool:
+                        type: object
+                        properties:
+                          failureDomain:
+                            type: string
+                            default: host
+                          replicated:
+                            type: object
+                            required: [size]
+                            properties:
+                              size:
+                                type: integer
+                                minimum: 1
+                              requireSafeReplicaSize:
+                                type: boolean
+                          erasureCoded:
+                            type: object
+                            required: [dataChunks, codingChunks]
+                            properties:
+                              dataChunks:
+                                type: integer
+                                minimum: 1
+                              codingChunks:
+                                type: integer
+                                minimum: 1
+                      dataPool:
+                        type: object
+                        properties:
+                          failureDomain:
+                            type: string
+                            default: host
+                          replicated:
+                            type: object
+                            required: [size]
+                            properties:
+                              size:
+                                type: integer
+                                minimum: 1
+                              requireSafeReplicaSize:
+                                type: boolean
+                          erasureCoded:
+                            type: object
+                            required: [dataChunks, codingChunks]
+                            properties:
+                              dataChunks:
+                                type: integer
+                                minimum: 1
+                              codingChunks:
+                                type: integer
+                                minimum: 1
+                      gateway:
+                        type: object
+                        properties:
+                          port:
+                            type: integer
+                            default: 80
+                          securePort:
+                            type: integer
+                          instances:
+                            type: integer
+                            minimum: 1
+                            default: 1
+                csiCephIntegration:
+                  type: object
+                  properties:
+                    enabled:
+                      type: boolean
+                      default: true
+                    connectionName:
+                      type: string
+                      minLength: 1
+                      default: ceph-cluster-connection
+                    userID:
+                      type: string
+            status:
+              type: object
+              properties:
+                observedGeneration:
+                  type: integer
+                  format: int64
+                phase:
+                  type: string
+                  enum:
+                    - Pending
+                    - InProgress
+                    - Ready
+                    - Error
+                clusterID:
+                  type: string
+                conditions:
+                  type: array
+                  items:
+                    type: object
+                    required:
+                      - type
+                      - status
+                      - lastTransitionTime
+                    properties:
+                      type:
+                        type: string
+                      status:
+                        type: string
+                        enum:
+                          - "True"
+                          - "False"
+                          - "Unknown"
+                      observedGeneration:
+                        type: integer
+                        format: int64
+                      lastTransitionTime:
+                        type: string
+                        format: date-time
+                      reason:
+                        type: string
+                      message:
+                        type: string
+      subresources:
+        status: {}
+      additionalPrinterColumns:
+        - jsonPath: .status.phase
+          name: Phase
+          type: string
+        - jsonPath: .status.conditions[?(@.type=="Ready")].status
+          name: Ready
+          type: string
+        - jsonPath: .status.conditions[?(@.type=="Ready")].reason
+          name: Reason
+          type: string
+          priority: 1
+        - jsonPath: .metadata.creationTimestamp
+          name: Age
+          type: date

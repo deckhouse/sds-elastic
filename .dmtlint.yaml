@@ -1,0 +1,31 @@
+linters-settings:
+  container:
+    # The rook-ceph-operator (templates/deployment.yaml, container `operator`)
+    # is imported from upstream Rook and does not expose HTTP healthz/readyz
+    # endpoints suitable for kubelet probes, nor an explicit seccomp profile.
+    # Suppress these three rules on that single container until the operator
+    # chart is migrated to lib-helm helpers.
+    exclude-rules:
+      liveness-probe:
+        - kind: Deployment
+          name: sds-elastic
+          container: operator
+      readiness-probe:
+        - kind: Deployment
+          name: sds-elastic
+          container: operator
+      seccomp-profile:
+        - kind: Deployment
+          name: sds-elastic
+          container: operator
+  templates:
+    # The rook-ceph-operator Deployment (named `sds-elastic`) does not have a
+    # matching VPA/PDB yet; exclude it from the templates linter while the
+    # operator chart is still being migrated to lib-helm helpers.
+    exclude-rules:
+      vpa:
+        - kind: Deployment
+          name: sds-elastic
+      pdb:
+        - kind: Deployment
+          name: sds-elastic
