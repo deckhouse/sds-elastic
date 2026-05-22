@@ -69,7 +69,7 @@ func VendorCRValidate(_ context.Context, arReview *model.AdmissionReview, obj me
 
 	klog.Infof("User %s is not allowed to manage vendor CR %s/%s", username, gv.Kind, u.GetName())
 	return &kwhvalidating.ValidatorResult{
-		Valid: false,
+		Valid:   false,
 		Message: fmt.Sprintf("%s (requested by %s)", vendorCRDenyMessage, username),
 	}, nil
 }

@@ -22,10 +22,11 @@ import (
 	"net/http"
 	"os"
 
-	"github.com/deckhouse/sds-elastic/images/webhooks/handlers"
 	"github.com/sirupsen/logrus"
 	kwhlogrus "github.com/slok/kubewebhook/v2/pkg/log/logrus"
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
+
+	"github.com/deckhouse/sds-elastic/images/webhooks/handlers"
 )
 
 type config struct {
@@ -52,8 +53,8 @@ func initFlags() (config, error) {
 }
 
 const (
-	port                 = ":8443"
-	VendorCRValidatorID  = "VendorCRValidator"
+	port                = ":8443"
+	VendorCRValidatorID = "VendorCRValidator"
 )
 
 func main() {
