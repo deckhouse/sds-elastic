@@ -1035,7 +1035,7 @@ metadata:
 subjects:
 - kind: ServiceAccount
   name: rook-csi-cephfs-plugin-sa
-  namespace: {{ .Values.sdsElastic.namespace }}
+  namespace: d8-{{ .Chart.Name }}
 roleRef:
   kind: ClusterRole
   name: cephfs-csi-nodeplugin
@@ -1053,7 +1053,7 @@ metadata:
 subjects:
 - kind: ServiceAccount
   name: rook-csi-cephfs-provisioner-sa
-  namespace: {{ .Values.sdsElastic.namespace }}
+  namespace: d8-{{ .Chart.Name }}
 roleRef:
   kind: ClusterRole
   name: cephfs-external-provisioner-runner
@@ -1070,7 +1070,7 @@ metadata:
 subjects:
 - kind: ServiceAccount
   name: objectstorage-provisioner
-  namespace: {{ .Values.sdsElastic.namespace }}
+  namespace: d8-{{ .Chart.Name }}
 roleRef:
   kind: ClusterRole
   name: objectstorage-provisioner-role
@@ -1088,7 +1088,7 @@ metadata:
 subjects:
 - kind: ServiceAccount
   name: rook-csi-rbd-plugin-sa
-  namespace: {{ .Values.sdsElastic.namespace }}
+  namespace: d8-{{ .Chart.Name }}
 roleRef:
   kind: ClusterRole
   name: rbd-csi-nodeplugin
@@ -1106,7 +1106,7 @@ metadata:
 subjects:
 - kind: ServiceAccount
   name: rook-csi-rbd-provisioner-sa
-  namespace: {{ .Values.sdsElastic.namespace }}
+  namespace: d8-{{ .Chart.Name }}
 roleRef:
   kind: ClusterRole
   name: rbd-external-provisioner-runner
@@ -1128,7 +1128,7 @@ roleRef:
 subjects:
 - kind: ServiceAccount
   name: rook-ceph-system
-  namespace: {{ .Values.sdsElastic.namespace }}
+  namespace: d8-{{ .Chart.Name }}
 ---
 kind: ClusterRoleBinding
 apiVersion: rbac.authorization.k8s.io/v1
@@ -1146,7 +1146,7 @@ roleRef:
 subjects:
 - kind: ServiceAccount
   name: rook-ceph-mgr
-  namespace: {{ .Values.sdsElastic.namespace }}
+  namespace: d8-{{ .Chart.Name }}
 ---
 kind: ClusterRoleBinding
 apiVersion: rbac.authorization.k8s.io/v1
@@ -1164,7 +1164,7 @@ roleRef:
 subjects:
 - kind: ServiceAccount
   name: rook-ceph-system
-  namespace: {{ .Values.sdsElastic.namespace }}
+  namespace: d8-{{ .Chart.Name }}
 ---
 kind: ClusterRoleBinding
 apiVersion: rbac.authorization.k8s.io/v1
@@ -1182,7 +1182,7 @@ roleRef:
 subjects:
 - kind: ServiceAccount
   name: rook-ceph-osd
-  namespace: {{ .Values.sdsElastic.namespace }}
+  namespace: d8-{{ .Chart.Name }}
 ---
 kind: ClusterRoleBinding
 apiVersion: rbac.authorization.k8s.io/v1
@@ -1200,13 +1200,13 @@ roleRef:
 subjects:
 - kind: ServiceAccount
   name: rook-ceph-system
-  namespace: {{ .Values.sdsElastic.namespace }}
+  namespace: d8-{{ .Chart.Name }}
 ---
 kind: Role
 apiVersion: rbac.authorization.k8s.io/v1
 metadata:
   name: cephfs-external-provisioner-cfg
-  namespace: {{ .Values.sdsElastic.namespace }}
+  namespace: d8-{{ .Chart.Name }}
   labels:
     operator: rook
     storage-backend: ceph
@@ -1259,7 +1259,7 @@ kind: Role
 apiVersion: rbac.authorization.k8s.io/v1
 metadata:
   name: rbd-csi-nodeplugin
-  namespace: {{ .Values.sdsElastic.namespace }}
+  namespace: d8-{{ .Chart.Name }}
   labels:
     operator: rook
     storage-backend: ceph
@@ -1301,7 +1301,7 @@ kind: Role
 apiVersion: rbac.authorization.k8s.io/v1
 metadata:
   name: rbd-external-provisioner-cfg
-  namespace: {{ .Values.sdsElastic.namespace }}
+  namespace: d8-{{ .Chart.Name }}
   labels:
     operator: rook
     storage-backend: ceph
@@ -1354,7 +1354,7 @@ kind: Role
 apiVersion: rbac.authorization.k8s.io/v1
 metadata:
   name: rook-ceph-cmd-reporter
-  namespace: {{ .Values.sdsElastic.namespace }}
+  namespace: d8-{{ .Chart.Name }}
   labels:
     operator: rook
     storage-backend: ceph
@@ -1378,7 +1378,7 @@ kind: Role
 apiVersion: rbac.authorization.k8s.io/v1
 metadata:
   name: rook-ceph-mgr
-  namespace: {{ .Values.sdsElastic.namespace }}
+  namespace: d8-{{ .Chart.Name }}
   labels:
     operator: rook
     storage-backend: ceph
@@ -1458,7 +1458,7 @@ kind: Role
 apiVersion: rbac.authorization.k8s.io/v1
 metadata:
   name: rook-ceph-osd
-  namespace: {{ .Values.sdsElastic.namespace }}
+  namespace: d8-{{ .Chart.Name }}
   labels:
     operator: rook
     storage-backend: ceph
@@ -1499,7 +1499,7 @@ kind: Role
 apiVersion: rbac.authorization.k8s.io/v1
 metadata:
   name: rook-ceph-purge-osd
-  namespace: {{ .Values.sdsElastic.namespace }}
+  namespace: d8-{{ .Chart.Name }}
   labels:
     operator: rook
     storage-backend: ceph
@@ -1541,7 +1541,7 @@ kind: Role
 apiVersion: rbac.authorization.k8s.io/v1
 metadata:
   name: rook-ceph-system
-  namespace: {{ .Values.sdsElastic.namespace }}
+  namespace: d8-{{ .Chart.Name }}
   labels:
     operator: rook
     storage-backend: ceph
@@ -1604,7 +1604,7 @@ kind: RoleBinding
 apiVersion: rbac.authorization.k8s.io/v1
 metadata:
   name: cephfs-csi-provisioner-role-cfg
-  namespace: {{ .Values.sdsElastic.namespace }}
+  namespace: d8-{{ .Chart.Name }}
   labels:
     operator: rook
     storage-backend: ceph
@@ -1613,7 +1613,7 @@ metadata:
 subjects:
 - kind: ServiceAccount
   name: rook-csi-cephfs-provisioner-sa
-  namespace: {{ .Values.sdsElastic.namespace }}
+  namespace: d8-{{ .Chart.Name }}
 roleRef:
   kind: Role
   name: cephfs-external-provisioner-cfg
@@ -1623,7 +1623,7 @@ kind: RoleBinding
 apiVersion: rbac.authorization.k8s.io/v1
 metadata:
   name: rbd-csi-nodeplugin-role-cfg
-  namespace: {{ .Values.sdsElastic.namespace }}
+  namespace: d8-{{ .Chart.Name }}
   labels:
     operator: rook
     storage-backend: ceph
@@ -1632,7 +1632,7 @@ metadata:
 subjects:
 - kind: ServiceAccount
   name: rook-csi-rbd-plugin-sa
-  namespace: {{ .Values.sdsElastic.namespace }}
+  namespace: d8-{{ .Chart.Name }}
 roleRef:
   kind: Role
   name: rbd-csi-nodeplugin
@@ -1642,7 +1642,7 @@ kind: RoleBinding
 apiVersion: rbac.authorization.k8s.io/v1
 metadata:
   name: rbd-csi-provisioner-role-cfg
-  namespace: {{ .Values.sdsElastic.namespace }}
+  namespace: d8-{{ .Chart.Name }}
   labels:
     operator: rook
     storage-backend: ceph
@@ -1651,7 +1651,7 @@ metadata:
 subjects:
 - kind: ServiceAccount
   name: rook-csi-rbd-provisioner-sa
-  namespace: {{ .Values.sdsElastic.namespace }}
+  namespace: d8-{{ .Chart.Name }}
 roleRef:
   kind: Role
   name: rbd-external-provisioner-cfg
@@ -1661,7 +1661,7 @@ kind: RoleBinding
 apiVersion: rbac.authorization.k8s.io/v1
 metadata:
   name: rook-ceph-cluster-mgmt
-  namespace: {{ .Values.sdsElastic.namespace }}
+  namespace: d8-{{ .Chart.Name }}
   labels:
     operator: rook
     storage-backend: ceph
@@ -1674,13 +1674,13 @@ roleRef:
 subjects:
 - kind: ServiceAccount
   name: rook-ceph-system
-  namespace: {{ .Values.sdsElastic.namespace }}
+  namespace: d8-{{ .Chart.Name }}
 ---
 kind: RoleBinding
 apiVersion: rbac.authorization.k8s.io/v1
 metadata:
   name: rook-ceph-cmd-reporter
-  namespace: {{ .Values.sdsElastic.namespace }}
+  namespace: d8-{{ .Chart.Name }}
   labels:
     operator: rook
     storage-backend: ceph
@@ -1693,13 +1693,13 @@ roleRef:
 subjects:
 - kind: ServiceAccount
   name: rook-ceph-cmd-reporter
-  namespace: {{ .Values.sdsElastic.namespace }}
+  namespace: d8-{{ .Chart.Name }}
 ---
 kind: RoleBinding
 apiVersion: rbac.authorization.k8s.io/v1
 metadata:
   name: rook-ceph-mgr
-  namespace: {{ .Values.sdsElastic.namespace }}
+  namespace: d8-{{ .Chart.Name }}
   labels:
     operator: rook
     storage-backend: ceph
@@ -1712,13 +1712,13 @@ roleRef:
 subjects:
 - kind: ServiceAccount
   name: rook-ceph-mgr
-  namespace: {{ .Values.sdsElastic.namespace }}
+  namespace: d8-{{ .Chart.Name }}
 ---
 kind: RoleBinding
 apiVersion: rbac.authorization.k8s.io/v1
 metadata:
   name: rook-ceph-mgr-system
-  namespace: {{ .Values.sdsElastic.namespace }}
+  namespace: d8-{{ .Chart.Name }}
   labels:
     operator: rook
     storage-backend: ceph
@@ -1731,13 +1731,13 @@ roleRef:
 subjects:
 - kind: ServiceAccount
   name: rook-ceph-mgr
-  namespace: {{ .Values.sdsElastic.namespace }}
+  namespace: d8-{{ .Chart.Name }}
 ---
 kind: RoleBinding
 apiVersion: rbac.authorization.k8s.io/v1
 metadata:
   name: rook-ceph-osd
-  namespace: {{ .Values.sdsElastic.namespace }}
+  namespace: d8-{{ .Chart.Name }}
   labels:
     operator: rook
     storage-backend: ceph
@@ -1750,13 +1750,13 @@ roleRef:
 subjects:
 - kind: ServiceAccount
   name: rook-ceph-osd
-  namespace: {{ .Values.sdsElastic.namespace }}
+  namespace: d8-{{ .Chart.Name }}
 ---
 kind: RoleBinding
 apiVersion: rbac.authorization.k8s.io/v1
 metadata:
   name: rook-ceph-purge-osd
-  namespace: {{ .Values.sdsElastic.namespace }}
+  namespace: d8-{{ .Chart.Name }}
   labels:
     operator: rook
     storage-backend: ceph
@@ -1769,13 +1769,13 @@ roleRef:
 subjects:
 - kind: ServiceAccount
   name: rook-ceph-purge-osd
-  namespace: {{ .Values.sdsElastic.namespace }}
+  namespace: d8-{{ .Chart.Name }}
 ---
 kind: RoleBinding
 apiVersion: rbac.authorization.k8s.io/v1
 metadata:
   name: rook-ceph-system
-  namespace: {{ .Values.sdsElastic.namespace }}
+  namespace: d8-{{ .Chart.Name }}
   labels:
     operator: rook
     storage-backend: ceph
@@ -1788,13 +1788,13 @@ roleRef:
 subjects:
 - kind: ServiceAccount
   name: rook-ceph-system
-  namespace: {{ .Values.sdsElastic.namespace }}
+  namespace: d8-{{ .Chart.Name }}
 ---
 kind: ServiceAccount
 apiVersion: v1
 metadata:
   name: objectstorage-provisioner
-  namespace: {{ .Values.sdsElastic.namespace }}
+  namespace: d8-{{ .Chart.Name }}
   labels:
     app.kubernetes.io/part-of: container-object-storage-interface
     app.kubernetes.io/component: driver-ceph
@@ -1806,7 +1806,7 @@ kind: ServiceAccount
 apiVersion: v1
 metadata:
   name: rook-ceph-cmd-reporter
-  namespace: {{ .Values.sdsElastic.namespace }}
+  namespace: d8-{{ .Chart.Name }}
   labels:
     operator: rook
     storage-backend: ceph
@@ -1819,7 +1819,7 @@ kind: ServiceAccount
 apiVersion: v1
 metadata:
   name: rook-ceph-default
-  namespace: {{ .Values.sdsElastic.namespace }}
+  namespace: d8-{{ .Chart.Name }}
   labels:
     operator: rook
     storage-backend: ceph
@@ -1832,7 +1832,7 @@ kind: ServiceAccount
 apiVersion: v1
 metadata:
   name: rook-ceph-mgr
-  namespace: {{ .Values.sdsElastic.namespace }}
+  namespace: d8-{{ .Chart.Name }}
   labels:
     operator: rook
     storage-backend: ceph
@@ -1845,7 +1845,7 @@ kind: ServiceAccount
 apiVersion: v1
 metadata:
   name: rook-ceph-nvmeof
-  namespace: {{ .Values.sdsElastic.namespace }}
+  namespace: d8-{{ .Chart.Name }}
   labels:
     operator: rook
     storage-backend: ceph
@@ -1858,7 +1858,7 @@ kind: ServiceAccount
 apiVersion: v1
 metadata:
   name: rook-ceph-osd
-  namespace: {{ .Values.sdsElastic.namespace }}
+  namespace: d8-{{ .Chart.Name }}
   labels:
     operator: rook
     storage-backend: ceph
@@ -1871,7 +1871,7 @@ kind: ServiceAccount
 apiVersion: v1
 metadata:
   name: rook-ceph-purge-osd
-  namespace: {{ .Values.sdsElastic.namespace }}
+  namespace: d8-{{ .Chart.Name }}
   labels:
     operator: rook
     storage-backend: ceph
@@ -1884,7 +1884,7 @@ kind: ServiceAccount
 apiVersion: v1
 metadata:
   name: rook-ceph-rgw
-  namespace: {{ .Values.sdsElastic.namespace }}
+  namespace: d8-{{ .Chart.Name }}
   labels:
     operator: rook
     storage-backend: ceph
@@ -1897,7 +1897,7 @@ kind: ServiceAccount
 apiVersion: v1
 metadata:
   name: rook-ceph-system
-  namespace: {{ .Values.sdsElastic.namespace }}
+  namespace: d8-{{ .Chart.Name }}
   labels:
     operator: rook
     storage-backend: ceph
@@ -1910,7 +1910,7 @@ kind: ServiceAccount
 apiVersion: v1
 metadata:
   name: rook-csi-cephfs-plugin-sa
-  namespace: {{ .Values.sdsElastic.namespace }}
+  namespace: d8-{{ .Chart.Name }}
   labels:
     operator: rook
     storage-backend: ceph
@@ -1923,7 +1923,7 @@ kind: ServiceAccount
 apiVersion: v1
 metadata:
   name: rook-csi-cephfs-provisioner-sa
-  namespace: {{ .Values.sdsElastic.namespace }}
+  namespace: d8-{{ .Chart.Name }}
   labels:
     operator: rook
     storage-backend: ceph
@@ -1936,7 +1936,7 @@ kind: ServiceAccount
 apiVersion: v1
 metadata:
   name: rook-csi-rbd-plugin-sa
-  namespace: {{ .Values.sdsElastic.namespace }}
+  namespace: d8-{{ .Chart.Name }}
   labels:
     operator: rook
     storage-backend: ceph
@@ -1949,7 +1949,7 @@ kind: ServiceAccount
 apiVersion: v1
 metadata:
   name: rook-csi-rbd-provisioner-sa
-  namespace: {{ .Values.sdsElastic.namespace }}
+  namespace: d8-{{ .Chart.Name }}
   labels:
     operator: rook
     storage-backend: ceph
