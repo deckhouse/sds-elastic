@@ -476,3 +476,17 @@ const (
 
 // Finalizer placed on the SdsElasticCluster CR.
 const Finalizer = "storage.deckhouse.io/sds-elastic-cluster"
+
+// ForceDeleteAnnotation, when set to "true" on an SdsElasticCluster, lets
+// the controller strip foreign finalizers (Rook *.ceph.rook.io,
+// csi-ceph *.storage.deckhouse.io) from downstream resources during
+// teardown after the per-controller grace window has expired.
+//
+// Without this annotation the controller never strips foreign
+// finalizers — it issues a graceful Delete and waits for the upstream
+// operator to perform its own cleanup (drain pools, wipe OSD devices,
+// remove the cluster from cephx auth, etc.). The annotation is the
+// explicit operator opt-in for the "MONs never reached quorum / Rook
+// cannot drain the cluster" recovery path, where graceful cleanup is
+// impossible and the only way out is to break the contract.
+const ForceDeleteAnnotation = "storage.deckhouse.io/force-delete"

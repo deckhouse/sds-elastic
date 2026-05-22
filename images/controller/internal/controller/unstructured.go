@@ -79,7 +79,7 @@ func (r *SdsElasticClusterReconciler) upsertUnstructured(ctx context.Context, de
 // by GVK + name (+ namespace). NotFound / NoKindMatch are treated as already
 // deleted. Callers that care about confirmed removal should observe the
 // resource themselves on the next reconcile (see listOwnedUnstructured /
-// forceDeleteUnstructured for that pattern).
+// deleteUnstructured for that pattern).
 func (r *SdsElasticClusterReconciler) deleteUnstructuredIfExists(ctx context.Context, gvk schema.GroupVersionKind, namespace, name string) error {
 	obj := &unstructured.Unstructured{}
 	obj.SetGroupVersionKind(gvk)
@@ -110,19 +110,29 @@ func (r *SdsElasticClusterReconciler) deleteUnstructuredIfExists(ctx context.Con
 	return nil
 }
 
-// forceDeleteUnstructured issues a Delete and, if the object is stuck on
-// foreign finalizers (typical Rook / csi-ceph behaviour when their owner
-// controllers cannot perform graceful cleanup — e.g. MONs never reached
-// quorum), strips those finalizers via merge-patch so the object is
-// actually removed by the API server.
+// deleteUnstructured drives a single downstream object through teardown.
 //
-// This is intentionally aggressive: by the time reconcileDelete reaches a
-// Rook resource the user has already requested SdsElasticCluster removal
-// and accepts that downstream graceful cleanup may be skipped. Mirrors
-// the OnAfterDeleteHelm hook logic for individual CR deletes.
+// On every call it issues an idempotent Delete (if no DeletionTimestamp
+// is set yet). When force is true AND the object is still stuck on
+// foreign finalizers, the function strips those finalizers via a merge
+// patch so the API server can finally drop the object.
 //
-// Returns the same tri-state as deleteUnstructuredIfExists.
-func (r *SdsElasticClusterReconciler) forceDeleteUnstructured(ctx context.Context, gvk schema.GroupVersionKind, namespace, name string) (bool, error) {
+// With force=false (the default happy path) the function never touches
+// finalizers — it just waits for the upstream owner (Rook, csi-ceph,
+// sds-node-configurator) to complete its own graceful cleanup
+// (drain pools, wipe OSD devices, release cephx auth entries, etc.).
+//
+// Stripping finalizers is reserved for the operator-confirmed recovery
+// path where graceful cleanup is impossible (e.g. MONs never reached
+// quorum, Rook cannot drain the cluster) and the only way to free the
+// SdsElasticCluster CR is to break the Kubernetes finalizer contract on
+// these foreign resources. Callers gate force on
+// v1alpha1.ForceDeleteAnnotation + the grace window from
+// config.Options.ForceDeleteGracePeriod.
+//
+// Returns (true, nil) only after the API server confirms the object is
+// gone (Get -> NotFound) or the corresponding CRD is not registered.
+func (r *SdsElasticClusterReconciler) deleteUnstructured(ctx context.Context, gvk schema.GroupVersionKind, namespace, name string, force bool) (bool, error) {
 	obj := &unstructured.Unstructured{}
 	obj.SetGroupVersionKind(gvk)
 	obj.SetName(name)
@@ -150,7 +160,11 @@ func (r *SdsElasticClusterReconciler) forceDeleteUnstructured(ctx context.Contex
 		}
 	}
 
-	if len(obj.GetFinalizers()) > 0 {
+	if force && len(obj.GetFinalizers()) > 0 {
+		r.Log.Warning(fmt.Sprintf(
+			"[deleteUnstructured] force-stripping finalizers from %s %s/%s: %v",
+			gvk.Kind, namespace, name, obj.GetFinalizers(),
+		))
 		patch := client.MergeFrom(obj.DeepCopy())
 		obj.SetFinalizers(nil)
 		if err := r.Client.Patch(ctx, obj, patch); err != nil && !apierrors.IsNotFound(err) {

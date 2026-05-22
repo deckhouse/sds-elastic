@@ -19,6 +19,7 @@ package controller
 import (
 	"context"
 	"fmt"
+	"time"
 
 	appsv1 "k8s.io/api/apps/v1"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
@@ -46,10 +47,19 @@ import (
 // The function does *not* wait for downstream objects to disappear in one
 // pass; it requeues until every step reports "fully deleted" so that no
 // upper layer is removed before the lower one is gone.
+//
+// Each downstream resource is normally driven through a graceful Delete
+// and the controller waits for Rook / csi-ceph to do their own cleanup
+// (drain pools, wipe OSD devices, release cephx auth, ...). Foreign
+// finalizers are only stripped when the operator opts in by setting
+// v1alpha1.ForceDeleteAnnotation=true on the CR *and* at least
+// Cfg.ForceDeleteGracePeriod has elapsed since DeletionTimestamp — see
+// shouldForceDelete.
 func (r *SdsElasticClusterReconciler) reconcileDelete(ctx context.Context, cluster *v1alpha1.SdsElasticCluster) (ctrl.Result, error) {
-	r.Log.Info(fmt.Sprintf("[reconcileDelete] tearing down SdsElasticCluster %q", cluster.Name))
+	force := r.shouldForceDelete(cluster)
+	r.Log.Info(fmt.Sprintf("[reconcileDelete] tearing down SdsElasticCluster %q (force=%t)", cluster.Name, force))
 
-	steps := []func(context.Context, *v1alpha1.SdsElasticCluster) (bool, error){
+	steps := []func(context.Context, *v1alpha1.SdsElasticCluster, bool) (bool, error){
 		r.teardownCephStorageClasses,
 		r.teardownCephClusterConnection,
 		r.teardownOwned(external.CephObjectStoreGVK, r.Cfg.ControllerNamespace),
@@ -61,7 +71,7 @@ func (r *SdsElasticClusterReconciler) reconcileDelete(ctx context.Context, clust
 	}
 
 	for i, step := range steps {
-		done, err := step(ctx, cluster)
+		done, err := step(ctx, cluster, force)
 		if err != nil {
 			return ctrl.Result{}, fmt.Errorf("teardown step %d: %w", i, err)
 		}
@@ -76,17 +86,39 @@ func (r *SdsElasticClusterReconciler) reconcileDelete(ctx context.Context, clust
 	return ctrl.Result{}, nil
 }
 
+// shouldForceDelete returns true only when both the operator opt-in
+// (v1alpha1.ForceDeleteAnnotation="true" on the SdsElasticCluster CR)
+// is present and the configured grace window since the CR's
+// DeletionTimestamp has elapsed.
+//
+// The grace window prevents a misconfigured annotation from skipping
+// Rook's graceful cleanup on a healthy cluster. The annotation prevents
+// the controller from ever silently breaking the Kubernetes finalizer
+// contract on the happy path — the documented recovery procedure for
+// the "MONs never reached quorum / Rook cannot drain the cluster" case
+// is to set the annotation and wait.
+func (r *SdsElasticClusterReconciler) shouldForceDelete(cluster *v1alpha1.SdsElasticCluster) bool {
+	if cluster.DeletionTimestamp == nil {
+		return false
+	}
+	if cluster.GetAnnotations()[v1alpha1.ForceDeleteAnnotation] != "true" {
+		return false
+	}
+	return time.Since(cluster.DeletionTimestamp.Time) >= r.Cfg.ForceDeleteGracePeriod
+}
+
 // teardownOwned returns a step that deletes every cluster- or namespace-
 // scoped resource of the given GVK that we previously owned.
 //
 // Rook (CephCluster/Pool/Filesystem/ObjectStore) and csi-ceph
 // (CephClusterConnection/CephStorageClass) put their own finalizers on
-// these CRs and refuse to drop them when the upstream cluster cannot do
-// graceful cleanup (e.g. MONs never reached quorum). We use
-// forceDeleteUnstructured so the SdsElasticCluster CR is not held
-// hostage by a half-bootstrapped Ceph cluster.
-func (r *SdsElasticClusterReconciler) teardownOwned(gvk schema.GroupVersionKind, namespace string) func(context.Context, *v1alpha1.SdsElasticCluster) (bool, error) {
-	return func(ctx context.Context, cluster *v1alpha1.SdsElasticCluster) (bool, error) {
+// these CRs to gate destruction on graceful, in-Ceph cleanup
+// (`ceph osd pool delete`, ObjectBucket / OBC drain, OSD device wipe,
+// cephx auth eviction, ...). On the happy path we wait for those
+// finalizers to drop on their own; only the operator-confirmed
+// force path (see shouldForceDelete) strips them.
+func (r *SdsElasticClusterReconciler) teardownOwned(gvk schema.GroupVersionKind, namespace string) func(context.Context, *v1alpha1.SdsElasticCluster, bool) (bool, error) {
+	return func(ctx context.Context, cluster *v1alpha1.SdsElasticCluster, force bool) (bool, error) {
 		list, err := r.listOwnedUnstructured(ctx, gvk, namespace, cluster.Name)
 		if err != nil {
 			return false, err
@@ -96,7 +128,7 @@ func (r *SdsElasticClusterReconciler) teardownOwned(gvk schema.GroupVersionKind,
 		}
 		for i := range list.Items {
 			item := &list.Items[i]
-			if _, err := r.forceDeleteUnstructured(ctx, gvk, item.GetNamespace(), item.GetName()); err != nil {
+			if _, err := r.deleteUnstructured(ctx, gvk, item.GetNamespace(), item.GetName(), force); err != nil {
 				return false, err
 			}
 		}
@@ -106,19 +138,19 @@ func (r *SdsElasticClusterReconciler) teardownOwned(gvk schema.GroupVersionKind,
 
 // teardownCephStorageClasses removes every CephStorageClass owned by this CR
 // (cluster-scoped, namespace "").
-func (r *SdsElasticClusterReconciler) teardownCephStorageClasses(ctx context.Context, cluster *v1alpha1.SdsElasticCluster) (bool, error) {
-	return r.teardownOwned(external.CephStorageClassGVK, "")(ctx, cluster)
+func (r *SdsElasticClusterReconciler) teardownCephStorageClasses(ctx context.Context, cluster *v1alpha1.SdsElasticCluster, force bool) (bool, error) {
+	return r.teardownOwned(external.CephStorageClassGVK, "")(ctx, cluster, force)
 }
 
 // teardownCephClusterConnection removes the CephClusterConnection CR
 // configured by the user (or the default one). We do not look it up by
 // label because the user may have created it by hand earlier; matching by
 // name + ManagedBy label keeps that safe.
-func (r *SdsElasticClusterReconciler) teardownCephClusterConnection(ctx context.Context, cluster *v1alpha1.SdsElasticCluster) (bool, error) {
+func (r *SdsElasticClusterReconciler) teardownCephClusterConnection(ctx context.Context, cluster *v1alpha1.SdsElasticCluster, force bool) (bool, error) {
 	if cluster.Spec.CsiCephIntegration == nil || !cluster.Spec.CsiCephIntegration.Enabled {
 		return true, nil
 	}
-	return r.teardownOwned(external.CephClusterConnectionGVK, "")(ctx, cluster)
+	return r.teardownOwned(external.CephClusterConnectionGVK, "")(ctx, cluster, force)
 }
 
 // teardownCephCluster removes the rook-ceph-tools Deployment and the
@@ -126,7 +158,14 @@ func (r *SdsElasticClusterReconciler) teardownCephClusterConnection(ctx context.
 // resources. The cluster parameter is unused (the CephCluster name and
 // namespace are derived from controller config), but the signature is
 // fixed by the teardownFunc slice in reconcileDelete.
-func (r *SdsElasticClusterReconciler) teardownCephCluster(ctx context.Context, _ *v1alpha1.SdsElasticCluster) (bool, error) {
+//
+// The CephCluster `cephcluster.ceph.rook.io` finalizer gates deletion
+// on Rook flushing dataDirHostPath, releasing OSD devices, running the
+// configured cleanupPolicy, and removing the cluster from cephx auth.
+// Stripping it skips all of that, which is only acceptable when Rook
+// itself cannot make progress (e.g. MONs never reached quorum) — see
+// shouldForceDelete for the operator opt-in.
+func (r *SdsElasticClusterReconciler) teardownCephCluster(ctx context.Context, _ *v1alpha1.SdsElasticCluster, force bool) (bool, error) {
 	if err := r.deleteCephToolsDeployment(ctx); err != nil {
 		return false, err
 	}
@@ -135,10 +174,7 @@ func (r *SdsElasticClusterReconciler) teardownCephCluster(ctx context.Context, _
 		Namespace: r.Cfg.ControllerNamespace,
 		Name:      builder.CephClusterName,
 	}
-	// Force-strip rook's finalizer: a CephCluster that never had MONs
-	// running cannot be drained by Rook itself and will otherwise keep
-	// the SdsElasticCluster CR stuck on its finalizer forever.
-	gone, err := r.forceDeleteUnstructured(ctx, external.CephClusterGVK, cephClusterKey.Namespace, cephClusterKey.Name)
+	gone, err := r.deleteUnstructured(ctx, external.CephClusterGVK, cephClusterKey.Namespace, cephClusterKey.Name, force)
 	if err != nil {
 		return false, err
 	}
@@ -166,8 +202,9 @@ func (r *SdsElasticClusterReconciler) deleteCephToolsDeployment(ctx context.Cont
 	return nil
 }
 
-// teardownPVs deletes every PV labelled by this controller.
-func (r *SdsElasticClusterReconciler) teardownPVs(ctx context.Context, cluster *v1alpha1.SdsElasticCluster) (bool, error) {
+// teardownPVs deletes every PV labelled by this controller. PVs we own
+// carry no foreign finalizers, so the operator force opt-in is ignored.
+func (r *SdsElasticClusterReconciler) teardownPVs(ctx context.Context, cluster *v1alpha1.SdsElasticCluster, _ bool) (bool, error) {
 	pvs, err := r.listOwnedPVs(ctx, cluster.Name)
 	if err != nil {
 		return false, err
@@ -188,9 +225,12 @@ func (r *SdsElasticClusterReconciler) teardownPVs(ctx context.Context, cluster *
 }
 
 // teardownLLVs deletes every LVMLogicalVolume labelled by this controller.
-// The manual-creation finalizer placed at build time is removed first so
-// that sds-node-configurator does not block deletion.
-func (r *SdsElasticClusterReconciler) teardownLLVs(ctx context.Context, cluster *v1alpha1.SdsElasticCluster) (bool, error) {
+// The manual-creation finalizer placed at build time is *our own* marker
+// (it tells sds-node-configurator not to auto-delete the LLV) and is
+// always safe to strip during teardown — that's the documented contract
+// of the manual-creation flow, not a foreign finalizer like Rook's. The
+// operator force opt-in is therefore not consulted here.
+func (r *SdsElasticClusterReconciler) teardownLLVs(ctx context.Context, cluster *v1alpha1.SdsElasticCluster, _ bool) (bool, error) {
 	list, err := r.listOwnedUnstructured(ctx, external.LVMLogicalVolumeGVK, "", cluster.Name)
 	if err != nil {
 		return false, err
