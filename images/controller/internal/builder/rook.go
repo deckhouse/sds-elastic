@@ -41,7 +41,7 @@ func CephCluster(cluster *v1alpha1.SdsElasticCluster, namespace, osdStorageClass
 	spec := map[string]interface{}{
 		"cephVersion": map[string]interface{}{
 			"image":            cephImage,
-			"allowUnsupported": true,
+			"allowUnsupported": false,
 		},
 		"dataDirHostPath":                            "/var/lib/rook",
 		"skipUpgradeChecks":                          false,
