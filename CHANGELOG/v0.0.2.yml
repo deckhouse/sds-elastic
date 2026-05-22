@@ -13,7 +13,7 @@ Changes:
   PVs under OSD.
 - Added hook `030-remove-finalizers-on-module-delete`, which removes the controller
   finalizer from CR `SdsElasticCluster` when a module is deleted.
-- Added validating webhook protecting vendor CR from `crds/vendor` (groups `ceph.rook.io`
+- ? Added validating webhook protecting vendor CR from `crds/vendor` (groups `ceph.rook.io`
     and `objectbucket.io` in namespace `d8-sds-elastic`)
   : CREATE / UPDATE / DELETE operations are allowed only to the ServiceAccounts of
     the Rook operator (`rook-ceph-system`) and the module controller (`controller`),
