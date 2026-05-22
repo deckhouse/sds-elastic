@@ -1,0 +1,56 @@
+{{- $rook_version := include "get_oss_version_by_id" (list "rook" .) }}
+---
+image: {{ .ModuleNamePrefix }}{{ .ImageName }}-src-artifact
+fromImage: builder/src
+final: false
+
+secrets:
+- id: SOURCE_REPO
+  value: {{ .SOURCE_REPO }}
+
+shell:
+  install:
+    - git clone --branch v{{ $rook_version }} --depth 1 $(cat /run/secrets/SOURCE_REPO)/rook/rook.git /src/rook
+    - rm -rf /src/rook/.git
+
+---
+image: {{ .ModuleNamePrefix }}{{ .ImageName }}-binary-artifact
+fromImage: {{ eq .SVACE_ENABLED "false" | ternary "builder/golang-alt" "builder/golang-alt-svace" }}
+final: false
+
+import:
+  - image: {{ .ModuleNamePrefix }}{{ .ImageName }}-src-artifact
+    add: /src
+    to: /src
+    before: install
+
+mount:
+{{ include "mount points for golang builds" . }}
+
+secrets:
+- id: GOPROXY
+  value: {{ .GOPROXY }}
+
+shell:
+  install:
+    - export GOPROXY=$(cat /run/secrets/GOPROXY)
+    - cd /src/rook
+    - export CGO_ENABLED=0 GOOS=linux GOARCH=amd64
+    - |
+      {{- include "image-build.build" (set $ "BuildCommand" (printf `go build -tags netgo,osusergo -ldflags="-s -w -X github.com/rook/rook/pkg/version.Version=v%s" -o /rook ./cmd/rook` $rook_version)) | nindent 6 }}
+    - chmod +x /rook
+
+---
+image: {{ .ModuleNamePrefix }}{{ .ImageName }}
+from: rook/ceph:v{{ $rook_version }}
+
+import:
+  - image: {{ .ModuleNamePrefix }}{{ .ImageName }}-binary-artifact
+    add: /rook
+    to: /usr/local/bin/rook
+    before: setup
+
+imageSpec:
+  config:
+    entrypoint: ["/usr/local/bin/rook"]
+    cmd: [""]

@@ -1,0 +1,22 @@
+# Operator settings that can be updated without an operator restart
+# Operator settings that require an operator restart are found in the operator env vars
+kind: ConfigMap
+apiVersion: v1
+metadata:
+  name: rook-ceph-operator-config
+  namespace: {{ .Values.sdsElastic.namespace }}
+  {{- include "helm_lib_module_labels" (list . (dict "app" .Chart.Name )) | nindent 2 }}
+data:
+  ROOK_LOG_LEVEL: "INFO"
+  ROOK_OPERATOR_METRICS_BIND_ADDRESS: "0"
+  ROOK_CEPH_COMMANDS_TIMEOUT_SECONDS: "15"
+  ROOK_OBC_WATCH_OPERATOR_NAMESPACE: "true"
+  ROOK_CEPH_ALLOW_LOOP_DEVICES: "true"
+  # CSI in sds-elastic is delegated to the deckhouse csi-ceph module
+  # (storage.deckhouse.io/v1alpha1 CephClusterConnection / CephStorageClass),
+  # so both Rook's embedded ceph-csi and the upstream ceph-csi-operator
+  # integration must stay disabled. Enabling ROOK_USE_CSI_OPERATOR makes Rook
+  # try to create csi.ceph.io/v1 CephConnection CRs whose CRDs we do not
+  # install, breaking saveMons → cluster reconciliation.
+  ROOK_USE_CSI_OPERATOR: "false"
+  ROOK_CSI_DISABLE_DRIVER: "true"

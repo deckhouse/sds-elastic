@@ -1,0 +1,21 @@
+Changes:
+- Added Custom Resource `SdsElasticCluster` (`storage.deckhouse.io/v1alpha1`) and
+  controller `sds-elastic-controller`, which reconciles the entire Rook Ceph stack
+  from one aggregate description.
+- The controller deploys the underlay for OSD (`LVMLogicalVolume` + local PVs in LVM
+  mode), CephCluster, Deployment `rook-ceph-tools`, as well as the requested `CephBlockPool`
+  / `CephFilesystem` / `CephObjectStore`.
+- Added optional integration with csi-ceph: the controller automatically fills in
+    the `CephClusterConnection` (monitors/FSID/userKey from the `rook-ceph-mon` secret)
+    and creates a `CephStorageClass` for each pool and file system.
+- Added manual StorageClass with provisioner `kubernetes.io/no-provisioner` (name
+  taken from `osdStorageClassName`, default `sds-elastic-osd-manual`), used for local
+  PVs under OSD.
+- Added hook `030-remove-finalizers-on-module-delete`, which removes the controller
+  finalizer from CR `SdsElasticCluster` when a module is deleted.
+- Added validating webhook protecting vendor CR from `crds/vendor` (groups `ceph.rook.io`
+    and `objectbucket.io` in namespace `d8-sds-elastic`)
+  : CREATE / UPDATE / DELETE operations are allowed only to the ServiceAccounts of
+    the Rook operator (`rook-ceph-system`) and the module controller (`controller`),
+    other users must manage the cluster through `SdsElasticCluster`. The webhook image
+    is collected in `images/webhooks`, the TLS material is prepared by the hook `020-webhook-certs`.

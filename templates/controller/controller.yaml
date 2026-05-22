@@ -1,0 +1,85 @@
+{{- /* Webhook TLS Certs Secret */ -}}
+{{- $secretConfig := dict
+  "valuesKey" "sdsElastic"
+  "webhookCertPath" "internal.customWebhookCert"
+}}
+{{ include "helm_lib_module_webhook_certs_secret" (list . $secretConfig) }}
+
+{{- /* Controller Deployment + VPA + PDB */ -}}
+{{- /*
+  helm_lib_module_controller_manifests already injects LOG_LEVEL (from
+  .Values.sdsElastic.logLevel via helm_lib_module_controller_log_level) and
+  CONTROLLER_NAMESPACE (valueFrom fieldRef metadata.namespace). Adding them
+  again here triggers the env-variables-duplicates lint rule.
+*/ -}}
+{{- $cephImages := dict }}
+{{- $_ := set $cephImages "v19.2.3" (include "helm_lib_module_image" (list . "cephV1923")) }}
+{{- $_ := set $cephImages "v20.2.1" (include "helm_lib_module_image" (list . "cephV2021")) }}
+{{- $config := dict
+  "valuesKey" "sdsElastic"
+  "onMasterNode" true
+  "podSecurityContext" "deckhouse"
+  "webhookEnabled" true
+  "webhookCertPath" "internal.customWebhookCert"
+  "additionalControllerEnvs" (list
+    (dict "name" "OSD_STORAGE_CLASS_NAME" "value" .Values.sdsElastic.osdStorageClassName)
+    (dict "name" "CEPH_IMAGES" "value" ($cephImages | toJson))
+  )
+}}
+{{ include "helm_lib_module_controller_manifests" (list . $config) }}
+
+{{- /* Webhook Service */ -}}
+{{ include "helm_lib_module_webhook_service" (list . dict) }}
+
+{{- /* ValidatingWebhookConfiguration for vendor CRs (Rook / ObjectBucket) */ -}}
+{{- $cephResources := list
+  "cephblockpoolradosnamespaces"
+  "cephblockpools"
+  "cephbucketnotifications"
+  "cephbuckettopics"
+  "cephclients"
+  "cephclusters"
+  "cephcosidrivers"
+  "cephfilesystemmirrors"
+  "cephfilesystems"
+  "cephfilesystemsubvolumegroups"
+  "cephnfses"
+  "cephnvmeofgateways"
+  "cephobjectrealms"
+  "cephobjectstores"
+  "cephobjectstoreusers"
+  "cephobjectzonegroups"
+  "cephobjectzones"
+  "cephrbdmirrors"
+}}
+{{- $vendorCRWebhookConfig := dict
+  "name" "vendor-cr-validation"
+  "webhookName" "vendor-cr-validation"
+  "valuesKey" "sdsElastic"
+  "path" "/vendor-cr-validate"
+  "failurePolicy" "Fail"
+  "rules" (list
+    (dict
+      "apiGroups" (list "ceph.rook.io")
+      "apiVersions" (list "v1")
+      "operations" (list "CREATE" "UPDATE" "DELETE")
+      "resources" $cephResources
+      "scope" "Namespaced"
+    )
+    (dict
+      "apiGroups" (list "objectbucket.io")
+      "apiVersions" (list "v1alpha1")
+      "operations" (list "CREATE" "UPDATE" "DELETE")
+      "resources" (list "objectbucketclaims")
+      "scope" "Namespaced"
+    )
+    (dict
+      "apiGroups" (list "objectbucket.io")
+      "apiVersions" (list "v1alpha1")
+      "operations" (list "CREATE" "UPDATE" "DELETE")
+      "resources" (list "objectbuckets")
+      "scope" "Cluster"
+    )
+  )
+}}
+{{ include "helm_lib_module_validating_webhook_configuration" (list . $vendorCRWebhookConfig) }}

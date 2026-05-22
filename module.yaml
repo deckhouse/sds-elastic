@@ -8,3 +8,16 @@ requirements:
   modules:
     sds-node-configurator: ">= 0.6.1"
 namespace: d8-sds-elastic
+disable:
+  confirmation: true
+  message: |
+    Attention!
+
+    Disabling this module stops the controller and Rook operator that deploy and reconcile Ceph clusters. Data stored in clusters managed by this module may become unavailable or be lost.
+
+    Before disabling the module, be sure to do the following:
+
+    - Delete all SdsElasticCluster resources and wait until the controller has torn down the underlying Ceph clusters, pools, and related objects.
+    - Check for remaining resources with: `kubectl get sdselasticclusters.storage.deckhouse.io` (short name: `sdsec`). If any objects are listed, remove them before deactivating the module.
+
+    Failure to do so may result in data loss for deployed Ceph clusters or incorrect cluster operation.

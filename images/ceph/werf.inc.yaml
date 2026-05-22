@@ -1,0 +1,98 @@
+{{- /*
+  Per-ceph-version image variant.
+
+  Iterates over $.cephVersions["ceph"] = {<condition.ceph value> -> <oss.yaml version>}
+  built in .werf/images.yaml from oss.yaml. For each entry produces one werf
+  image named "<ImageName>-<condition value, dots->dashes>", e.g.:
+
+    ceph-v19-2-3
+    ceph-v20-3-0
+
+  Build steps are adapted from the upstream container/Containerfile at the
+  matching git tag (https://github.com/ceph/ceph/blob/<tag>/container/Containerfile).
+  Compared to upstream we:
+    - target stable release repos at download.ceph.com/rpm-<X.Y.Z>/el9 instead of
+      the shaman.ceph.com CI mirror and the prerelease/* path with secret creds;
+    - drop the CEPH_REF/CEPH_SHA1/OSD_FLAVOR ARG indirection (the variant is
+      pinned at template render time);
+    - keep the package list, lvm/udev tweaks and cleanup steps in one shell
+      stage so the resulting image matches upstream byte-for-byte where possible.
+*/ -}}
+{{- range $cephVer, $rawVer := index $.cephVersions $.ImageName }}
+  {{- $tagDash    := $cephVer  | replace "." "-" }}
+  {{- $verNoPrefix := $rawVer  | trimPrefix "v" }}
+---
+image: {{ $.ModuleNamePrefix }}{{ $.ImageName }}-{{ $tagDash }}
+from: quay.io/centos/centos:stream9
+
+shell:
+  beforeInstall:
+    # Disable docs to keep the image lean (mirrors upstream tsflags=nodocs tweak).
+    - if grep -q 'tsflags' /etc/dnf/dnf.conf; then sed -i 's/tsflags=.*/tsflags=nodocs/g' /etc/dnf/dnf.conf; else echo 'tsflags=nodocs' >> /etc/dnf/dnf.conf; fi
+    # Pre-reqs.
+    - dnf install -y --setopt=install_weak_deps=False epel-release jq dnf-plugins-core
+    # NFS-Ganesha repo (upstream default baseurl).
+    - |
+      cat > /etc/yum.repos.d/ganesha.repo <<'EOF'
+      [ganesha]
+      name=ganesha
+      baseurl=https://buildlogs.centos.org/centos/$releasever-stream/storage/$basearch/nfsganesha-5/
+      gpgcheck=0
+      enabled=1
+      EOF
+    # ISCSI repos: tcmu-runner (shaman main) + ceph-iscsi (download.ceph.com el9).
+    - curl -fsSL "https://shaman.ceph.com/api/repos/tcmu-runner/main/latest/centos/9/repo?arch=$(arch)" -o /etc/yum.repos.d/tcmu-runner.repo
+    - curl -fsSL https://download.ceph.com/ceph-iscsi/3/rpm/el9/ceph-iscsi.repo -o /etc/yum.repos.d/ceph-iscsi.repo
+    # Ceph release repo for {{ $rawVer }} (rpm-{{ $verNoPrefix }} on the stable mirror).
+    - rpm --import 'https://download.ceph.com/keys/release.asc'
+    - rpm -Uvh https://download.ceph.com/rpm-{{ $verNoPrefix }}/el9/noarch/ceph-release-1-1.el9.noarch.rpm
+    # COPR scikit-learn (used by ceph-mgr-diskprediction-local).
+    - dnf copr enable -y tchaikov/python-scikit-learn
+    # Refresh after enabling all repos.
+    - dnf update -y --setopt=install_weak_deps=False
+  install:
+    # Package list mirrors upstream Containerfile (general + ceph + ganesha +
+    # iscsi + ceph-csi helpers + util packages). Version-specific tweaks live
+    # in EXTRA_PKGS below.
+    - |
+      EXTRA_PKGS=""
+      case "{{ $verNoPrefix }}" in
+        20.*|21.*|22.*) EXTRA_PKGS="libcephfs-daemon" ;;
+      esac
+      dnf install -y --setopt=install_weak_deps=False --setopt=skip_missing_names_on_install=False --enablerepo=crb \
+        ca-certificates \
+        ceph-common ceph-exporter ceph-grafana-dashboards ceph-immutable-object-cache \
+        ceph-mds ceph-mgr-cephadm ceph-mgr-dashboard ceph-mgr-diskprediction-local \
+        ceph-mgr-k8sevents ceph-mgr-rook ceph-mgr ceph-mon ceph-osd \
+        ceph-radosgw lua-devel luarocks ceph-volume cephfs-mirror cephfs-top \
+        kmod libradosstriper1 rbd-mirror \
+        nvme-cli python3-saml smartmontools \
+        dbus-daemon nfs-ganesha-ceph nfs-ganesha-rados-grace nfs-ganesha-rados-urls nfs-ganesha-rgw nfs-ganesha rpcbind sssd-client \
+        ceph-iscsi tcmu-runner python3-rtslib \
+        attr ceph-fuse rbd-nbd \
+        systemd-udev \
+        gdisk hostname procps-ng sg3_utils e2fsprogs lvm2 gcc \
+        python3-scikit-learn \
+        ceph-node-proxy \
+        $EXTRA_PKGS
+  setup:
+    # ganesha runtime dir (upstream does this explicitly because the rpm doesn't).
+    - mkdir -p /var/run/ganesha
+    # Disable udev sync; the container has no udev socket.
+    - sed -i -e 's/udev_rules = 1/udev_rules = 0/' -e 's/udev_sync = 1/udev_sync = 0/' -e 's/obtain_device_list_from_udev = 1/obtain_device_list_from_udev = 0/' /etc/lvm/lvm.conf
+    - grep -sqo 'udev_sync = 0'                       /etc/lvm/lvm.conf
+    - grep -sqo 'udev_rules = 0'                      /etc/lvm/lvm.conf
+    - grep -sqo 'obtain_device_list_from_udev = 0'    /etc/lvm/lvm.conf
+    # Aggressive cleanup to match upstream image size.
+    - dnf clean all
+    - rm -rf /var/cache/dnf/* /var/lib/dnf/* /var/lib/rpm/__db*
+    - rm -rf /etc/selinux /usr/share/selinux
+    - rm -f /etc/yum.repos.d/ceph.repo /etc/yum.repos.d/ganesha.repo /etc/yum.repos.d/tcmu-runner.repo /etc/yum.repos.d/ceph-iscsi.repo
+
+imageSpec:
+  config:
+    env:
+      CEPH_VERSION: "{{ $cephVer }}"
+      CEPH_REF: "{{ $cephVer }}"
+      FROM_IMAGE: "quay.io/centos/centos:stream9"
+{{- end }}
