@@ -17,15 +17,35 @@ properties:
       properties:
         effect:
           type: string
+          description: |
+            Taint effect the toleration matches. An empty value matches any effect.
+          enum:
+            - ""
+            - NoSchedule
+            - PreferNoSchedule
+            - NoExecute
         key:
           type: string
+          description: |
+            Taint key the toleration applies to. An empty key with `operator: Exists` matches any taint.
         operator:
           type: string
+          description: |
+            Operator that defines how `key` and `value` are matched.
+          enum:
+            - Exists
+            - Equal
         tolerationSeconds:
           type: integer
           format: int64
+          description: |
+            Duration in seconds the toleration tolerates the taint after it is added.
+
+            Applies only when `effect` is `NoExecute`. Unset means tolerate forever.
         value:
           type: string
+          description: |
+            Taint value the toleration matches. Required when `operator` is `Equal`.
   osdStorageClassName:
     type: string
     default: sds-elastic-osd-manual
@@ -57,27 +77,39 @@ properties:
         properties:
           mode:
             type: string
+            description: |
+              The mode for managing resource requests. Classical `Static` requests/limits or `VPA`.
             enum: [VPA, Static]
             default: VPA
           vpa:
             type: object
             default: {}
+            description: |
+              Parameters of the VPA mode.
             properties:
               mode:
                 type: string
+                description: |
+                  The VPA usage mode.
                 enum: [Initial, Auto]
                 default: Auto
               cpu:
                 type: object
                 default: {}
+                description: |
+                  CPU-related parameters.
                 properties:
                   max:
+                    description: |
+                      Maximum allowed CPU requests.
                     default: 200m
                     oneOf:
                       - type: string
                         pattern: '^[0-9]+m?$'
                       - type: number
                   min:
+                    description: |
+                      Minimum allowed CPU requests.
                     default: 50m
                     oneOf:
                       - type: string
@@ -85,17 +117,27 @@ properties:
                       - type: number
                   limitRatio:
                     type: number
+                    description: |
+                      Coefficient used to calculate the initial CPU limit from the request.
+
+                      VPA preserves the resulting limits/requests ratio during further resource tuning.
               memory:
                 type: object
                 default: {}
+                description: |
+                  Memory-related parameters.
                 properties:
                   max:
+                    description: |
+                      Maximum allowed memory requests.
                     default: 256Mi
                     oneOf:
                       - type: string
                         pattern: '^[0-9]+(\.[0-9]+)?(E|P|T|G|M|k|Ei|Pi|Ti|Gi|Mi|Ki)?$'
                       - type: number
                   min:
+                    description: |
+                      Minimum allowed memory requests.
                     default: 64Mi
                     oneOf:
                       - type: string
@@ -103,31 +145,49 @@ properties:
                       - type: number
                   limitRatio:
                     type: number
+                    description: |
+                      Coefficient used to calculate the initial memory limit from the request.
+
+                      VPA preserves the resulting limits/requests ratio during further resource tuning.
           static:
             type: object
+            description: |
+              Static resource management settings.
             properties:
               requests:
                 type: object
+                description: |
+                  Resource requests for the controller pod.
                 properties:
                   cpu:
+                    description: |
+                      CPU request.
                     oneOf:
                       - type: string
                         pattern: '^[0-9]+m?$'
                       - type: number
                   memory:
+                    description: |
+                      Memory request.
                     oneOf:
                       - type: string
                         pattern: '^[0-9]+(\.[0-9]+)?(E|P|T|G|M|k|Ei|Pi|Ti|Gi|Mi|Ki)?$'
                       - type: number
               limits:
                 type: object
+                description: |
+                  Resource limits for the controller pod.
                 properties:
                   cpu:
+                    description: |
+                      CPU limit.
                     oneOf:
                       - type: string
                         pattern: '^[0-9]+m?$'
                       - type: number
                   memory:
+                    description: |
+                      Memory limit.
                     oneOf:
                       - type: string
                         pattern: '^[0-9]+(\.[0-9]+)?(E|P|T|G|M|k|Ei|Pi|Ti|Gi|Mi|Ki)?$'
