@@ -1,0 +1,21 @@
+{{- /*
+  PodDisruptionBudget for the rook-ceph operator.
+
+  The Rook operator runs as a single replica with strategy: Recreate (see
+  the rationale in deployment.yaml). It does not support an active/passive
+  HA topology, so `minAvailable` is fixed at 0: voluntary disruption (node
+  drain, version upgrade) must be allowed, and protection against multiple
+  simultaneous evictions is moot for a single-replica workload.
+*/ -}}
+---
+apiVersion: policy/v1
+kind: PodDisruptionBudget
+metadata:
+  name: {{ .Chart.Name }}
+  namespace: {{ .Values.sdsElastic.namespace }}
+  {{- include "helm_lib_module_labels" (list . (dict "app" .Chart.Name)) | nindent 2 }}
+spec:
+  minAvailable: 0
+  selector:
+    matchLabels:
+      app: {{ .Chart.Name }}

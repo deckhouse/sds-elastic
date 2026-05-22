@@ -26,6 +26,112 @@ properties:
           format: int64
         value:
           type: string
+  osdStorageClassName:
+    type: string
+    default: sds-elastic-osd-manual
+    description: |
+      Name of the manual StorageClass (provisioner `kubernetes.io/no-provisioner`,
+      `volumeBindingMode: WaitForFirstConsumer`) that the controller uses for
+      OSD-backing local PVs when `SdsElasticCluster.spec.storage.lvm` is set.
+      The StorageClass with this name is rendered by the module and the
+      controller is wired to it via the `OSD_STORAGE_CLASS_NAME` env.
+    minLength: 1
+  controller:
+    type: object
+    default: {}
+    description: |
+      Settings of the sds-elastic-controller (Reconciler for
+      `SdsElasticCluster` CR).
+    properties:
+      resourcesManagement:
+        description: |
+          sds-elastic-controller resources management options. Same shape as
+          the Rook operator `resourcesManagement` below.
+        default: {}
+        x-examples:
+          - mode: VPA
+            vpa:
+              mode: Auto
+              cpu: { min: 50m, max: 200m, limitRatio: 1.5 }
+              memory: { min: 64Mi, max: 256Mi, limitRatio: 1.5 }
+        properties:
+          mode:
+            type: string
+            enum: [VPA, Static]
+            default: VPA
+          vpa:
+            type: object
+            default: {}
+            properties:
+              mode:
+                type: string
+                enum: [Initial, Auto]
+                default: Auto
+              cpu:
+                type: object
+                default: {}
+                properties:
+                  max:
+                    default: 200m
+                    oneOf:
+                      - type: string
+                        pattern: '^[0-9]+m?$'
+                      - type: number
+                  min:
+                    default: 50m
+                    oneOf:
+                      - type: string
+                        pattern: '^[0-9]+m?$'
+                      - type: number
+                  limitRatio:
+                    type: number
+              memory:
+                type: object
+                default: {}
+                properties:
+                  max:
+                    default: 256Mi
+                    oneOf:
+                      - type: string
+                        pattern: '^[0-9]+(\.[0-9]+)?(E|P|T|G|M|k|Ei|Pi|Ti|Gi|Mi|Ki)?$'
+                      - type: number
+                  min:
+                    default: 64Mi
+                    oneOf:
+                      - type: string
+                        pattern: '^[0-9]+(\.[0-9]+)?(E|P|T|G|M|k|Ei|Pi|Ti|Gi|Mi|Ki)?$'
+                      - type: number
+                  limitRatio:
+                    type: number
+          static:
+            type: object
+            properties:
+              requests:
+                type: object
+                properties:
+                  cpu:
+                    oneOf:
+                      - type: string
+                        pattern: '^[0-9]+m?$'
+                      - type: number
+                  memory:
+                    oneOf:
+                      - type: string
+                        pattern: '^[0-9]+(\.[0-9]+)?(E|P|T|G|M|k|Ei|Pi|Ti|Gi|Mi|Ki)?$'
+                      - type: number
+              limits:
+                type: object
+                properties:
+                  cpu:
+                    oneOf:
+                      - type: string
+                        pattern: '^[0-9]+m?$'
+                      - type: number
+                  memory:
+                    oneOf:
+                      - type: string
+                        pattern: '^[0-9]+(\.[0-9]+)?(E|P|T|G|M|k|Ei|Pi|Ti|Gi|Mi|Ki)?$'
+                      - type: number
   resourcesManagement:
     description: |
       Rook Ceph Operator resources management options.

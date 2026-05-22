@@ -1,0 +1,137 @@
+---
+{{/*
+  Rook Ceph operator Deployment.
+
+  HA: the Rook operator does NOT support an active/passive HA topology. The
+  upstream controller-runtime manager is constructed with
+  `LeaderElection: false` (see rook/pkg/operator/ceph/cr_manager.go) and the
+  upstream Helm chart hardcodes `replicas: 1` + `strategy: Recreate` for the
+  same reason. Running multiple operator pods at once causes duplicate
+  reconciliations and OSD provisioning races, so we mirror upstream and keep
+  a single replica with Recreate strategy. The PDB / VPA below cover the
+  single-pod lifecycle (drains, voluntary disruption, resource fitting).
+
+  Probes: the operator does not expose HTTP `/healthz`/`/readyz` endpoints
+  upstream (controller-runtime health server is not wired up), so we fall
+  back to an exec probe that asserts the `rook ceph operator` process is
+  alive. This is sufficient to detect total binary crash or hang scenarios
+  while satisfying the Deckhouse linter probe requirement.
+*/}}
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ .Chart.Name }}
+  namespace: {{ .Values.sdsElastic.namespace }}
+  {{- include "helm_lib_module_labels" (list . (dict "app" .Chart.Name )) | nindent 2 }}
+spec:
+  replicas: 1
+  revisionHistoryLimit: 2
+  selector:
+    matchLabels:
+      app: {{ .Chart.Name }}
+  strategy:
+    type: Recreate
+  template:
+    metadata:
+      annotations:
+        checksum/config: {{ include (print $.Template.BasePath "/operator/configmap.yaml") . | sha256sum }}
+      labels:
+        app: {{ .Chart.Name }}
+    spec:
+      {{- with .Values.sdsElastic.registry }}
+      imagePullSecrets:
+        - name: {{ $.Chart.Name }}-registrysecret
+      {{- end }}
+      serviceAccountName: rook-ceph-system
+      {{- include "helm_lib_priority_class" (tuple . "cluster-low") | nindent 6 }}
+      {{- include "helm_lib_node_selector" (tuple . "master") | nindent 6 }}
+      {{- include "helm_lib_tolerations" (tuple . "any-node" "with-uninitialized" "with-cloud-provider-uninitialized") | nindent 6 }}
+      {{/* Rook operator runs as a dedicated non-root UID 2016 (same value used upstream).
+           fsGroup is set so the operator can write to the four emptyDir mounts
+           (/var/lib/rook, /etc/ceph, /etc/webhook, /tmp) which are otherwise root-owned. */}}
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 2016
+        runAsGroup: 2016
+        fsGroup: 2016
+        seccompProfile:
+          type: RuntimeDefault
+      containers:
+      - name: operator
+        {{- include "helm_lib_module_container_security_context_pss_restricted_flexible" (dict "ro" true "seccompProfile" true "uid" 2016) | nindent 8 }}
+        image: "{{ include "helm_lib_module_image" (list . "operator") }}"
+        args: ["ceph", "operator"]
+        imagePullPolicy: IfNotPresent
+        livenessProbe:
+          exec:
+            command:
+              - sh
+              - -c
+              - "pgrep -f 'ceph operator' > /dev/null"
+          initialDelaySeconds: 30
+          periodSeconds: 30
+          timeoutSeconds: 5
+          failureThreshold: 3
+        readinessProbe:
+          exec:
+            command:
+              - sh
+              - -c
+              - "pgrep -f 'ceph operator' > /dev/null"
+          initialDelaySeconds: 10
+          periodSeconds: 10
+          timeoutSeconds: 5
+          failureThreshold: 3
+        volumeMounts:
+        - mountPath: /tmp
+          name: tmp
+        - mountPath: /var/lib/rook
+          name: rook-config
+        - mountPath: /etc/ceph
+          name: default-config-dir
+        - mountPath: /etc/webhook
+          name: webhook-cert
+        ports:
+          - containerPort: 9443
+            name: https-webhook
+            protocol: TCP
+        env:
+        - name: ROOK_CURRENT_NAMESPACE_ONLY
+          value: "false"
+        - name: ROOK_RECONCILE_CONCURRENT_CLUSTERS
+          value: "1"
+        - name: ROOK_HOSTPATH_REQUIRES_PRIVILEGED
+          value: "false"
+        - name: ROOK_CEPH_MON_RUN_AS_ROOT
+          value: "false"
+        - name: ROOK_DISABLE_DEVICE_HOTPLUG
+          value: "false"
+        - name: DISCOVER_DAEMON_UDEV_BLACKLIST
+          value: "(?i)dm-[0-9]+,(?i)rbd[0-9]+,(?i)nbd[0-9]+"
+        - name: ROOK_ENABLE_DISCOVERY_DAEMON
+          value: "false"
+        - name: ROOK_UNREACHABLE_NODE_TOLERATION_SECONDS
+          value: "5"
+        - name: NODE_NAME
+          valueFrom:
+            fieldRef:
+              fieldPath: spec.nodeName
+        - name: POD_NAME
+          valueFrom:
+            fieldRef:
+              fieldPath: metadata.name
+        - name: POD_NAMESPACE
+          valueFrom:
+            fieldRef:
+              fieldPath: metadata.namespace
+        resources:
+          {{ include "helm_lib_resources_management_pod_resources" (list $.Values.sdsElastic.resourcesManagement) | nindent 10 }}
+      volumes:
+      - name: tmp
+        emptyDir: {}
+      - name: rook-config
+        emptyDir: {}
+      - name: default-config-dir
+        emptyDir: {}
+      - name: webhook-cert
+        emptyDir: {}

@@ -1,2 +1,7 @@
 # Edition module settings, default ce
 {{- $_ := set . "MODULE_EDITION" (env "MODULE_EDITION" "ce") }}
+
+# Component versions are in oss.yaml; image build descriptors use helpers from
+# .werf/defines/oss-yaml.tmpl (e.g. get_oss_version_by_id, get_oss_version_map_by_id_and_condition_key).
+# The per-condition version maps (cephVersions, etc.) are computed in .werf/images.yaml.
+{{- $_ := set . "OssYamlPath" "/oss.yaml" }}

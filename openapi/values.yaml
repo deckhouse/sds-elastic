@@ -5,3 +5,24 @@ properties:
   namespace:
     type: string
     default: d8-sds-elastic
+  internal:
+    type: object
+    default: {}
+    properties:
+      customWebhookCert:
+        type: object
+        default: {}
+        x-required-for-helm:
+          - crt
+          - key
+          - ca
+        properties:
+          crt:
+            type: string
+            x-examples: ["YjY0ZW5jX3N0cmluZwo="]
+          key:
+            type: string
+            x-examples: ["YjY0ZW5jX3N0cmluZwo="]
+          ca:
+            type: string
+            x-examples: ["YjY0ZW5jX3N0cmluZwo="]
