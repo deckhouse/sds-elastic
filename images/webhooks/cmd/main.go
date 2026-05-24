@@ -55,6 +55,9 @@ func initFlags() (config, error) {
 const (
 	port                = ":8443"
 	VendorCRValidatorID = "VendorCRValidator"
+
+	ElasticStorageClassValidatorID      = "ElasticStorageClassValidator"
+	ElasticClusterCredentialValidatorID = "ElasticClusterCredentialValidator"
 )
 
 func main() {
@@ -79,8 +82,32 @@ func main() {
 		os.Exit(1)
 	}
 
+	escValidatingWebhookHandler, err := handlers.GetValidatingWebhookHandler(
+		handlers.ElasticStorageClassValidate,
+		ElasticStorageClassValidatorID,
+		&unstructured.Unstructured{},
+		logger,
+	)
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "error creating escValidatingWebhookHandler: %s", err)
+		os.Exit(1)
+	}
+
+	eccValidatingWebhookHandler, err := handlers.GetValidatingWebhookHandler(
+		handlers.ElasticClusterCredentialValidate,
+		ElasticClusterCredentialValidatorID,
+		&unstructured.Unstructured{},
+		logger,
+	)
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "error creating eccValidatingWebhookHandler: %s", err)
+		os.Exit(1)
+	}
+
 	mux := http.NewServeMux()
 	mux.Handle("/vendor-cr-validate", vendorCRValidatingWebhookHandler)
+	mux.Handle("/esc-validate", escValidatingWebhookHandler)
+	mux.Handle("/ecc-validate", eccValidatingWebhookHandler)
 	mux.HandleFunc("/healthz", httpHandlerHealthz)
 
 	logger.Infof("Listening on %s", port)

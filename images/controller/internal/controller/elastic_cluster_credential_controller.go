@@ -147,9 +147,11 @@ func (r *ElasticClusterCredentialReconciler) enqueueAllECC(ctx context.Context, 
 //     leaves it untouched (B-N1 will introduce finalizer cleanup).
 //  2. Ensure an ECC object exists for this EC (Get-or-Create with empty
 //     spec). The empty-spec window is intentional — the OpenAPI schema
-//     does not require any of the three fields, and the validating
-//     webhook enforces "fully populated" only on the eventual
-//     Phase=Populated transition.
+//     does not require any of the three fields. The validating webhook
+//     only enforces FSID immutability after first population; a
+//     "may not transition phase=Populated unless all three fields are
+//     non-empty" rule is intentionally NOT enforced for the MVP and is
+//     tracked under backlog item B-N5.
 //  3. Read Secret/rook-ceph-mon. Missing or partial Secret → status
 //     Phase=Pending, no spec mutation.
 //  4. Compute desired spec from the Secret. If different from current,

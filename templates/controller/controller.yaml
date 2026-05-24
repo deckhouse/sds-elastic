@@ -83,3 +83,52 @@
   )
 }}
 {{ include "helm_lib_module_validating_webhook_configuration" (list . $vendorCRWebhookConfig) }}
+
+{{- /*
+  ValidatingWebhookConfiguration for ElasticStorageClass.
+  Enforces the cross-field and immutability rules that cannot be expressed
+  in CRD-level OpenAPI/CEL: reserved-name collision with sds-elastic-osd,
+  RBD+ErasureCodedCompact rejection, and clusterRef/type immutability.
+*/ -}}
+{{- $escWebhookConfig := dict
+  "name" "elastic-storage-class-validation"
+  "webhookName" "elastic-storage-class-validation"
+  "valuesKey" "sdsElastic"
+  "path" "/esc-validate"
+  "failurePolicy" "Fail"
+  "rules" (list
+    (dict
+      "apiGroups" (list "storage.deckhouse.io")
+      "apiVersions" (list "v1alpha1")
+      "operations" (list "CREATE" "UPDATE")
+      "resources" (list "elasticstorageclasses")
+      "scope" "Cluster"
+    )
+  )
+}}
+{{ include "helm_lib_module_validating_webhook_configuration" (list . $escWebhookConfig) }}
+
+{{- /*
+  ValidatingWebhookConfiguration for ElasticClusterCredential.
+  Enforces FSID immutability after first population. The ECC CRD lives in
+  crds/internal/ and is not user-facing, but RBAC alone does not protect
+  the fsid field once a malicious or buggy controller chart change tries
+  to overwrite it — admission validation closes that gap.
+*/ -}}
+{{- $eccWebhookConfig := dict
+  "name" "elastic-cluster-credential-validation"
+  "webhookName" "elastic-cluster-credential-validation"
+  "valuesKey" "sdsElastic"
+  "path" "/ecc-validate"
+  "failurePolicy" "Fail"
+  "rules" (list
+    (dict
+      "apiGroups" (list "storage.deckhouse.io")
+      "apiVersions" (list "v1alpha1")
+      "operations" (list "UPDATE")
+      "resources" (list "elasticclustercredentials")
+      "scope" "Cluster"
+    )
+  )
+}}
+{{ include "helm_lib_module_validating_webhook_configuration" (list . $eccWebhookConfig) }}
