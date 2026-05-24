@@ -1,0 +1,177 @@
+apiVersion: apiextensions.k8s.io/v1
+kind: CustomResourceDefinition
+metadata:
+  name: elasticstorageclasses.storage.deckhouse.io
+  labels:
+    heritage: deckhouse
+    module: sds-elastic
+    backup.deckhouse.io/cluster-config: "true"
+spec:
+  group: storage.deckhouse.io
+  scope: Cluster
+  names:
+    plural: elasticstorageclasses
+    singular: elasticstorageclass
+    kind: ElasticStorageClass
+    shortNames:
+      - esc
+  preserveUnknownFields: false
+  versions:
+    - name: v1alpha1
+      served: true
+      storage: true
+      schema:
+        openAPIV3Schema:
+          type: object
+          description: |
+            ElasticStorageClass declares a single Ceph pool plus the corresponding
+            Kubernetes StorageClass (provisioned via the csi-ceph module). The
+            controller maps `spec.replication` to a production-tested pool layout
+            and creates a 1:1-named `CephStorageClass` in csi-ceph.
+
+            The combination `type: RBD` + `replication: ErasureCodedCompact` is
+            currently rejected: csi-ceph does not yet provision RBD volumes on
+            erasure-coded pools.
+          required:
+            - spec
+          x-kubernetes-validations:
+            - rule: "size(self.metadata.name) <= 50"
+              message: "ElasticStorageClass metadata.name must not exceed 50 characters."
+            - rule: "self.metadata.name.matches('^[a-z0-9]([-a-z0-9]*[a-z0-9])?$')"
+              message: "ElasticStorageClass metadata.name must be a valid DNS-1123 label."
+            - rule: "self.metadata.name != 'sds-elastic-osd'"
+              message: "The name 'sds-elastic-osd' is reserved for the internal helm-managed StorageClass."
+          properties:
+            spec:
+              type: object
+              required:
+                - clusterRef
+                - type
+              x-kubernetes-validations:
+                - rule: "oldSelf == null || self.clusterRef == oldSelf.clusterRef"
+                  message: "spec.clusterRef is immutable after creation."
+                - rule: "oldSelf == null || self.type == oldSelf.type"
+                  message: "spec.type is immutable after creation."
+                - rule: "oldSelf == null || self.replication == oldSelf.replication"
+                  message: "spec.replication is immutable after creation."
+                - rule: "self.type != 'RBD' || self.replication != 'ErasureCodedCompact'"
+                  message: "ErasureCodedCompact is not supported for type=RBD; csi-ceph does not yet provision RBD on erasure-coded pools."
+              properties:
+                clusterRef:
+                  type: string
+                  description: |
+                    Name of the ElasticCluster this storage class belongs to. The
+                    referenced cluster must exist and be in `Ready` phase before
+                    pool provisioning starts.
+                  minLength: 1
+                  maxLength: 30
+                  pattern: '^[a-z0-9]([-a-z0-9]*[a-z0-9])?$'
+                type:
+                  type: string
+                  description: |
+                    Type of the underlying Ceph pool / Kubernetes StorageClass.
+                    `RBD` provisions block volumes via Rados Block Device, `CephFS`
+                    provisions shared-filesystem volumes via CephFS subvolumes.
+                  enum:
+                    - RBD
+                    - CephFS
+                replication:
+                  type: string
+                  description: |
+                    High-level replication strategy. The controller translates this
+                    into pool-level settings:
+
+                    - `AvailabilityWithoutConsistency` — 2 replicas, `min_size=1`,
+                      `requireSafeReplicaSize=false`. Maximum availability at the
+                      cost of split-brain risk; suitable for non-critical workloads.
+                    - `ConsistencyAndAvailability` (default) — 3 replicas,
+                      `min_size=2`. Recommended production setting.
+                    - `ErasureCodedCompact` — k=2, m=2 with `jerasure`/`reed_sol_van`
+                      and `allow_ec_overwrites=true`. Storage-efficient (1.5x overhead
+                      vs 3x for replicated). Requires at least 4 storage nodes.
+                      Not supported with `type: RBD`.
+                  enum:
+                    - AvailabilityWithoutConsistency
+                    - ConsistencyAndAvailability
+                    - ErasureCodedCompact
+                  default: ConsistencyAndAvailability
+            status:
+              type: object
+              description: |
+                Current state of resources managed by ElasticStorageClass.
+              properties:
+                observedGeneration:
+                  type: integer
+                  format: int64
+                phase:
+                  type: string
+                  enum:
+                    - Pending
+                    - InProgress
+                    - Ready
+                    - Error
+                conditions:
+                  type: array
+                  description: |
+                    Per-component conditions: `PoolReady`, `CsiStorageClassReady`,
+                    and the aggregate `Ready`.
+                  items:
+                    type: object
+                    required:
+                      - type
+                      - status
+                      - lastTransitionTime
+                    properties:
+                      type:
+                        type: string
+                        description: |
+                          Condition type, for example `Ready`, `PoolReady`, or
+                          `CsiStorageClassReady`.
+                      status:
+                        type: string
+                        description: |
+                          Current status of the condition.
+                        enum:
+                          - "True"
+                          - "False"
+                          - "Unknown"
+                      observedGeneration:
+                        type: integer
+                        format: int64
+                        description: |
+                          Value of `metadata.generation` the condition was last set against.
+                      lastTransitionTime:
+                        type: string
+                        format: date-time
+                        description: |
+                          Timestamp of the last status transition for this condition.
+                      reason:
+                        type: string
+                        description: |
+                          Machine-readable reason for the current status, suitable for
+                          log filtering.
+                      message:
+                        type: string
+                        description: |
+                          Human-readable explanation of the current status.
+      subresources:
+        status: {}
+      additionalPrinterColumns:
+        - jsonPath: .spec.clusterRef
+          name: Cluster
+          type: string
+        - jsonPath: .spec.type
+          name: Type
+          type: string
+        - jsonPath: .spec.replication
+          name: Replication
+          type: string
+        - jsonPath: .status.phase
+          name: Phase
+          type: string
+        - jsonPath: .status.conditions[?(@.type=="Ready")].status
+          name: Ready
+          type: string
+        - jsonPath: .metadata.creationTimestamp
+          name: Age
+          type: date

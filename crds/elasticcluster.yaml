@@ -1,0 +1,324 @@
+apiVersion: apiextensions.k8s.io/v1
+kind: CustomResourceDefinition
+metadata:
+  name: elasticclusters.storage.deckhouse.io
+  labels:
+    heritage: deckhouse
+    module: sds-elastic
+    backup.deckhouse.io/cluster-config: "true"
+spec:
+  group: storage.deckhouse.io
+  scope: Cluster
+  names:
+    plural: elasticclusters
+    singular: elasticcluster
+    kind: ElasticCluster
+    shortNames:
+      - ec
+  preserveUnknownFields: false
+  versions:
+    - name: v1alpha1
+      served: true
+      storage: true
+      schema:
+        openAPIV3Schema:
+          type: object
+          description: |
+            ElasticCluster describes the desired state of a Ceph cluster managed by the
+            sds-elastic module. The controller bootstraps a Rook CephCluster (mon/mgr/osd)
+            on top of LVM-based local storage discovered via blockDeviceSelector.
+
+            Pool configuration (RBD/CephFS, replication strategy) is defined separately in
+            ElasticStorageClass resources that reference this ElasticCluster by name.
+          required:
+            - spec
+          x-kubernetes-validations:
+            - rule: "size(self.metadata.name) <= 30"
+              message: "ElasticCluster metadata.name must not exceed 30 characters (used as a prefix in derived resource names)."
+            - rule: "self.metadata.name.matches('^[a-z0-9]([-a-z0-9]*[a-z0-9])?$')"
+              message: "ElasticCluster metadata.name must be a valid DNS-1123 label."
+          properties:
+            spec:
+              type: object
+              description: |
+                Desired state of the Ceph cluster managed by the sds-elastic module.
+              required:
+                - storage
+              x-kubernetes-validations:
+                - rule: "oldSelf == null || self.storage == oldSelf.storage"
+                  message: "spec.storage is immutable after creation."
+                - rule: "oldSelf == null || (has(self.network) == has(oldSelf.network) && (!has(self.network) || self.network == oldSelf.network))"
+                  message: "spec.network is immutable after creation (cannot be added, removed, or changed)."
+              properties:
+                storage:
+                  type: object
+                  description: |
+                    OSD backing storage configuration. The controller selects matching
+                    BlockDevices on matching nodes and provisions one LVMVolumeGroup
+                    per device, one LVMLogicalVolume per group, and one local
+                    PersistentVolume per LVMLogicalVolume that backs a Rook OSD.
+                  required:
+                    - nodeSelector
+                    - blockDeviceSelector
+                  properties:
+                    nodeSelector:
+                      type: object
+                      description: |
+                        Selector that matches Kubernetes Nodes considered as storage nodes.
+                        Each matching node hosts mon/mgr/mds (as needed) and OSD daemons
+                        if it has eligible BlockDevices.
+                      properties:
+                        matchLabels:
+                          type: object
+                          additionalProperties:
+                            type: string
+                          description: Map of label selectors.
+                        matchExpressions:
+                          type: array
+                          description: List of label selector requirements.
+                          items:
+                            type: object
+                            required:
+                              - key
+                              - operator
+                            properties:
+                              key:
+                                type: string
+                              operator:
+                                type: string
+                                enum:
+                                  - In
+                                  - NotIn
+                                  - Exists
+                                  - DoesNotExist
+                              values:
+                                type: array
+                                items:
+                                  type: string
+                    blockDeviceSelector:
+                      type: object
+                      description: |
+                        Selector that matches BlockDevice CRs (managed by sds-node-configurator)
+                        eligible for OSD provisioning. Selected devices must reside on nodes
+                        that match `storage.nodeSelector` and must be unused (consumable).
+                      properties:
+                        matchLabels:
+                          type: object
+                          additionalProperties:
+                            type: string
+                          description: Map of label selectors.
+                        matchExpressions:
+                          type: array
+                          description: List of label selector requirements.
+                          items:
+                            type: object
+                            required:
+                              - key
+                              - operator
+                            properties:
+                              key:
+                                type: string
+                              operator:
+                                type: string
+                                enum:
+                                  - In
+                                  - NotIn
+                                  - Exists
+                                  - DoesNotExist
+                              values:
+                                type: array
+                                items:
+                                  type: string
+                network:
+                  type: object
+                  description: |
+                    Optional network configuration. If unset, Rook listens on every host
+                    IP of storage nodes (host networking). When set, both `public` and
+                    `cluster` must be provided together (all-or-nothing pair).
+
+                    Both fields are immutable after creation.
+                  required:
+                    - public
+                    - cluster
+                  properties:
+                    public:
+                      type: string
+                      description: |
+                        CIDR of the public network used for client traffic
+                        (for example, `10.0.0.0/24`).
+                      pattern: '^([0-9]{1,3}\.){3}[0-9]{1,3}\/[0-9]{1,2}$'
+                      minLength: 9
+                      maxLength: 18
+                    cluster:
+                      type: string
+                      description: |
+                        CIDR of the cluster network used for replication and heartbeat traffic
+                        (for example, `10.0.1.0/24`).
+                      pattern: '^([0-9]{1,3}\.){3}[0-9]{1,3}\/[0-9]{1,2}$'
+                      minLength: 9
+                      maxLength: 18
+            status:
+              type: object
+              description: |
+                Current state of resources managed by ElasticCluster.
+              properties:
+                observedGeneration:
+                  type: integer
+                  format: int64
+                  description: |
+                    The last value of `metadata.generation` processed by the controller.
+                phase:
+                  type: string
+                  description: |
+                    Aggregate phase: `Pending`, `InProgress`, `Ready`, or `Error`.
+                  enum:
+                    - Pending
+                    - InProgress
+                    - Ready
+                    - Error
+                cephFSID:
+                  type: string
+                  description: |
+                    FSID/UUID of the deployed Ceph cluster, populated from the
+                    `rook-ceph-mon` Secret once Rook starts the cluster.
+                monEndpoints:
+                  type: array
+                  description: |
+                    List of `ceph-mon` endpoints in the form `<host>:<port>`,
+                    parsed from the `rook-ceph-mon-endpoints` ConfigMap.
+                  items:
+                    type: string
+                monMaxId:
+                  type: string
+                  description: |
+                    Highest mon id reached so far, copied verbatim from
+                    `data.maxMonId` of the `rook-ceph-mon-endpoints` ConfigMap.
+                    Always a non-negative integer encoded as string for parity
+                    with the raw ConfigMap value. Reserved for use by the
+                    disaster-recovery flow in a future release.
+                credentialsRef:
+                  type: object
+                  description: |
+                    Reference to the ElasticClusterCredentials resource that backs up
+                    cluster identity (FSID, mon-secret, admin-secret) outside the
+                    module namespace. Populated 1:1 with `metadata.name`.
+                  properties:
+                    name:
+                      type: string
+                      description: |
+                        Name of the ElasticClusterCredentials resource (1:1 with this
+                        ElasticCluster's `metadata.name`).
+                cephVersion:
+                  type: object
+                  description: |
+                    Ceph version state. The desired version is hardcoded in the module
+                    image; bumping the module triggers a rolling upgrade in Rook.
+                  properties:
+                    requested:
+                      type: string
+                      description: |
+                        Ceph version requested by the controller (matches the module image).
+                    running:
+                      type: string
+                      description: |
+                        Ceph version currently running across the cluster, derived from
+                        `CephCluster.status.cephStatus.ceph.versions`.
+                    upgradeProgress:
+                      type: object
+                      description: |
+                        Per-stage progress while a rolling upgrade is in flight.
+                      properties:
+                        phase:
+                          type: string
+                          description: |
+                            Current upgrade stage.
+                          enum:
+                            - MonUpgrading
+                            - MgrUpgrading
+                            - MdsUpgrading
+                            - OsdUpgrading
+                            - Completed
+                        completed:
+                          type: integer
+                          minimum: 0
+                          description: |
+                            Number of daemons in the current stage already running the
+                            requested version.
+                        total:
+                          type: integer
+                          minimum: 0
+                          description: |
+                            Total number of daemons in the current stage.
+                        lastTransitionTime:
+                          type: string
+                          format: date-time
+                          description: |
+                            Timestamp of the last upgrade-stage transition.
+                conditions:
+                  type: array
+                  description: |
+                    Per-component conditions: `StorageReady`, `CephClusterReady`,
+                    `CredentialsReady`, `CsiCephReady`, `UpgradeReady`,
+                    `UpgradeInProgress`, and the aggregate `Ready`.
+                  items:
+                    type: object
+                    required:
+                      - type
+                      - status
+                      - lastTransitionTime
+                    properties:
+                      type:
+                        type: string
+                        description: |
+                          Condition type, for example `Ready`, `StorageReady`, or
+                          `CephClusterReady`.
+                      status:
+                        type: string
+                        description: |
+                          Current status of the condition.
+                        enum:
+                          - "True"
+                          - "False"
+                          - "Unknown"
+                      observedGeneration:
+                        type: integer
+                        format: int64
+                        description: |
+                          Value of `metadata.generation` the condition was last set against.
+                      lastTransitionTime:
+                        type: string
+                        format: date-time
+                        description: |
+                          Timestamp of the last status transition for this condition.
+                      reason:
+                        type: string
+                        description: |
+                          Machine-readable reason for the current status, suitable for
+                          log filtering.
+                      message:
+                        type: string
+                        description: |
+                          Human-readable explanation of the current status.
+      subresources:
+        status: {}
+      additionalPrinterColumns:
+        - jsonPath: .status.phase
+          name: Phase
+          type: string
+        - jsonPath: .status.cephVersion.running
+          name: Ceph
+          type: string
+        - jsonPath: .status.conditions[?(@.type=="Ready")].status
+          name: Ready
+          type: string
+        - jsonPath: .status.conditions[?(@.type=="UpgradeInProgress")].status
+          name: Upgrading
+          type: string
+          priority: 1
+        - jsonPath: .status.conditions[?(@.type=="Ready")].reason
+          name: Reason
+          type: string
+          priority: 1
+        - jsonPath: .metadata.creationTimestamp
+          name: Age
+          type: date

@@ -1,0 +1,67 @@
+spec:
+  versions:
+    - name: v1alpha1
+      schema:
+        openAPIV3Schema:
+          description: |
+            Описывает один Ceph-пул и соответствующий Kubernetes StorageClass
+            (создаётся через модуль csi-ceph). Контроллер транслирует `spec.replication`
+            в production-проверенный layout пула и создаёт `CephStorageClass` в csi-ceph
+            с тем же именем (1:1).
+
+            Сочетание `type: RBD` + `replication: ErasureCodedCompact` отвергается:
+            csi-ceph пока не предоставляет RBD-тома на erasure-coded пулах.
+          properties:
+            spec:
+              properties:
+                clusterRef:
+                  description: |
+                    Имя ElasticCluster, к которому относится этот storage class.
+                    Кластер должен существовать и быть в фазе `Ready` до создания пула.
+                type:
+                  description: |
+                    Тип нижележащего Ceph-пула / Kubernetes StorageClass.
+
+                    - `RBD` — блочные тома через Rados Block Device.
+                    - `CephFS` — общие тома через subvolume CephFS.
+                replication:
+                  description: |
+                    Высокоуровневая стратегия репликации. Контроллер транслирует значение
+                    в настройки пула:
+
+                    - `AvailabilityWithoutConsistency` — 2 реплики, `min_size=1`,
+                      `requireSafeReplicaSize=false`. Максимальная доступность ценой риска
+                      split-brain. Для некритичных нагрузок.
+                    - `ConsistencyAndAvailability` (по умолчанию) — 3 реплики, `min_size=2`.
+                      Рекомендуется для прода.
+                    - `ErasureCodedCompact` — k=2, m=2 (`jerasure`/`reed_sol_van`,
+                      `allow_ec_overwrites=true`). Эффективнее по месту (1.5x против 3x).
+                      Требует не менее 4 storage-узлов. Не поддерживается с `type: RBD`.
+            status:
+              description: |
+                Текущее состояние ресурсов, управляемых ElasticStorageClass.
+              properties:
+                observedGeneration:
+                  description: |
+                    Последнее значение `metadata.generation`, обработанное контроллером.
+                phase:
+                  description: |
+                    Агрегатная фаза: `Pending`, `InProgress`, `Ready`, `Error`.
+                conditions:
+                  description: |
+                    Покомпонентные condition: `PoolReady`, `CsiStorageClassReady` и
+                    агрегатное `Ready`.
+                  items:
+                    properties:
+                      type:
+                        description: Тип condition.
+                      status:
+                        description: Текущий статус condition.
+                      observedGeneration:
+                        description: Значение `metadata.generation`, для которого выставлен condition.
+                      lastTransitionTime:
+                        description: Время последнего перехода condition.
+                      reason:
+                        description: Машинно-читаемая причина текущего статуса.
+                      message:
+                        description: Человекочитаемое описание текущего статуса.
