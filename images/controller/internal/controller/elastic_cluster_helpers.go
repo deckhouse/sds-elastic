@@ -31,11 +31,9 @@ import (
 // patches .spec / .metadata.labels when they differ from the existing
 // object. The existing .status is never touched (Rook/csi-ceph/SNC own it).
 //
-// Mirrors the legacy SdsElasticClusterReconciler.upsertUnstructured method;
-// shared free helpers (mergeLabels, parseMonEndpoints, isNoMatchErr) live
-// in shared.go so commit B22 can drop the legacy receivers without
-// breaking this file. The receiver-bound duplication here is intentional —
-// see B-N3 in the backlog for the upserter-interface refactor.
+// B-N3 in the backlog tracks the upserter-interface refactor that will
+// collapse this method and ElasticStorageClassReconciler.upsertESCUnstructured
+// into a shared helper.
 func (r *ElasticClusterReconciler) upsertECUnstructured(ctx context.Context, desired *unstructured.Unstructured) error {
 	gvk := desired.GroupVersionKind()
 	existing := &unstructured.Unstructured{}

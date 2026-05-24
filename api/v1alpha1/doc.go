@@ -21,9 +21,6 @@ limitations under the License.
 //   - ElasticStorageClass — declares a Ceph pool plus a csi-ceph StorageClass.
 //   - ElasticClusterCredential — internal backup of cluster identity.
 //
-// The legacy SdsElasticCluster aggregate CR is kept here for backward
-// compatibility; it will be removed in a follow-up cleanup.
-//
 // +groupName=storage.deckhouse.io
 // +k8s:deepcopy-gen=package
 package v1alpha1

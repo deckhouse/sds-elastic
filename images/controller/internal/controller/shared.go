@@ -25,11 +25,6 @@ import (
 
 // mergeLabels returns a new map containing every key from `existing`
 // overridden by every key from `desired`. Both inputs may be nil.
-//
-// It lives in shared.go (rather than the legacy unstructured.go) so that
-// commit B22 can drop the old SdsElasticCluster controller files
-// wholesale without taking this helper — which the new ElasticCluster
-// reconciler also depends on — with them.
 func mergeLabels(existing, desired map[string]string) map[string]string {
 	out := map[string]string{}
 	for k, v := range existing {
@@ -47,10 +42,6 @@ func mergeLabels(existing, desired map[string]string) map[string]string {
 // Duplicate endpoints (same host:port under different mon ids) collapse
 // to a single entry — sds-elastic feeds the result into
 // CephClusterConnection.spec.monitors, which Rook expects to be unique.
-//
-// Same B22-survival rationale as mergeLabels: shared by both the legacy
-// SdsElasticCluster reconciler and the new ElasticCluster credentials
-// stage, so it must outlive the legacy files.
 func parseMonEndpoints(data string) []string {
 	if data == "" {
 		return nil

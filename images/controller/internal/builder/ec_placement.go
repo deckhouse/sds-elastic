@@ -19,9 +19,26 @@ package builder
 import (
 	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	apiruntime "k8s.io/apimachinery/pkg/runtime"
 
 	v1alpha1 "github.com/deckhouse/sds-elastic/api/v1alpha1"
 )
+
+// toUnstructured converts a typed Kubernetes object to a generic
+// map[string]interface{} via the runtime DefaultUnstructuredConverter.
+// Returns nil if the conversion fails — Rook treats a missing nested key
+// as "use defaults", which is the safest fallback when the input is
+// malformed (e.g. an empty PodAffinity).
+func toUnstructured(obj interface{}) map[string]interface{} {
+	if obj == nil {
+		return nil
+	}
+	out, err := apiruntime.DefaultUnstructuredConverter.ToUnstructured(obj)
+	if err != nil {
+		return nil
+	}
+	return out
+}
 
 // ECPlacementAll converts ElasticCluster.spec.storage.NodeSelector plus
 // module-level tolerations into the Rook spec.placement.all map. The result

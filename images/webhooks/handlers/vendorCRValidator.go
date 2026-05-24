@@ -35,7 +35,7 @@ const (
 	allowedOperatorUser   = "system:serviceaccount:d8-sds-elastic:rook-ceph-system"
 
 	vendorCRDenyMessage = "Direct modifications to Rook Ceph resources are not allowed. " +
-		"Please use SdsElasticCluster (storage.deckhouse.io/v1alpha1) to manage the cluster."
+		"Please use ElasticCluster / ElasticStorageClass (storage.deckhouse.io/v1alpha1) to manage the cluster."
 )
 
 var vendorAPIGroups = []string{"ceph.rook.io", "objectbucket.io"}

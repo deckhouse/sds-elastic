@@ -79,7 +79,6 @@ func newTestLogger() *logger.Logger {
 func newTestCfg() *config.Options {
 	return &config.Options{
 		ControllerNamespace:     "d8-sds-elastic",
-		OSDStorageClassName:     "sds-elastic-osd",
 		CephImages:              map[string]string{v1alpha1.DefaultCephVersion: "registry.example.com/ceph:v19.2.3"},
 		MaxConcurrentReconciles: 1,
 		RequeueInterval:         time.Second,

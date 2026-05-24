@@ -22,7 +22,6 @@
   "webhookEnabled" true
   "webhookCertPath" "internal.customWebhookCert"
   "additionalControllerEnvs" (list
-    (dict "name" "OSD_STORAGE_CLASS_NAME" "value" .Values.sdsElastic.osdStorageClassName)
     (dict "name" "CEPH_IMAGES" "value" ($cephImages | toJson))
   )
 }}

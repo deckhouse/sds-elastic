@@ -106,7 +106,6 @@ const (
 const (
 	ManagedByLabelKey   = "app.kubernetes.io/managed-by"
 	ManagedByLabelValue = "sds-elastic"
-	ClusterOwnerLabel   = "storage.deckhouse.io/sds-elastic-cluster"
 
 	// ECClusterLabel marks resources owned by a specific ElasticCluster
 	// (LVG, LLV, local PV, Rook CRs derived from it). The value is the
