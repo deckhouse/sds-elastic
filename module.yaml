@@ -7,6 +7,7 @@ requirements:
   deckhouse: ">= 1.72"
   modules:
     sds-node-configurator: ">= 0.6.1"
+    csi-ceph: ">= 0.5.26"
 namespace: d8-sds-elastic
 disable:
   confirmation: true
@@ -17,7 +18,7 @@ disable:
 
     Before disabling the module, be sure to do the following:
 
-    - Delete all SdsElasticCluster resources and wait until the controller has torn down the underlying Ceph clusters, pools, and related objects.
-    - Check for remaining resources with: `kubectl get sdselasticclusters.storage.deckhouse.io` (short name: `sdsec`). If any objects are listed, remove them before deactivating the module.
+    - Delete all ElasticCluster, ElasticStorageClass, and (if present) legacy SdsElasticCluster resources and wait until the controller has torn down the underlying Ceph clusters, pools, and related objects.
+    - Check for remaining resources with: `kubectl get elasticclusters.storage.deckhouse.io` (short name: `ec`), `kubectl get elasticstorageclasses.storage.deckhouse.io` (short name: `esc`), and `kubectl get sdselasticclusters.storage.deckhouse.io` (short name: `sdsec`). If any objects are listed, remove them before deactivating the module.
 
     Failure to do so may result in data loss for deployed Ceph clusters or incorrect cluster operation.
