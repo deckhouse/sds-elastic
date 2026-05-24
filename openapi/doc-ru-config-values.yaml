@@ -1,0 +1,179 @@
+properties:
+  nodeSelector:
+    description: |
+      Аналог `spec.nodeSelector` в Kubernetes Pods.
+
+      Если параметр не задан или имеет значение `false`, `nodeSelector` определяется [автоматически](https://deckhouse.io/documentation/v1/#advanced-scheduling).
+  tolerations:
+    description: |
+      Аналог `spec.tolerations` в Kubernetes Pods.
+
+      Если параметр не задан или имеет значение `false`, `tolerations` определяются [автоматически](https://deckhouse.io/documentation/v1/#advanced-scheduling).
+    items:
+      properties:
+        effect:
+          description: |
+            Эффект taint, под который подходит toleration. Пустое значение подходит к любому эффекту.
+        key:
+          description: |
+            Ключ taint, на который действует toleration. Пустой ключ при `operator: Exists` подходит к любому taint.
+        operator:
+          description: |
+            Оператор сопоставления `key` и `value`.
+        tolerationSeconds:
+          description: |
+            Время в секундах, в течение которого toleration терпит taint после его появления.
+
+            Применяется только при `effect: NoExecute`. Если не задано, toleration действует бессрочно.
+        value:
+          description: |
+            Значение taint, под которое подходит toleration. Обязательно при `operator: Equal`.
+  osdStorageClassName:
+    description: |
+      Имя StorageClass с ручным управлением (provisioner `kubernetes.io/no-provisioner`,
+      `volumeBindingMode: WaitForFirstConsumer`), который контроллер использует для
+      локальных PV под OSD при использовании `SdsElasticCluster.spec.storage.lvm`.
+
+      StorageClass с этим именем создаётся модулем, и контроллер получает его через
+      переменную окружения `OSD_STORAGE_CLASS_NAME`.
+  controller:
+    description: |
+      Настройки контроллера sds-elastic (Reconciler ресурса `SdsElasticCluster`).
+    properties:
+      resourcesManagement:
+        description: |
+          Настройки управления ресурсами контроллера sds-elastic.
+          Имеет ту же структуру, что и `resourcesManagement` оператора Rook ниже.
+        properties:
+          mode:
+            description: |
+              Режим управления запросами ресурсов: классические `Static` requests/limits или `VPA`.
+          vpa:
+            description: |
+              Параметры режима VPA.
+            properties:
+              mode:
+                description: |
+                  Режим работы VPA.
+              cpu:
+                description: |
+                  Параметры управления ресурсами CPU.
+                properties:
+                  max:
+                    description: |
+                      Максимально допустимое значение CPU-запроса.
+                  min:
+                    description: |
+                      Минимально допустимое значение CPU-запроса.
+                  limitRatio:
+                    description: |
+                      Коэффициент для вычисления начального CPU-лимита из запроса.
+
+                      VPA сохраняет полученное соотношение лимита и запроса при дальнейшей настройке ресурсов.
+              memory:
+                description: |
+                  Параметры управления потреблением памяти.
+                properties:
+                  max:
+                    description: |
+                      Максимально допустимое значение запроса памяти.
+                  min:
+                    description: |
+                      Минимально допустимое значение запроса памяти.
+                  limitRatio:
+                    description: |
+                      Коэффициент для вычисления начального лимита памяти из запроса.
+
+                      VPA сохраняет полученное соотношение лимита и запроса при дальнейшей настройке ресурсов.
+          static:
+            description: |
+              Настройки статического управления ресурсами.
+            properties:
+              requests:
+                description: |
+                  Запросы ресурсов для пода контроллера.
+                properties:
+                  cpu:
+                    description: |
+                      Запрос CPU.
+                  memory:
+                    description: |
+                      Запрос памяти.
+              limits:
+                description: |
+                  Лимиты ресурсов для пода контроллера.
+                properties:
+                  cpu:
+                    description: |
+                      Лимит CPU.
+                  memory:
+                    description: |
+                      Лимит памяти.
+  resourcesManagement:
+    description: |
+      Настройки управления ресурсами оператора Rook Ceph.
+    properties:
+      mode:
+        description: |
+          Режим управления запросами ресурсов: классические `Static` requests/limits или `VPA`.
+      vpa:
+        description: |
+          Параметры режима VPA.
+        properties:
+          mode:
+            description: |
+              Режим работы VPA.
+          cpu:
+            description: |
+              Параметры управления ресурсами CPU.
+            properties:
+              max:
+                description: |
+                  Максимально допустимое значение CPU-запроса.
+              min:
+                description: |
+                  Минимально допустимое значение CPU-запроса.
+              limitRatio:
+                description: |
+                  Коэффициент для вычисления начального CPU-лимита из запроса.
+
+                  VPA сохраняет полученное соотношение лимита и запроса при дальнейшей настройке ресурсов.
+          memory:
+            description: |
+              Параметры управления потреблением памяти.
+            properties:
+              max:
+                description: |
+                  Максимально допустимое значение запроса памяти.
+              min:
+                description: |
+                  Минимально допустимое значение запроса памяти.
+              limitRatio:
+                description: |
+                  Коэффициент для вычисления начального лимита памяти из запроса.
+
+                  VPA сохраняет полученное соотношение лимита и запроса при дальнейшей настройке ресурсов.
+      static:
+        description: |
+          Настройки статического управления ресурсами.
+        properties:
+          requests:
+            description: |
+              Конфигурация запросов ресурсов.
+            properties:
+              cpu:
+                description: |
+                  Запрос CPU.
+              memory:
+                description: |
+                  Запрос памяти.
+          limits:
+            description: |
+              Конфигурация лимитов ресурсов.
+            properties:
+              cpu:
+                description: |
+                  Лимит CPU.
+              memory:
+                description: |
+                  Лимит памяти.
