@@ -42,6 +42,12 @@ func addKnownTypes(scheme *runtime.Scheme) error {
 	scheme.AddKnownTypes(SchemeGroupVersion,
 		&SdsElasticCluster{},
 		&SdsElasticClusterList{},
+		&ElasticCluster{},
+		&ElasticClusterList{},
+		&ElasticStorageClass{},
+		&ElasticStorageClassList{},
+		&ElasticClusterCredential{},
+		&ElasticClusterCredentialList{},
 	)
 	metav1.AddToGroupVersion(scheme, SchemeGroupVersion)
 	return nil
