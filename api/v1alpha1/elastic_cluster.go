@@ -148,7 +148,7 @@ type CephVersionStatus struct {
 	Requested string `json:"requested,omitempty"`
 
 	// Running is the Ceph version actually present in the cluster,
-	// derived from CephCluster.status.cephStatus.ceph.versions.
+	// derived from CephCluster.status.version.version.
 	// +optional
 	Running string `json:"running,omitempty"`
 

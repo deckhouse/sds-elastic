@@ -89,8 +89,9 @@ const (
 	RookCephMonSecretKeyKey      = "ceph-secret"
 	RookCephMonSecretFSIDKey     = "fsid"
 
-	RookCephMonEndpointsConfigMap = "rook-ceph-mon-endpoints"
-	RookCephMonEndpointsDataKey   = "data"
+	RookCephMonEndpointsConfigMap   = "rook-ceph-mon-endpoints"
+	RookCephMonEndpointsDataKey     = "data"
+	RookCephMonEndpointsMaxMonIDKey = "maxMonId"
 )
 
 // Labels applied to every resource managed by the controller.

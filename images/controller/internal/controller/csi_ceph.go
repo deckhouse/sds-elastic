@@ -19,7 +19,6 @@ package controller
 import (
 	"context"
 	"fmt"
-	"sort"
 	"strings"
 
 	corev1 "k8s.io/api/core/v1"
@@ -89,29 +88,8 @@ func (r *SdsElasticClusterReconciler) readRookSecretFSID(ctx context.Context) st
 	return string(secret.Data[external.RookCephMonSecretFSIDKey])
 }
 
-// parseMonEndpoints turns "a=10.0.0.1:6789,b=10.0.0.2:6789" into
-// ["10.0.0.1:6789", "10.0.0.2:6789"], sorted for stable output.
-func parseMonEndpoints(data string) []string {
-	if data == "" {
-		return nil
-	}
-	parts := strings.Split(data, ",")
-	out := make([]string, 0, len(parts))
-	for _, p := range parts {
-		p = strings.TrimSpace(p)
-		if p == "" {
-			continue
-		}
-		if i := strings.Index(p, "="); i >= 0 {
-			p = p[i+1:]
-		}
-		if p != "" {
-			out = append(out, p)
-		}
-	}
-	sort.Strings(out)
-	return out
-}
+// parseMonEndpoints lives in shared.go so it survives the B22 deletion
+// of the legacy controller files.
 
 // ensureCsiCephIntegration creates/updates the CephClusterConnection and
 // CephStorageClass resources. The function is a no-op when the integration

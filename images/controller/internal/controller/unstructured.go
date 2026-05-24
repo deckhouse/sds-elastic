@@ -226,13 +226,5 @@ func (r *SdsElasticClusterReconciler) listOwnedUnstructured(ctx context.Context,
 	return list, nil
 }
 
-func mergeLabels(existing, desired map[string]string) map[string]string {
-	out := map[string]string{}
-	for k, v := range existing {
-		out[k] = v
-	}
-	for k, v := range desired {
-		out[k] = v
-	}
-	return out
-}
+// mergeLabels lives in shared.go so it survives the B22 deletion of the
+// legacy controller files.

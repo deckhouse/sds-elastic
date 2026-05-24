@@ -111,10 +111,10 @@ func ECLVMLogicalVolume(ec *v1alpha1.ElasticCluster, bdName string) *unstructure
 }
 
 // ECOSDPersistentVolume builds the local-path PV that hides the LLV behind a
-// Block-mode PV. Capacity is supplied by the controller (read from the
-// resolved LLV size in bytes) — the BlockDevice + LVG layout determines the
-// real space, the PV value is purely informational for the scheduler.
-func ECOSDPersistentVolume(ec *v1alpha1.ElasticCluster, bdName, nodeName string, capacityBytes int64) *corev1.PersistentVolume {
+// Block-mode PV. Capacity is supplied by the controller (typically parsed
+// from BlockDevice.status.size) — the BlockDevice + LVG layout determines the
+// real space, the PV value is informational for the scheduler.
+func ECOSDPersistentVolume(ec *v1alpha1.ElasticCluster, bdName, nodeName string, capacity resource.Quantity) *corev1.PersistentVolume {
 	name := ECOSDResourceName(ec, bdName)
 	volumeMode := corev1.PersistentVolumeBlock
 	return &corev1.PersistentVolume{
@@ -125,7 +125,7 @@ func ECOSDPersistentVolume(ec *v1alpha1.ElasticCluster, bdName, nodeName string,
 		Spec: corev1.PersistentVolumeSpec{
 			StorageClassName: external.ReservedOSDStorageClassName,
 			Capacity: corev1.ResourceList{
-				corev1.ResourceStorage: *resource.NewQuantity(capacityBytes, resource.BinarySI),
+				corev1.ResourceStorage: capacity,
 			},
 			AccessModes: []corev1.PersistentVolumeAccessMode{
 				corev1.ReadWriteOnce,
