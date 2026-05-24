@@ -1,0 +1,26 @@
+---
+# Internal StorageClass that "glues" local PersistentVolumes (created by the
+# sds-elastic controller from LVMLogicalVolumes) to the PVCs Rook generates
+# for OSD storageClassDeviceSets. The name is reserved and may not be used by
+# any ElasticStorageClass — the validating webhook rejects user resources
+# with this metadata.name.
+#
+# Properties:
+#   - provisioner=kubernetes.io/no-provisioner: PVs are created by sds-elastic,
+#     not by an external CSI driver.
+#   - volumeBindingMode=WaitForFirstConsumer: the PV must be on the same node
+#     as the OSD pod that consumes it.
+#   - reclaimPolicy=Retain: when an OSD PVC is deleted, the underlying LLV
+#     and PV must remain so the OSD can be re-created on the same disk.
+#   - helm.sh/resource-policy=keep: helm uninstall (e.g. accidental module
+#     disable) does not wipe the StorageClass; deletion is explicit.
+apiVersion: storage.k8s.io/v1
+kind: StorageClass
+metadata:
+  name: sds-elastic-osd
+  annotations:
+    helm.sh/resource-policy: keep
+  {{- include "helm_lib_module_labels" (list .) | nindent 2 }}
+provisioner: kubernetes.io/no-provisioner
+volumeBindingMode: WaitForFirstConsumer
+reclaimPolicy: Retain

@@ -48,6 +48,16 @@ var (
 
 // sds-node-configurator (storage.deckhouse.io/v1alpha1).
 var (
+	BlockDeviceGVK = schema.GroupVersionKind{
+		Group:   "storage.deckhouse.io",
+		Version: "v1alpha1",
+		Kind:    "BlockDevice",
+	}
+	LVMVolumeGroupGVK = schema.GroupVersionKind{
+		Group:   "storage.deckhouse.io",
+		Version: "v1alpha1",
+		Kind:    "LVMVolumeGroup",
+	}
 	LVMLogicalVolumeGVK = schema.GroupVersionKind{
 		Group:   "storage.deckhouse.io",
 		Version: "v1alpha1",
@@ -88,4 +98,25 @@ const (
 	ManagedByLabelKey   = "app.kubernetes.io/managed-by"
 	ManagedByLabelValue = "sds-elastic"
 	ClusterOwnerLabel   = "storage.deckhouse.io/sds-elastic-cluster"
+
+	// ECClusterLabel marks resources owned by a specific ElasticCluster
+	// (LVG, LLV, local PV, Rook CRs derived from it). The value is the
+	// ElasticCluster's metadata.name.
+	ECClusterLabel = "sds-elastic.deckhouse.io/cluster"
+
+	// ECStorageClassLabel marks resources owned by a specific
+	// ElasticStorageClass (Ceph pool / filesystem, csi-ceph SC).
+	ECStorageClassLabel = "sds-elastic.deckhouse.io/storage-class"
+)
+
+// Naming and host paths used by ElasticCluster reconciliation.
+const (
+	// ReservedOSDStorageClassName matches v1alpha1.ReservedOSDStorageClassName
+	// and is duplicated here so the builder layer does not import the api
+	// module just to read a string constant. Keep in sync.
+	ReservedOSDStorageClassName = "sds-elastic-osd"
+
+	// CephDataDirHostPathPrefix is the parent directory for all per-EC
+	// mon/osd hostPath data: dataDirHostPath = <prefix>/<ec-name>.
+	CephDataDirHostPathPrefix = "/opt/deckhouse/sds/elastic"
 )
