@@ -89,6 +89,14 @@ const (
 	RookCephMonSecretKeyKey      = "ceph-secret"
 	RookCephMonSecretFSIDKey     = "fsid"
 
+	// RookCephMonSecretAdminSecretKey holds the cephx admin user key
+	// in the rook-ceph-mon Secret. Backed up to ECC.spec.adminSecret.
+	RookCephMonSecretAdminSecretKey = "admin-secret"
+
+	// RookCephMonSecretMonSecretKey holds the shared mon daemon secret
+	// in the rook-ceph-mon Secret. Backed up to ECC.spec.monSecret.
+	RookCephMonSecretMonSecretKey = "mon-secret"
+
 	RookCephMonEndpointsConfigMap   = "rook-ceph-mon-endpoints"
 	RookCephMonEndpointsDataKey     = "data"
 	RookCephMonEndpointsMaxMonIDKey = "maxMonId"
