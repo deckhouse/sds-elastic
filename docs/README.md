@@ -1,6 +1,6 @@
 ---
 title: "Module sds-elastic"
-description: "Deckhouse Kubernetes Platform module for deploying and managing distributed Ceph clusters with block storage, shared filesystems, and S3 object storage."
+description: "Deckhouse Kubernetes Platform module that bootstraps a Rook Ceph cluster from BlockDevice CRs and exposes pools as csi-ceph StorageClasses."
 weight: 1
 ---
 
@@ -8,28 +8,24 @@ weight: 1
 The module is in `Experimental` stage. The API, configuration, and custom resources may change without notice; do not use it for production workloads.
 {{< /alert >}}
 
-The `sds-elastic` module deploys and manages [Rook Ceph](https://rook.io) in a Deckhouse Kubernetes Platform cluster, turning a set of nodes into a distributed Ceph-backed storage system. 
+The `sds-elastic` module deploys and manages [Rook Ceph](https://rook.io) in a Deckhouse Kubernetes Platform cluster, turning a set of nodes into a distributed Ceph-backed storage system. The module provisions block volumes (RBD) and shared filesystems (CephFS) backed by `csi-ceph` StorageClasses, without manual Rook deployment.
 
-The module allows for the provision of block storage, shared file systems, and S3-compatible object storage in the cluster for workloads, without the need for manual deployment of Ceph.
+Management is split across three custom resources from the `storage.deckhouse.io/v1alpha1` API group:
 
-Management is performed using a custom resource called [SdsElasticCluster](./cr.html#sdselasticcluster), which describes the entire desired state of the Ceph cluster:
-- OSD backing storage
-- block pools
-- filesystems
-- object stores
-- optional integration with the [csi-ceph](/modules/csi-ceph/) module.
+- [`ElasticCluster`](./cr.html#elasticcluster) (`ec`) — declares the desired Ceph cluster: which nodes participate (`storage.nodeSelector`), which BlockDevice CRs back the OSDs (`storage.blockDeviceSelector`) and, optionally, which CIDRs are used for the public and cluster networks. The controller bootstraps a Rook `CephCluster` (mon/mgr/osd) from this declaration.
+- [`ElasticStorageClass`](./cr.html#elasticstorageclass) (`esc`) — declares a single Ceph pool plus the matching Kubernetes `StorageClass`, provisioned through the [csi-ceph](/modules/csi-ceph/) module. `spec.replication` (`AvailabilityWithoutConsistency` / `ConsistencyAndAvailability` / `ErasureCodedCompact`) maps to a production-tested pool layout. References its parent `ElasticCluster` by name (`spec.clusterRef`).
+- [`ElasticClusterCredential`](./cr.html#elasticclustercredential) (`ecc`) — internal cluster-scoped backup of the Ceph cluster identity (FSID, mon-secret, admin-secret), populated by the controller from the `rook-ceph-mon` Secret. Operators do not manage this CR directly; it exists so the cluster identity survives a `d8-sds-elastic` namespace re-create.
 
-The module deploys the Rook Ceph operator, the `rook-ceph-operator-config` ConfigMap, and the full set of Ceph CRDs.
+The module deploys the Rook Ceph operator, the `rook-ceph-operator-config` ConfigMap, the full set of Ceph CRDs and the three `storage.deckhouse.io` CRDs listed above.
 
 ## Main Features
 
-- Deploy Ceph cluster from a single [SdsElasticCluster custom resource](./cr.html#sdselasticcluster).
-- Two OSD backing modes: [raw block devices](./cr.html#sdselasticcluster-v1alpha1-spec-storage-devices) or [LVM logical volumes](./cr.html#sdselasticcluster-v1alpha1-spec-storage-lvm) managed by the [sds-node-configurator](/modules/sds-node-configurator/) module.
-- [Replicated and erasure-coded block pools](./cr.html#sdselasticcluster-v1alpha1-spec-blockpools) with configurable failure domains.
-- [CephFS shared filesystems](./cr.html#sdselasticcluster-v1alpha1-spec-filesystems) with separate metadata and data pools.
-- [S3-compatible object stores](./cr.html#sdselasticcluster-v1alpha1-spec-objectstores) with configurable RGW gateways.
-- [Automatic provisioning](./cr.html#sdselasticcluster-v1alpha1-spec-csicephintegration) of CephClusterConnection and CephStorageClass objects for the [csi-ceph](/modules/csi-ceph/) module when integration is enabled.
-- [Per-daemon scheduling](./cr.html#sdselasticcluster-v1alpha1-spec-placement) via standard Kubernetes node affinity, tolerations, and topology spread constraints.
+- Single-CR cluster bootstrap from an [ElasticCluster](./cr.html#elasticcluster) selecting BlockDevice / Node CRs by labels.
+- LVM-based OSD layout: per matched BlockDevice the controller provisions one [LVMVolumeGroup](/modules/sds-node-configurator/cr.html#lvmvolumegroup), one [LVMLogicalVolume](/modules/sds-node-configurator/cr.html#lvmlogicalvolume), and one local `PersistentVolume` bound to the helm-managed `sds-elastic-osd` `StorageClass` (provisioner `kubernetes.io/no-provisioner`, `volumeBindingMode: WaitForFirstConsumer`). Rook consumes those PVs as OSDs through `storageClassDeviceSets`.
+- Three replication strategies per [ElasticStorageClass](./cr.html#elasticstorageclass): `AvailabilityWithoutConsistency` (2 replicas, `min_size=1`, `requireSafeReplicaSize=false`), `ConsistencyAndAvailability` (3 replicas, `min_size=2`, default), and `ErasureCodedCompact` (k=2, m=2 with `jerasure`/`reed_sol_van` and `allow_ec_overwrites=true`, requires at least 4 storage nodes; not supported with `type: RBD`).
+- RBD and CephFS pools per [ElasticStorageClass](./cr.html#elasticstorageclass-v1alpha1-spec-type) — one ESC produces one Ceph pool plus one csi-ceph `CephStorageClass` named after the ESC.
+- Automatic [csi-ceph](/modules/csi-ceph/) wiring: the controller maintains a single `CephClusterConnection` (1:1 with the parent ElasticCluster) and one `CephStorageClass` per ElasticStorageClass; the user does not edit these vendor CRs by hand.
+- Identity backup via [ElasticClusterCredential](./cr.html#elasticclustercredential): FSID and mon/admin secrets are mirrored from the `rook-ceph-mon` Secret so the cluster identity survives a namespace re-create.
 
 ## System Requirements
 
@@ -38,17 +34,18 @@ The module deploys the Rook Ceph operator, the `rook-ceph-operator-config` Confi
   - one for the Ceph public network (client traffic)
   - and one for the cluster network (replication and heartbeat).
 
-    The same CIDR may be used for both if network separation is not needed.
-- For the raw-devices layout: at least one unused raw block device on each storage node with no partitions, filesystem, or LVM signatures.
-- For the LVM layout: the [sds-node-configurator](/modules/sds-node-configurator/) module enabled and LVMVolumeGroup objects created on the target nodes.
-- The [snapshot-controller](/modules/snapshot-controller/) module enabled for VolumeSnapshot support.
-- The [csi-ceph](/modules/csi-ceph/) module enabled when [`spec.csiCephIntegration.enabled`](./cr.html#sdselasticcluster-v1alpha1-spec-csicephintegration-enabled) is `true`.
+    The same CIDR may be used for both if network separation is not needed; `spec.network` may also be omitted, in which case Rook listens on every host IP of the storage nodes (host networking).
+- The [sds-node-configurator](/modules/sds-node-configurator/) (≥ 0.6.1) module enabled. The module owns the `BlockDevice` and `LVMVolumeGroup` CRDs that `ElasticCluster` selects from and creates LVMVolumeGroups in.
+- The [csi-ceph](/modules/csi-ceph/) (≥ 0.5.26) module enabled. The module owns the `CephClusterConnection` and `CephStorageClass` CRDs the controller writes into.
+- The [snapshot-controller](/modules/snapshot-controller/) module enabled for VolumeSnapshot support (optional).
 
 ## Limitations
 
-- One Ceph cluster per module instance. The controller always reconciles a single CephCluster named `ceph-cluster` in the `d8-sds-elastic` namespace, regardless of how many SdsElasticCluster objects are created. Multiple SdsElasticCluster objects compete for the same backend; create only one.
-- Direct edits of Rook (`ceph.rook.io`) and ObjectBucket (`objectbucket.io`) resources in the `d8-sds-elastic` namespace are rejected by a validating webhook. All changes must go through the SdsElasticCluster.
-- Editing the SdsElasticCluster spec is destructive: removing a pool, filesystem, or object store from the spec deletes the corresponding Rook resource and any CephStorageClass derived from it.
-- The [`spec.storage.lvm`](./cr.html#sdselasticcluster-v1alpha1-spec-storage-lvm) and [`spec.storage.devices`](./cr.html#sdselasticcluster-v1alpha1-spec-storage-devices) layouts are mutually exclusive; switching between them requires deleting and recreating the SdsElasticCluster object.
+- One Ceph cluster per module instance. The controller always reconciles a single Rook `CephCluster` named `ceph-cluster` in the `d8-sds-elastic` namespace, regardless of how many `ElasticCluster` objects are created. Multiple `ElasticCluster` objects compete for the same backend; create only one per cluster.
+- Direct edits of Rook (`ceph.rook.io`) and ObjectBucket (`objectbucket.io`) resources in the `d8-sds-elastic` namespace are rejected by a validating webhook. All changes must go through `ElasticCluster` / `ElasticStorageClass`.
+- `ElasticCluster.spec.storage` and `spec.network` are immutable after creation (enforced by CEL in the CRD); to change them, delete and re-create the `ElasticCluster`.
+- `ElasticStorageClass.spec.{clusterRef,type,replication}` are immutable after creation (enforced by CEL and the validating webhook). Replacing a pool requires creating a new `ElasticStorageClass` with a different name.
+- The name `sds-elastic-osd` is reserved for the helm-managed internal `StorageClass`; `ElasticStorageClass` resources with this `metadata.name` are rejected by the webhook.
+- `RBD` + `ErasureCodedCompact` is rejected: csi-ceph does not yet provision RBD volumes on erasure-coded pools.
 - Vendor Rook and Ceph CRDs are bundled with the module and are not user-configurable.
-- Only Ceph versions explicitly listed in the [`spec.cephVersion`](./cr.html#sdselasticcluster-v1alpha1-spec-cephversion) enum are supported; arbitrary image references are not accepted.
+- Finalizer-based cluster GC is not yet wired (planned, B-N1 in the backlog). For the experimental stage, deleting the `ElasticCluster` clears the controller-managed objects but does not orchestrate Rook teardown; manual cleanup may be required.
