@@ -17,7 +17,7 @@
     (dict "apiGroups" (list "storage.deckhouse.io") "resources" (list "elasticclusters" "elasticclusters/status" "elasticclusters/finalizers") "verbs" (list "get" "list" "watch" "create" "update" "patch" "delete"))
     (dict "apiGroups" (list "storage.deckhouse.io") "resources" (list "elasticstorageclasses" "elasticstorageclasses/status" "elasticstorageclasses/finalizers") "verbs" (list "get" "list" "watch" "create" "update" "patch" "delete"))
     (dict "apiGroups" (list "storage.deckhouse.io") "resources" (list "elasticclustercredentials" "elasticclustercredentials/status" "elasticclustercredentials/finalizers") "verbs" (list "get" "list" "watch" "create" "update" "patch" "delete"))
-    (dict "apiGroups" (list "storage.deckhouse.io") "resources" (list "blockdevices") "verbs" (list "get" "list" "watch"))
+    (dict "apiGroups" (list "storage.deckhouse.io") "resources" (list "blockdevices") "verbs" (list "get" "list" "watch" "update" "patch"))
     (dict "apiGroups" (list "storage.deckhouse.io") "resources" (list "lvmvolumegroups" "lvmlogicalvolumes") "verbs" (list "get" "list" "watch" "create" "update" "patch" "delete"))
     (dict "apiGroups" (list "storage.deckhouse.io") "resources" (list "cephclusterconnections" "cephclusterconnections/status" "cephstorageclasses" "cephstorageclasses/status") "verbs" (list "get" "list" "watch" "create" "update" "patch" "delete"))
     (dict "apiGroups" (list "ceph.rook.io") "resources" (list "cephclusters" "cephblockpools" "cephfilesystems") "verbs" (list "get" "list" "watch" "create" "update" "patch" "delete"))
