@@ -54,7 +54,7 @@ var _ = Describe("ElasticClusterReconciler.Reconcile", func() {
 	})
 
 	Context("fully seeded cluster", func() {
-		It("reaches Ready=True when all dependencies are satisfied", func() {
+		It("reaches Ready=True only after the second reconcile observes converged storage phases", func() {
 			ec := newTestElasticCluster()
 			cephImage := newTestCfg().CephImages[v1alpha1.DefaultCephVersion]
 
@@ -73,11 +73,27 @@ var _ = Describe("ElasticClusterReconciler.Reconcile", func() {
 			)
 			r := newElasticClusterReconciler(cl)
 
+			// First reconcile provisions LVG/LLV/PV CRs but storage cannot
+			// be Ready yet — sds-node-configurator has not flipped the
+			// status.phase fields. Reconciler must keep requeueing.
 			result, err := r.Reconcile(ctx, ctrl.Request{NamespacedName: types.NamespacedName{Name: testECName}})
+			Expect(err).NotTo(HaveOccurred())
+			Expect(result.RequeueAfter).NotTo(BeZero(),
+				"non-ready cluster must keep requeueing until phases converge")
+
+			latest := &v1alpha1.ElasticCluster{}
+			Expect(cl.Get(ctx, types.NamespacedName{Name: testECName}, latest)).To(Succeed())
+			Expect(findCondition(latest.Status.Conditions, v1alpha1.ECConditionStorageReady).Reason).
+				To(Equal(storageReasonWaitingForLVG))
+
+			// Simulate sds-node-configurator + the K8s PV binder: flip the
+			// downstream phases the controller is waiting on.
+			markStorageProvisioned(ctx, cl, ec)
+
+			result, err = r.Reconcile(ctx, ctrl.Request{NamespacedName: types.NamespacedName{Name: testECName}})
 			Expect(err).NotTo(HaveOccurred())
 			Expect(result.RequeueAfter).To(BeZero())
 
-			latest := &v1alpha1.ElasticCluster{}
 			Expect(cl.Get(ctx, types.NamespacedName{Name: testECName}, latest)).To(Succeed())
 			Expect(latest.Status.Phase).To(Equal(v1alpha1.PhaseReady))
 			Expect(findCondition(latest.Status.Conditions, v1alpha1.ECConditionReady).Status).

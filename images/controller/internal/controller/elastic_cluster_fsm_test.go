@@ -40,7 +40,7 @@ var _ = Describe("ElasticCluster FSM scaffolding", func() {
 
 	Describe("advance", func() {
 		It("returns true and sets Ready on success", func() {
-			Expect(r.advance(status, v1alpha1.ECConditionStorageReady, true, "ok", nil)).To(BeTrue())
+			Expect(r.advance(status, v1alpha1.ECConditionStorageReady, true, "", "ok", nil)).To(BeTrue())
 			c := findCondition(status.conditions, v1alpha1.ECConditionStorageReady)
 			Expect(c).NotTo(BeNil())
 			Expect(c.Status).To(Equal(metav1.ConditionTrue))
@@ -48,15 +48,23 @@ var _ = Describe("ElasticCluster FSM scaffolding", func() {
 		})
 
 		It("gates downstream on error", func() {
-			Expect(r.advance(status, v1alpha1.ECConditionStorageReady, false, "", errors.New("boom"))).To(BeFalse())
+			Expect(r.advance(status, v1alpha1.ECConditionStorageReady, false, "", "", errors.New("boom"))).To(BeFalse())
 			Expect(findCondition(status.conditions, v1alpha1.ECConditionStorageReady).Reason).To(Equal("Error"))
 			Expect(findCondition(status.conditions, v1alpha1.ECConditionCephClusterReady).Reason).To(Equal("WaitingForPrev"))
 			Expect(findCondition(status.conditions, v1alpha1.ECConditionReady).Status).To(Equal(metav1.ConditionFalse))
 		})
 
-		It("gates downstream on in-progress", func() {
-			Expect(r.advance(status, v1alpha1.ECConditionCephClusterReady, false, "waiting", nil)).To(BeFalse())
+		It("gates downstream on in-progress with default reason", func() {
+			Expect(r.advance(status, v1alpha1.ECConditionCephClusterReady, false, "", "waiting", nil)).To(BeFalse())
+			Expect(findCondition(status.conditions, v1alpha1.ECConditionCephClusterReady).Reason).To(Equal("InProgress"))
 			Expect(findCondition(status.conditions, v1alpha1.ECConditionCredentialsReady).Reason).To(Equal("WaitingForPrev"))
+		})
+
+		It("preserves a caller-supplied reason on in-progress", func() {
+			Expect(r.advance(status, v1alpha1.ECConditionStorageReady, false, "WaitingForLVMVolumeGroup", "1/3 Ready", nil)).To(BeFalse())
+			c := findCondition(status.conditions, v1alpha1.ECConditionStorageReady)
+			Expect(c.Reason).To(Equal("WaitingForLVMVolumeGroup"))
+			Expect(c.Message).To(Equal("1/3 Ready"))
 		})
 	})
 

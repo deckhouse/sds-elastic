@@ -125,6 +125,26 @@ type ElasticClusterStatus struct {
 	// Conditions hold the latest stage states. Known types:
 	// StorageReady, CephClusterReady, CredentialsReady, CsiCephReady,
 	// UpgradeReady, UpgradeInProgress, Ready.
+	//
+	// Well-known StorageReady reasons (machine-readable) when the stage
+	// is not yet Ready:
+	//   - NoBlockDevices             — selector matched no BDs.
+	//   - WaitingForBlockDeviceCRD   — sds-node-configurator BD CRD is
+	//     missing (module not deployed yet).
+	//   - WaitingForLVMVolumeGroupCRD / WaitingForLVMLogicalVolumeCRD
+	//     — same, for the LVG/LLV CRDs.
+	//   - WaitingForBlockDevices     — some BDs failed validation
+	//     (empty nodeName or unparseable size).
+	//   - WaitingForLVMVolumeGroup   — LVG CRs upserted but
+	//     status.phase != Ready on at least one member.
+	//   - WaitingForLVMLogicalVolume — LLV CRs upserted but
+	//     status.phase != Created on at least one member.
+	//   - WaitingForPersistentVolume — local PVs created but K8s
+	//     binder has not transitioned them to Available/Bound.
+	//
+	// The condition message lists the laggard resource names with their
+	// observed phase so a UI can dispatch on Reason and inspect Message
+	// for the per-resource breakdown.
 	// +optional
 	// +patchMergeKey=type
 	// +patchStrategy=merge

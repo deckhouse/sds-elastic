@@ -227,28 +227,28 @@ var stageOrder = []string{
 func (r *ElasticClusterReconciler) reconcileNormal(ctx context.Context, ec *v1alpha1.ElasticCluster) (ctrl.Result, error) {
 	status := newECStatusBuilder(ec)
 
-	storageDone, osdCount, pvcRequest, msg, err := r.ensureStorage(ctx, ec)
-	if !r.advance(status, v1alpha1.ECConditionStorageReady, storageDone, msg, err) {
+	storageDone, osdCount, pvcRequest, storageReason, msg, err := r.ensureStorage(ctx, ec)
+	if !r.advance(status, v1alpha1.ECConditionStorageReady, storageDone, storageReason, msg, err) {
 		return r.finishReconcile(ctx, ec, status, err)
 	}
 
 	cephDone, msg, err := r.ensureCephCluster(ctx, ec, osdCount, pvcRequest)
-	if !r.advance(status, v1alpha1.ECConditionCephClusterReady, cephDone, msg, err) {
+	if !r.advance(status, v1alpha1.ECConditionCephClusterReady, cephDone, "", msg, err) {
 		return r.finishReconcile(ctx, ec, status, err)
 	}
 
 	credsDone, msg, err := r.ensureCredentials(ctx, ec, status)
-	if !r.advance(status, v1alpha1.ECConditionCredentialsReady, credsDone, msg, err) {
+	if !r.advance(status, v1alpha1.ECConditionCredentialsReady, credsDone, "", msg, err) {
 		return r.finishReconcile(ctx, ec, status, err)
 	}
 
 	csiDone, msg, err := r.ensureCsiCeph(ctx, ec, status)
-	if !r.advance(status, v1alpha1.ECConditionCsiCephReady, csiDone, msg, err) {
+	if !r.advance(status, v1alpha1.ECConditionCsiCephReady, csiDone, "", msg, err) {
 		return r.finishReconcile(ctx, ec, status, err)
 	}
 
 	upgDone, inProgress, msg, err := r.ensureUpgrade(ctx, ec, status)
-	if !r.advance(status, v1alpha1.ECConditionUpgradeReady, upgDone, msg, err) {
+	if !r.advance(status, v1alpha1.ECConditionUpgradeReady, upgDone, "", msg, err) {
 		// UpgradeInProgress is a signal alongside the gate; keep it accurate
 		// even on the failed path so consumers (UI / metrics) can tell apart
 		// a hung pre-upgrade health gate from an active rollout.
@@ -265,19 +265,26 @@ func (r *ElasticClusterReconciler) reconcileNormal(ctx context.Context, ec *v1al
 // whether the FSM is allowed to progress to the next stage.
 //
 //   - err != nil  → condition False/Error, downstream gated, return false.
-//   - !done       → condition False/InProgress, downstream gated, return false.
+//   - !done       → condition False/<reason or InProgress>, downstream gated,
+//     return false. `reason` lets a stage publish a richer machine-readable
+//     cause (e.g. "WaitingForLVG", "WaitingForLLV") so a UI can dispatch on
+//     reason without parsing the human-readable message. Empty `reason`
+//     falls back to the generic "InProgress".
 //   - done        → condition True/Ready, return true.
 //
 // The aggregate Ready condition is also pushed to False on every non-pass
 // outcome so the printer column never lies about cluster readiness while
 // any stage is unhealthy.
-func (r *ElasticClusterReconciler) advance(status *ecStatusBuilder, condType string, done bool, msg string, err error) bool {
+func (r *ElasticClusterReconciler) advance(status *ecStatusBuilder, condType string, done bool, reason, msg string, err error) bool {
 	switch {
 	case err != nil:
 		status.setCondition(condType, metav1.ConditionFalse, "Error", err.Error())
 		gateAfter(status, condType)
 	case !done:
-		status.setCondition(condType, metav1.ConditionFalse, "InProgress", msg)
+		if reason == "" {
+			reason = "InProgress"
+		}
+		status.setCondition(condType, metav1.ConditionFalse, reason, msg)
 		gateAfter(status, condType)
 	default:
 		status.setCondition(condType, metav1.ConditionTrue, "Ready", msg)
