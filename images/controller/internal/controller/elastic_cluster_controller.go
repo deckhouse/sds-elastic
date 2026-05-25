@@ -227,12 +227,12 @@ var stageOrder = []string{
 func (r *ElasticClusterReconciler) reconcileNormal(ctx context.Context, ec *v1alpha1.ElasticCluster) (ctrl.Result, error) {
 	status := newECStatusBuilder(ec)
 
-	storageDone, osdCount, msg, err := r.ensureStorage(ctx, ec)
+	storageDone, osdCount, pvcRequest, msg, err := r.ensureStorage(ctx, ec)
 	if !r.advance(status, v1alpha1.ECConditionStorageReady, storageDone, msg, err) {
 		return r.finishReconcile(ctx, ec, status, err)
 	}
 
-	cephDone, msg, err := r.ensureCephCluster(ctx, ec, osdCount)
+	cephDone, msg, err := r.ensureCephCluster(ctx, ec, osdCount, pvcRequest)
 	if !r.advance(status, v1alpha1.ECConditionCephClusterReady, cephDone, msg, err) {
 		return r.finishReconcile(ctx, ec, status, err)
 	}

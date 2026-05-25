@@ -21,6 +21,7 @@ import (
 	"fmt"
 
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
+	"k8s.io/apimachinery/pkg/api/resource"
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
 	"k8s.io/apimachinery/pkg/types"
 
@@ -34,14 +35,19 @@ import (
 // MONs reached quorum, OSDs are up). Until then the controller keeps
 // requeuing — Rook owns the convergence loop, sds-elastic only translates
 // the CR.
-func (r *ElasticClusterReconciler) ensureCephCluster(ctx context.Context, ec *v1alpha1.ElasticCluster, osdCount int32) (bool, string, error) {
+//
+// pvcStorageRequest must equal min(BD.size) over the BDs that ensureStorage
+// adopted for this EC; it is propagated into the CephCluster's
+// volumeClaimTemplates[0].spec.resources.requests.storage so that every
+// per-OSD PVC binds to one of the local-PVs produced by ensureStorage.
+func (r *ElasticClusterReconciler) ensureCephCluster(ctx context.Context, ec *v1alpha1.ElasticCluster, osdCount int32, pvcStorageRequest resource.Quantity) (bool, string, error) {
 	cephImage, err := builder.CephImage(r.Cfg.CephImages, v1alpha1.DefaultCephVersion)
 	if err != nil {
 		return false, "", err
 	}
 
 	placementAll := builder.ECPlacementAll(ec, nil /* tolerations TBD via module config */)
-	desired := builder.ECCephCluster(ec, r.Cfg.ControllerNamespace, cephImage, osdCount, placementAll)
+	desired := builder.ECCephCluster(ec, r.Cfg.ControllerNamespace, cephImage, osdCount, pvcStorageRequest, placementAll)
 	if err := r.upsertECUnstructured(ctx, desired); err != nil {
 		if isNoMatchErr(err) {
 			return false, "waiting for CephCluster CRD (Rook)", nil

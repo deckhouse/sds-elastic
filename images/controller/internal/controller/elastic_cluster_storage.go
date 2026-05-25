@@ -46,6 +46,13 @@ import (
 //   - osdCount   — the total number of OSDs (== matched BlockDevices). Passed
 //     to the CephCluster builder so storageClassDeviceSets[0]
 //     asks for exactly the right number of PVCs.
+//   - pvcRequest — min(BD.size) across all selected BDs. Equal to the
+//     capacity of the smallest local-PV produced by this stage and used
+//     by ensureCephCluster to populate volumeClaimTemplates[0].spec.
+//     resources.requests.storage. The K8s PV binder requires
+//     PV.capacity >= PVC.requests.storage, so taking the minimum of the
+//     PV capacities guarantees every set1-data-* PVC can bind to one of
+//     the local-PVs. Zero-value Quantity when no BD was selected.
 //   - msg        — human-readable status surfaced on the StorageReady cond.
 //
 // Adoption: every selected BD gets the ECClusterLabel=<ec.Name> label
@@ -55,20 +62,21 @@ import (
 // reconcile and trigger a destructive osdCount shrink. The label keeps
 // adopted BDs included in `listMatchingBlockDevices` regardless of the
 // downstream consumable flag.
-func (r *ElasticClusterReconciler) ensureStorage(ctx context.Context, ec *v1alpha1.ElasticCluster) (bool, int32, string, error) {
+func (r *ElasticClusterReconciler) ensureStorage(ctx context.Context, ec *v1alpha1.ElasticCluster) (bool, int32, resource.Quantity, string, error) {
 	matchedBDs, err := r.listMatchingBlockDevices(ctx, ec)
 	if err != nil {
 		if isNoMatchErr(err) {
-			return false, 0, "waiting for BlockDevice CRD (sds-node-configurator)", nil
+			return false, 0, resource.Quantity{}, "waiting for BlockDevice CRD (sds-node-configurator)", nil
 		}
-		return false, 0, "", fmt.Errorf("list BlockDevices: %w", err)
+		return false, 0, resource.Quantity{}, "", fmt.Errorf("list BlockDevices: %w", err)
 	}
 	if len(matchedBDs) == 0 {
-		return false, 0, "no BlockDevices match storage.{nodeSelector,blockDeviceSelector}", nil
+		return false, 0, resource.Quantity{}, "no BlockDevices match storage.{nodeSelector,blockDeviceSelector}", nil
 	}
 
 	selected := int32(0)
 	skipped := []string{}
+	var minSize resource.Quantity
 	for i := range matchedBDs {
 		bd := matchedBDs[i]
 		bdName := bd.GetName()
@@ -85,38 +93,41 @@ func (r *ElasticClusterReconciler) ensureStorage(ctx context.Context, ec *v1alph
 		}
 
 		if err := r.adoptBlockDevice(ctx, &bd, ec); err != nil {
-			return false, 0, "", fmt.Errorf("adopt BlockDevice %q: %w", bdName, err)
+			return false, 0, resource.Quantity{}, "", fmt.Errorf("adopt BlockDevice %q: %w", bdName, err)
 		}
 
 		lvg := builder.ECLVMVolumeGroup(ec, bdName, nodeName)
 		if err := r.upsertECUnstructured(ctx, lvg); err != nil {
 			if isNoMatchErr(err) {
-				return false, 0, "waiting for LVMVolumeGroup CRD (sds-node-configurator)", nil
+				return false, 0, resource.Quantity{}, "waiting for LVMVolumeGroup CRD (sds-node-configurator)", nil
 			}
-			return false, 0, "", fmt.Errorf("upsert LVMVolumeGroup %s: %w", lvg.GetName(), err)
+			return false, 0, resource.Quantity{}, "", fmt.Errorf("upsert LVMVolumeGroup %s: %w", lvg.GetName(), err)
 		}
 
 		llv := builder.ECLVMLogicalVolume(ec, bdName)
 		if err := r.upsertECUnstructured(ctx, llv); err != nil {
 			if isNoMatchErr(err) {
-				return false, 0, "waiting for LVMLogicalVolume CRD (sds-node-configurator)", nil
+				return false, 0, resource.Quantity{}, "waiting for LVMLogicalVolume CRD (sds-node-configurator)", nil
 			}
-			return false, 0, "", fmt.Errorf("upsert LVMLogicalVolume %s: %w", llv.GetName(), err)
+			return false, 0, resource.Quantity{}, "", fmt.Errorf("upsert LVMLogicalVolume %s: %w", llv.GetName(), err)
 		}
 
 		pv := builder.ECOSDPersistentVolume(ec, bdName, nodeName, capacity)
 		if err := r.upsertECPersistentVolume(ctx, pv); err != nil {
-			return false, 0, "", fmt.Errorf("upsert PersistentVolume %s: %w", pv.Name, err)
+			return false, 0, resource.Quantity{}, "", fmt.Errorf("upsert PersistentVolume %s: %w", pv.Name, err)
+		}
+		if selected == 0 || capacity.Cmp(minSize) < 0 {
+			minSize = capacity
 		}
 		selected++
 	}
 
 	if len(skipped) > 0 {
-		return false, selected,
+		return false, selected, minSize,
 			fmt.Sprintf("selected %d BlockDevices for LVG/LLV/PV provisioning; skipped %d unusable: %v", selected, len(skipped), skipped),
 			nil
 	}
-	return true, selected,
+	return true, selected, minSize,
 		fmt.Sprintf("selected %d BlockDevices for LVG/LLV/PV provisioning", selected), nil
 }
 

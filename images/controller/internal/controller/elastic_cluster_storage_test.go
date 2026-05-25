@@ -22,6 +22,7 @@ import (
 	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
 	corev1 "k8s.io/api/core/v1"
+	"k8s.io/apimachinery/pkg/api/resource"
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
 	"k8s.io/apimachinery/pkg/types"
 	"sigs.k8s.io/controller-runtime/pkg/client"
@@ -52,10 +53,13 @@ var _ = Describe("ensureStorage", func() {
 		})
 
 		It("provisions LVG, LLV, PV and adopts BlockDevices", func() {
-			done, osdCount, msg, err := r.ensureStorage(ctx, ec)
+			done, osdCount, pvcRequest, msg, err := r.ensureStorage(ctx, ec)
 			Expect(err).NotTo(HaveOccurred())
 			Expect(done).To(BeTrue())
 			Expect(osdCount).To(Equal(int32(3)))
+			expected100Gi := resource.MustParse("100Gi")
+			Expect(pvcRequest.Cmp(expected100Gi)).To(Equal(0),
+				"pvcRequest must equal min(BD.size) = 100Gi, got %s", pvcRequest.String())
 			Expect(msg).To(ContainSubstring("selected 3 BlockDevices"))
 
 			for _, bdName := range []string{"bd-a", "bd-b", "bd-c"} {
@@ -92,10 +96,13 @@ var _ = Describe("ensureStorage", func() {
 		})
 
 		It("provisions healthy devices and reports skipped ones", func() {
-			done, osdCount, msg, err := r.ensureStorage(ctx, ec)
+			done, osdCount, pvcRequest, msg, err := r.ensureStorage(ctx, ec)
 			Expect(err).NotTo(HaveOccurred())
 			Expect(done).To(BeFalse())
 			Expect(osdCount).To(Equal(int32(1)))
+			expected100Gi := resource.MustParse("100Gi")
+			Expect(pvcRequest.Cmp(expected100Gi)).To(Equal(0),
+				"only bd-good is selected, so pvcRequest must equal its 100Gi size, got %s", pvcRequest.String())
 			Expect(msg).To(ContainSubstring("skipped"))
 			// Empty nodeName is filtered in listMatchingBlockDevices (not matchingNodes[""]).
 			Expect(msg).To(ContainSubstring("bd-bad-size"))
@@ -106,10 +113,11 @@ var _ = Describe("ensureStorage", func() {
 		It("returns in-progress with zero osdCount", func() {
 			cl = newFakeClient(ec, newTestNode("node-a"))
 			r = newElasticClusterReconciler(cl)
-			done, osdCount, msg, err := r.ensureStorage(ctx, ec)
+			done, osdCount, pvcRequest, msg, err := r.ensureStorage(ctx, ec)
 			Expect(err).NotTo(HaveOccurred())
 			Expect(done).To(BeFalse())
 			Expect(osdCount).To(Equal(int32(0)))
+			Expect(pvcRequest.IsZero()).To(BeTrue(), "pvcRequest must be zero when no BD selected")
 			Expect(msg).To(ContainSubstring("no BlockDevices match"))
 		})
 	})
@@ -124,10 +132,12 @@ var _ = Describe("ensureStorage", func() {
 				}),
 			)
 			r = newElasticClusterReconciler(cl)
-			done, osdCount, _, err := r.ensureStorage(ctx, ec)
+			done, osdCount, pvcRequest, _, err := r.ensureStorage(ctx, ec)
 			Expect(err).NotTo(HaveOccurred())
 			Expect(done).To(BeTrue())
 			Expect(osdCount).To(Equal(int32(1)))
+			expected100Gi := resource.MustParse("100Gi")
+			Expect(pvcRequest.Cmp(expected100Gi)).To(Equal(0))
 		})
 	})
 })

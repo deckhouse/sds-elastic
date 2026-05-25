@@ -34,14 +34,6 @@ const (
 	ECOSDStorageClassDeviceSetName = "set1"
 )
 
-// OSDPVCRequestedStorage is the storage request set on the OSD PVC
-// volumeClaimTemplate. The value is intentionally larger than any realistic
-// local-PV capacity so the WaitForFirstConsumer scheduler never rejects the
-// PVC for being "too small". The actual size is determined by the bound PV
-// (built by ECOSDPersistentVolume). resource.MustParse panics at init time
-// on a malformed literal, which catches typos like "1Pii" before any apply.
-var OSDPVCRequestedStorage = resource.MustParse("1Pi")
-
 // ECCephClusterDataDirHostPath returns the dataDirHostPath used by Rook for
 // mon and OSD bookkeeping data. Per ElasticCluster to keep multiple clusters
 // (future) on the same host isolated.
@@ -65,7 +57,14 @@ func ECCephClusterDataDirHostPath(ec *v1alpha1.ElasticCluster) string {
 //   - skipUpgradeChecks=false, continueUpgradeAfterChecksEvenIfNotHealthy=false.
 //   - One storageClassDeviceSet bound to ReservedOSDStorageClassName; count
 //     is supplied by the caller (it equals the number of LLV/PV pairs the
-//     storage stage produced).
+//     storage stage produced). volumeClaimTemplates[0].spec.resources.requests.
+//     storage is set to pvcStorageRequest, which the caller must compute as
+//     min(BD.size) over the BDs adopted in the storage stage. The K8s PV
+//     binder requires PV.capacity >= PVC.requests.storage, so passing the
+//     smallest PV's capacity guarantees every set1-data-* PVC binds to one
+//     of the local-PVs built by ECOSDPersistentVolume(). Setting the request
+//     larger than any PV capacity (e.g. 1Pi) used to leave PVCs Pending and
+//     OSD prepare jobs unscheduled.
 //   - placement.all is fully assembled by the caller via ECPlacementAll(),
 //     including nodeAffinity AND tolerations. Per Rook semantics, placement
 //     under "all" propagates to every Ceph role (mon/mgr/osd/mds).
@@ -73,6 +72,7 @@ func ECCephCluster(
 	ec *v1alpha1.ElasticCluster,
 	namespace, cephImage string,
 	osdCount int32,
+	pvcStorageRequest resource.Quantity,
 	placementAll map[string]interface{},
 ) *unstructured.Unstructured {
 	monSpec := map[string]interface{}{
@@ -119,7 +119,7 @@ func ECCephCluster(
 						"spec": map[string]interface{}{
 							"resources": map[string]interface{}{
 								"requests": map[string]interface{}{
-									"storage": OSDPVCRequestedStorage.String(),
+									"storage": pvcStorageRequest.String(),
 								},
 							},
 							"storageClassName": external.ReservedOSDStorageClassName,

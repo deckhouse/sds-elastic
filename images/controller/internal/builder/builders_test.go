@@ -21,6 +21,7 @@ import (
 
 	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
+	"k8s.io/apimachinery/pkg/api/resource"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
 
@@ -151,6 +152,45 @@ var _ = Describe("builders", func() {
 			conn := ECCephClusterConnection(ec, "fsid", "key", []string{"10.0.0.1:6789"}, false)
 			_, found, _ := unstructuredNestedMap(conn, "spec", "cephFS")
 			Expect(found).To(BeFalse())
+		})
+	})
+
+	Describe("ECCephCluster", func() {
+		It("threads pvcStorageRequest into volumeClaimTemplates[0].spec.resources.requests.storage", func() {
+			pvcReq := resource.MustParse("50Gi")
+			cc := ECCephCluster(ec, "d8-sds-elastic", "registry.example.com/ceph:v19", int32(3), pvcReq, nil)
+
+			sets, found, err := unstructuredNestedSlice(cc, "spec", "storage", "storageClassDeviceSets")
+			Expect(err).NotTo(HaveOccurred())
+			Expect(found).To(BeTrue())
+			Expect(sets).To(HaveLen(1))
+
+			set0 := sets[0].(map[string]interface{})
+			Expect(set0["count"]).To(Equal(int64(3)))
+
+			templates := set0["volumeClaimTemplates"].([]interface{})
+			Expect(templates).To(HaveLen(1))
+
+			tpl0 := templates[0].(map[string]interface{})
+			spec := tpl0["spec"].(map[string]interface{})
+			res := spec["resources"].(map[string]interface{})
+			req := res["requests"].(map[string]interface{})
+			Expect(req["storage"]).To(Equal("50Gi"),
+				"PVC request must equal the smallest local-PV's capacity (50Gi) so the K8s PV binder can satisfy PV.capacity >= PVC.requests.storage")
+		})
+
+		It("renders different pvcStorageRequest values verbatim (1Gi vs 2Ti)", func() {
+			small := ECCephCluster(ec, "ns", "img", int32(1), resource.MustParse("1Gi"), nil)
+			big := ECCephCluster(ec, "ns", "img", int32(1), resource.MustParse("2Ti"), nil)
+
+			storageOf := func(o *unstructured.Unstructured) string {
+				sets, _, _ := unstructuredNestedSlice(o, "spec", "storage", "storageClassDeviceSets")
+				tpl0 := sets[0].(map[string]interface{})["volumeClaimTemplates"].([]interface{})[0].(map[string]interface{})
+				spec := tpl0["spec"].(map[string]interface{})
+				return spec["resources"].(map[string]interface{})["requests"].(map[string]interface{})["storage"].(string)
+			}
+			Expect(storageOf(small)).To(Equal("1Gi"))
+			Expect(storageOf(big)).To(Equal("2Ti"))
 		})
 	})
 })
