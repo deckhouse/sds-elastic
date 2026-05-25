@@ -48,4 +48,4 @@ The module deploys the Rook Ceph operator, the `rook-ceph-operator-config` Confi
 - The name `sds-elastic-osd` is reserved for the helm-managed internal `StorageClass`; `ElasticStorageClass` resources with this `metadata.name` are rejected by the webhook.
 - `RBD` + `ErasureCodedCompact` is rejected: csi-ceph does not yet provision RBD volumes on erasure-coded pools.
 - Vendor Rook and Ceph CRDs are bundled with the module and are not user-configurable.
-- Finalizer-based cluster GC is not yet wired (planned, B-N1 in the backlog). For the experimental stage, deleting the `ElasticCluster` clears the controller-managed objects but does not orchestrate Rook teardown; manual cleanup may be required.
+- Finalizer-based cluster GC is not yet wired (planned, B20 in the backlog). For the experimental stage, deleting the `ElasticCluster` clears the controller-managed objects but does not orchestrate Rook teardown; manual cleanup may be required.

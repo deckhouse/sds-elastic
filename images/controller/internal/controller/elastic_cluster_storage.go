@@ -202,7 +202,7 @@ func (r *ElasticClusterReconciler) matchingNodeNames(ctx context.Context, sel la
 // upsertECPersistentVolume creates or patches a PV labelled with
 // ECClusterLabel=<ec.Name>. Only labels are reconciled; PV is otherwise
 // immutable after Bound. NodeAffinity drift on host rename is tracked in
-// backlog item B-N1 alongside the rest of the OwnerReferences/finalizers
+// backlog item B20 alongside the rest of the OwnerReferences/finalizers
 // work — a host rename is rare and out of MVP scope.
 func (r *ElasticClusterReconciler) upsertECPersistentVolume(ctx context.Context, desired *corev1.PersistentVolume) error {
 	existing := &corev1.PersistentVolume{}

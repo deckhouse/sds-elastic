@@ -174,7 +174,7 @@ func (r *ElasticStorageClassReconciler) ensureCsiStorageClass(ctx context.Contex
 }
 
 // upsertESCUnstructured is a near-duplicate of upsertECUnstructured.
-// B-N3 in the backlog tracks the upserter-interface refactor that will
+// B19 in the backlog tracks the upserter-interface refactor that will
 // collapse both into a shared helper.
 func (r *ElasticStorageClassReconciler) upsertESCUnstructured(ctx context.Context, desired *unstructured.Unstructured) error {
 	gvk := desired.GroupVersionKind()

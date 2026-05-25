@@ -48,4 +48,4 @@ weight: 1
 - Имя `sds-elastic-osd` зарезервировано под helm-managed внутренний `StorageClass`; `ElasticStorageClass` с таким `metadata.name` отклоняется вебхуком.
 - Комбинация `RBD` + `ErasureCodedCompact` запрещена: csi-ceph пока не умеет provisioner-ить RBD-тома на erasure-coded пулах.
 - CRD Rook и Ceph входят в поставку модуля и не настраиваются пользователем.
-- GC кластера через finalizer'ы пока не подключён (запланировано в backlog как B-N1). На стадии experimental удаление `ElasticCluster` обнуляет ресурсы, которыми владеет контроллер, но не оркестрирует teardown Rook — может потребоваться ручная зачистка.
+- GC кластера через finalizer'ы пока не подключён (запланировано в backlog как B20). На стадии experimental удаление `ElasticCluster` обнуляет ресурсы, которыми владеет контроллер, но не оркестрирует teardown Rook — может потребоваться ручная зачистка.

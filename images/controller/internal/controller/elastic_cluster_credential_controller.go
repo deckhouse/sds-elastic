@@ -59,16 +59,16 @@ import (
 //
 // The third flow — RESTORE (re-create the rook-ceph-mon Secret from
 // ECC.spec on namespace re-create) — is intentionally NOT implemented
-// in the MVP and is tracked as part of B-N1 backlog item.
+// in the MVP and is tracked as part of B20 backlog item.
 //
 // Drift detection (verifying the live Rook Secret still matches ECC) is
 // also out of scope: the BACK-SYNC direction always overwrites a stale
 // ECC, so a drift between Rook and ECC self-heals on the next reconcile.
 //
 // Finalizers are not used: ECC ownership is bound to the parent
-// ElasticCluster via OwnerReferences (added in B-N1). For the MVP
+// ElasticCluster via OwnerReferences (added in B20). For the MVP
 // deletion of an ECC is a no-op; deletion of the parent EC orphans the
-// ECC until B-N1 lands.
+// ECC until B20 lands.
 type ElasticClusterCredentialReconciler struct {
 	Client client.Client
 	Log    *logger.Logger
@@ -144,14 +144,14 @@ func (r *ElasticClusterCredentialReconciler) enqueueAllECC(ctx context.Context, 
 // Steps:
 //
 //  1. Locate the parent EC. If absent, the ECC is orphaned — the MVP
-//     leaves it untouched (B-N1 will introduce finalizer cleanup).
+//     leaves it untouched (B20 will introduce finalizer cleanup).
 //  2. Ensure an ECC object exists for this EC (Get-or-Create with empty
 //     spec). The empty-spec window is intentional — the OpenAPI schema
 //     does not require any of the three fields. The validating webhook
 //     only enforces FSID immutability after first population; a
 //     "may not transition phase=Populated unless all three fields are
 //     non-empty" rule is intentionally NOT enforced for the MVP and is
-//     tracked under backlog item B-N5.
+//     tracked under backlog item B22.
 //  3. Read Secret/rook-ceph-mon. Missing or partial Secret → status
 //     Phase=Pending, no spec mutation.
 //  4. Compute desired spec from the Secret. If different from current,
@@ -165,7 +165,7 @@ func (r *ElasticClusterCredentialReconciler) Reconcile(ctx context.Context, req 
 	ec := &v1alpha1.ElasticCluster{}
 	switch err := r.Client.Get(ctx, client.ObjectKey{Name: req.Name}, ec); {
 	case apierrors.IsNotFound(err):
-		// ECC orphaned (parent EC deleted). MVP leaves cleanup to B-N1.
+		// ECC orphaned (parent EC deleted). MVP leaves cleanup to B20.
 		return ctrl.Result{}, nil
 	case err != nil:
 		return ctrl.Result{}, err

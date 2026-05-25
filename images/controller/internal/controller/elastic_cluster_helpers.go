@@ -31,7 +31,7 @@ import (
 // patches .spec / .metadata.labels when they differ from the existing
 // object. The existing .status is never touched (Rook/csi-ceph/SNC own it).
 //
-// B-N3 in the backlog tracks the upserter-interface refactor that will
+// B19 in the backlog tracks the upserter-interface refactor that will
 // collapse this method and ElasticStorageClassReconciler.upsertESCUnstructured
 // into a shared helper.
 func (r *ElasticClusterReconciler) upsertECUnstructured(ctx context.Context, desired *unstructured.Unstructured) error {

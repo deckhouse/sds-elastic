@@ -198,7 +198,7 @@ d8 k delete elasticcluster ceph-prod
 ```
 
 {{< alert level="warning" >}}
-GC через finalizer'ы для ElasticCluster / ElasticStorageClass запланирован (B-N1 в backlog), но ещё не реализован. На стадии experimental удаление обнуляет ресурсы, которыми владеет контроллер, но не оркестрирует teardown Rook end-to-end — может потребоваться ручная зачистка OSD-устройств, `cephx`-учёток и оставшихся Rook-CR. Не удаляйте `ElasticCluster`, пока в пулах есть полезные данные.
+GC через finalizer'ы для ElasticCluster / ElasticStorageClass запланирован (B20 в backlog), но ещё не реализован. На стадии experimental удаление обнуляет ресурсы, которыми владеет контроллер, но не оркестрирует teardown Rook end-to-end — может потребоваться ручная зачистка OSD-устройств, `cephx`-учёток и оставшихся Rook-CR. Не удаляйте `ElasticCluster`, пока в пулах есть полезные данные.
 {{< /alert >}}
 
 ## Отключение модуля

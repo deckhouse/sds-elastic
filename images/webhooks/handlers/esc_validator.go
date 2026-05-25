@@ -33,7 +33,7 @@ import (
 // a separate go module (`images/webhooks/go.mod`) and pulling the typed
 // API package would require adding a `require` + `replace` directive to
 // that module — a cross-module dependency we deferred to backlog item
-// B-N3 (which collapses both reconcilers and the webhook onto a shared
+// B19 (which collapses both reconcilers and the webhook onto a shared
 // helper layer).
 const reservedOSDStorageClassName = "sds-elastic-osd"
 

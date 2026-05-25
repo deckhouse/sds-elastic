@@ -88,7 +88,7 @@ type ElasticClusterReconciler struct {
 //
 // Every external watch enqueues every ElasticCluster (low cardinality:
 // one EC per cluster in MVP). Per-resource filtering through field
-// selectors / label selectors is a backlog optimisation (B-N2).
+// selectors / label selectors is a backlog optimisation (B21).
 //
 // Watches on third-party CRDs that are not yet registered tolerate
 // NoMatchError at runtime: stages probe IsNoMatchError on every Get/upsert
@@ -132,7 +132,7 @@ func AddElasticClusterReconcilerToManager(mgr manager.Manager, cfg *config.Optio
 	// Trade-off: if a dependency CRD is installed AFTER the sds-elastic
 	// pod starts, the controller will not auto-watch it; the operator must
 	// restart the pod (or wait for a leader-election cycle). Tracked as
-	// part of B-N1 (the rebuild-on-CRD-install loop is small and shares
+	// part of B20 (the rebuild-on-CRD-install loop is small and shares
 	// scope with the OwnerReferences/finalizer work).
 	mapper := mgr.GetRESTMapper()
 	for _, gvk := range []schema.GroupVersionKind{
@@ -200,14 +200,14 @@ func (r *ElasticClusterReconciler) Reconcile(ctx context.Context, req ctrl.Reque
 
 	// MVP intentionally leaks downstream resources on EC deletion: no
 	// OwnerReferences are wired and no finalizer is taken on the EC.
-	// Backlog item B-N1 ("OwnerReferences and two-step deletion safety")
+	// Backlog item B20 ("OwnerReferences and two-step deletion safety")
 	// is the canonical place to introduce graceful teardown — labelled
 	// LVG/LLV/PV/CephClusterConnection, the two-step confirm-delete
 	// annotation, finalizer stripping, and the force-delete grace
-	// window. Until B-N1 lands, deletion of the EC CR is a no-op for
+	// window. Until B20 lands, deletion of the EC CR is a no-op for
 	// downstream resources and operators clean them up manually.
 	if ec.DeletionTimestamp != nil {
-		r.Log.Info(fmt.Sprintf("[Reconcile] ElasticCluster %q is being deleted; downstream resources are NOT garbage-collected (B-N1)", ec.Name))
+		r.Log.Info(fmt.Sprintf("[Reconcile] ElasticCluster %q is being deleted; downstream resources are NOT garbage-collected (B20)", ec.Name))
 		return ctrl.Result{}, nil
 	}
 

@@ -198,7 +198,7 @@ d8 k delete elasticcluster ceph-prod
 ```
 
 {{< alert level="warning" >}}
-Finalizer-based GC for ElasticCluster / ElasticStorageClass is planned (B-N1 in the backlog) but not yet implemented. On the experimental stage deletion clears controller-owned objects but does not orchestrate Rook teardown end-to-end; manual cleanup of OSD devices / `cephx` entries / leftover Rook CRs may be required. Do not delete the `ElasticCluster` while pools still hold useful data.
+Finalizer-based GC for ElasticCluster / ElasticStorageClass is planned (B20 in the backlog) but not yet implemented. On the experimental stage deletion clears controller-owned objects but does not orchestrate Rook teardown end-to-end; manual cleanup of OSD devices / `cephx` entries / leftover Rook CRs may be required. Do not delete the `ElasticCluster` while pools still hold useful data.
 {{< /alert >}}
 
 ## Disabling the Module

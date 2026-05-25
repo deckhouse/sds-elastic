@@ -21,7 +21,7 @@ Changes:
   enforces `sds-elastic-osd` name reservation, `clusterRef`/`type`/`replication` immutability,
   and `RBD + ErasureCodedCompact` prohibition. `elastic-cluster-credential-validation`
   ensures that the FSID is immutable after the first population.
-- Added module hooks. `010-uninstall` - preparation for GC via finalizers (B-N1 in
+- Added module hooks. `010-uninstall` - preparation for GC via finalizers (B20 in
   the backlog). `020-webhook-certs` prepares TLS material for validating webhooks.
 breaking_changes: 'This release replaces the `SdsElasticCluster` aggregate API with
   three CRs above. Operators upgrading from an early dev build need to perform a manual

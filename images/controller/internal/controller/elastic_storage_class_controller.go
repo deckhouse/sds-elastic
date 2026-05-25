@@ -103,7 +103,7 @@ func AddElasticStorageClassReconcilerToManager(mgr manager.Manager, cfg *config.
 	// GenerationChangedPredicate would silently break the gate. Fire on
 	// real CephClusterReady transitions only — that is the only EC field
 	// the ESC FSM consults. Create / Delete events still propagate
-	// (initial-creation enqueue, finalizer cleanup B-N1).
+	// (initial-creation enqueue, finalizer cleanup B20).
 	ecCephClusterReadyPredicate := predicate.Funcs{
 		CreateFunc:  func(_ event.CreateEvent) bool { return true },
 		DeleteFunc:  func(_ event.DeleteEvent) bool { return true },
@@ -158,7 +158,7 @@ func ecCephClusterReadyState(ec *v1alpha1.ElasticCluster) string {
 
 // enqueueAllESC returns a Reconcile request for every ElasticStorageClass.
 // Coarse-grained but cheap given MVP cardinality. The per-ESC field
-// indexer over spec.clusterRef is tracked in B-N2.
+// indexer over spec.clusterRef is tracked in B21.
 func (r *ElasticStorageClassReconciler) enqueueAllESC(ctx context.Context, _ client.Object) []reconcile.Request {
 	list := &v1alpha1.ElasticStorageClassList{}
 	if err := r.Client.List(ctx, list); err != nil {
@@ -176,7 +176,7 @@ func (r *ElasticStorageClassReconciler) enqueueAllESC(ctx context.Context, _ cli
 
 // enqueueESCByCluster maps an ElasticCluster event to every ESC that
 // references it via spec.clusterRef. Without a field indexer the lookup
-// is a linear scan over all ESCs (B-N2 to add the indexer).
+// is a linear scan over all ESCs (B21 to add the indexer).
 func (r *ElasticStorageClassReconciler) enqueueESCByCluster(ctx context.Context, o client.Object) []reconcile.Request {
 	ecName := o.GetName()
 	list := &v1alpha1.ElasticStorageClassList{}
@@ -197,7 +197,7 @@ func (r *ElasticStorageClassReconciler) enqueueESCByCluster(ctx context.Context,
 }
 
 // Reconcile dispatches the ESC FSM. Deletion is a no-op in the MVP
-// (B-N1 owns finalizer/garbage-collection of the downstream
+// (B20 owns finalizer/garbage-collection of the downstream
 // CephBlockPool / CephFilesystem / CephStorageClass).
 func (r *ElasticStorageClassReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.Result, error) {
 	r.Log.Info(fmt.Sprintf("[Reconcile] start for ElasticStorageClass %q", req.Name))
@@ -213,10 +213,10 @@ func (r *ElasticStorageClassReconciler) Reconcile(ctx context.Context, req ctrl.
 		// Mirror the EC reconciler's deletion contract: MVP intentionally
 		// leaks the downstream CephBlockPool / CephFilesystem / csi-ceph
 		// CephStorageClass on ESC deletion. Finalizer-based GC is part of
-		// B-N1; this log line is the only operator-visible signal of the
+		// B20; this log line is the only operator-visible signal of the
 		// contract at runtime.
 		r.Log.Warning(fmt.Sprintf(
-			"[Reconcile] ElasticStorageClass %q is being deleted; downstream resources are NOT garbage-collected (B-N1)",
+			"[Reconcile] ElasticStorageClass %q is being deleted; downstream resources are NOT garbage-collected (B20)",
 			esc.Name,
 		))
 		return ctrl.Result{}, nil

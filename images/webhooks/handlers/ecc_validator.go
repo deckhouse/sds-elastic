@@ -53,8 +53,8 @@ import (
 // MonSecret / AdminSecret are intentionally NOT immutable here — Rook
 // rotates the cephx secrets and the BACK-SYNC reconciler must be free
 // to update the mirror. RESTORE-direction validation (ECC.spec → live
-// Secret) is part of B-N1 and out of scope for the MVP; "fully
-// populated on Phase=Populated" is also out of scope (B-N5) — the
+// Secret) is part of B20 and out of scope for the MVP; "fully
+// populated on Phase=Populated" is also out of scope (B22) — the
 // controller-side comment in
 // `images/controller/internal/controller/elastic_cluster_credential_controller.go`
 // has been brought in line with this.

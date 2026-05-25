@@ -38,7 +38,7 @@ var WebhookConfigurationsToDelete = []string{
 
 // CRGVKsForFinalizerRemoval lists CRs the module creates and which may
 // carry a controller-managed finalizer. Finalizer-based GC is tracked
-// in backlog item B-N1; the entries below are kept ready so the module
+// in backlog item B20; the entries below are kept ready so the module
 // uninstall hook is a no-op until the controllers start setting them.
 var CRGVKsForFinalizerRemoval = []CRGVK{
 	{Group: "storage.deckhouse.io", Version: "v1alpha1", Kind: "ElasticCluster", Namespaced: false},
