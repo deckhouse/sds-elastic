@@ -228,6 +228,7 @@ func (r *ElasticClusterReconciler) reconcileNormal(ctx context.Context, ec *v1al
 	status := newECStatusBuilder(ec)
 
 	storageDone, osdCount, pvcRequest, storageReason, msg, err := r.ensureStorage(ctx, ec)
+	status.desiredOSDs = osdCount
 	if !r.advance(status, v1alpha1.ECConditionStorageReady, storageDone, storageReason, msg, err) {
 		return r.finishReconcile(ctx, ec, status, err)
 	}
@@ -354,6 +355,12 @@ func (r *ElasticClusterReconciler) finishReconcile(
 	status *ecStatusBuilder,
 	reconcileErr error,
 ) (ctrl.Result, error) {
+	// Populate observability fields on every exit path so the UI gets
+	// the latest health/capacity/Pod-count snapshot whether or not the
+	// FSM converged this reconcile. Best-effort: any error inside
+	// populateObservability is logged and absorbed.
+	r.populateObservability(ctx, ec, status, status.desiredOSDs)
+	status.observed = true
 	if err := r.updateECStatus(ctx, ec, status); err != nil {
 		r.Log.Error(err, "[finishReconcile] unable to update status")
 		if reconcileErr == nil {
@@ -393,6 +400,30 @@ type ecStatusBuilder struct {
 	monMaxID       string
 	credentialsRef *v1alpha1.ElasticClusterCredentialRef
 	cephVersion    *v1alpha1.CephVersionStatus
+
+	// Observability fields populated by populateObservability after the
+	// FSM stages have run. Pointer-typed: nil means "not observed yet";
+	// updateECStatus only overwrites the corresponding latest.Status.*
+	// when the pointer is non-nil so a stage that fails before
+	// populateObservability runs does not destroy a previously-published
+	// snapshot.
+	health   *v1alpha1.CephHealthStatus
+	capacity *v1alpha1.CephCapacityStatus
+	osds     *v1alpha1.OSDStatus
+	mons     *v1alpha1.DaemonStatus
+	mgrs     *v1alpha1.DaemonStatus
+
+	// observed marks whether populateObservability ran in this reconcile.
+	// When true, updateECStatus also clears stale observability fields
+	// (e.g. CephCluster removed → status.health goes back to nil) instead
+	// of indefinitely keeping the previously-published snapshot.
+	observed bool
+
+	// desiredOSDs is the OSD count ensureStorage reported (== matched
+	// BlockDevice count). Surfaced verbatim under EC.status.osds.desired
+	// so the UI can render "Provisioning N OSDs" even before Rook has
+	// scheduled any rook-ceph-osd Pod.
+	desiredOSDs int32
 }
 
 func newECStatusBuilder(ec *v1alpha1.ElasticCluster) *ecStatusBuilder {
@@ -451,6 +482,18 @@ func (r *ElasticClusterReconciler) updateECStatus(ctx context.Context, ec *v1alp
 		}
 		if sb.cephVersion != nil {
 			latest.Status.CephVersion = sb.cephVersion
+		}
+		if sb.observed {
+			// observed=true means populateObservability ran. Authoritatively
+			// overwrite the observability fields — including back-to-nil
+			// transitions (e.g. CephCluster deleted, mon Pods drained) so
+			// the UI never lingers on a stale "HEALTH_OK" after a real
+			// regression.
+			latest.Status.Health = sb.health
+			latest.Status.Capacity = sb.capacity
+			latest.Status.OSDs = sb.osds
+			latest.Status.Mons = sb.mons
+			latest.Status.Mgrs = sb.mgrs
 		}
 		latest.Status.Phase = deriveECPhase(latest.Status.Conditions)
 

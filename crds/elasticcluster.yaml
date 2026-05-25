@@ -222,7 +222,7 @@ spec:
                       type: string
                       description: |
                         Ceph version currently running across the cluster, derived from
-                        `CephCluster.status.cephStatus.ceph.versions`.
+                        `CephCluster.status.ceph.versions`.
                     upgradeProgress:
                       type: object
                       description: |
@@ -254,6 +254,205 @@ spec:
                           format: date-time
                           description: |
                             Timestamp of the last upgrade-stage transition.
+                health:
+                  type: object
+                  description: |
+                    Latest Ceph health summary surfaced by Rook
+                    (`CephCluster.status.ceph.health` and the matching detail blocks).
+                    Drives the top-level OK / Warn / Err indicator on the UI dashboard.
+                  properties:
+                    status:
+                      type: string
+                      description: |
+                        One of `HEALTH_OK`, `HEALTH_WARN`, `HEALTH_ERR`. Empty until
+                        Rook publishes the first health probe.
+                      enum:
+                        - HEALTH_OK
+                        - HEALTH_WARN
+                        - HEALTH_ERR
+                    message:
+                      type: string
+                      description: |
+                        Short human-readable summary Rook attaches to the health probe.
+                    lastChecked:
+                      type: string
+                      format: date-time
+                      description: |
+                        Timestamp of the latest health probe Rook successfully
+                        observed against the cluster.
+                    checks:
+                      type: array
+                      description: |
+                        Active health checks (warnings/errors) reported by Ceph. Empty on
+                        `HEALTH_OK`.
+                      items:
+                        type: object
+                        required:
+                          - name
+                        properties:
+                          name:
+                            type: string
+                            description: |
+                              Ceph check identifier, for example `MON_DOWN`,
+                              `OSD_NEARFULL`, `POOL_NO_REDUNDANCY`.
+                          severity:
+                            type: string
+                            description: |
+                              Per-check severity, mirroring Rook
+                              (`HEALTH_WARN` / `HEALTH_ERR`).
+                          message:
+                            type: string
+                            description: |
+                              Human-readable description of the check.
+                capacity:
+                  type: object
+                  description: |
+                    Cluster-wide raw storage usage as observed by Rook
+                    (`CephCluster.status.ceph.capacity`). Empty until Rook publishes
+                    the first capacity probe.
+                  properties:
+                    total:
+                      type: string
+                      description: |
+                        Total raw capacity of the cluster (sum over all OSDs), as a
+                        Kubernetes Quantity (BinarySI), e.g. `500Gi` or `1.2Ti`.
+                    used:
+                      type: string
+                      description: |
+                        Consumed raw capacity (data + metadata + Ceph overhead), as a
+                        Kubernetes Quantity (BinarySI), e.g. `200Gi`.
+                    available:
+                      type: string
+                      description: |
+                        Free raw capacity, as a Kubernetes Quantity (BinarySI). Usable
+                        client capacity depends on pool-level replication
+                        (~ `available / pool.size` for replicated pools).
+                    usedPercent:
+                      type: string
+                      description: |
+                        `used / total * 100`, formatted with two decimals.
+                    lastUpdated:
+                      type: string
+                      format: date-time
+                      description: |
+                        Timestamp of the latest capacity probe Rook successfully
+                        observed against the cluster.
+                osds:
+                  type: object
+                  description: |
+                    OSD daemon count and per-version histogram. Sourced from
+                    `CephCluster.status.ceph.versions.osd` (with `desired` coming
+                    from the controller's selected BlockDevice count).
+                  properties:
+                    desired:
+                      type: integer
+                      format: int32
+                      minimum: 0
+                      description: |
+                        Number of OSDs the controller asked Rook for (== matched
+                        BlockDevices for this ElasticCluster).
+                    knownToCeph:
+                      type: integer
+                      format: int32
+                      minimum: 0
+                      description: |
+                        Sum of `CephCluster.status.ceph.versions.osd` values — OSD
+                        daemons that have reported a version to Ceph since the last
+                        heartbeat. Approximation of "alive in Ceph's eyes", not Pod
+                        readiness.
+                    byVersion:
+                      type: array
+                      description: |
+                        Per-version histogram for OSD daemons. Sorted by `count` desc,
+                        then `version` asc. Empty until at least one OSD has reported
+                        a version.
+                      items:
+                        type: object
+                        required:
+                          - version
+                          - count
+                        properties:
+                          version:
+                            type: string
+                            description: |
+                              Ceph version string Rook publishes for this bucket
+                              (verbatim — e.g. `ceph version 19.2.3 (...) squid (stable)`).
+                          count:
+                            type: integer
+                            format: int32
+                            minimum: 0
+                            description: |
+                              Number of OSD daemons reporting this version.
+                mons:
+                  type: object
+                  description: |
+                    Ceph monitor daemon count and per-version histogram, derived from
+                    `CephCluster.status.ceph.versions.mon`. UI uses `knownToCeph` to
+                    render a coarse quorum indicator
+                    (`knownToCeph >= floor(spec.mon.count/2)+1`).
+                  properties:
+                    knownToCeph:
+                      type: integer
+                      format: int32
+                      minimum: 0
+                      description: |
+                        Sum of `CephCluster.status.ceph.versions.mon` values.
+                    byVersion:
+                      type: array
+                      description: |
+                        Per-version histogram for mon daemons. Same ordering as
+                        `osds.byVersion`.
+                      items:
+                        type: object
+                        required:
+                          - version
+                          - count
+                        properties:
+                          version:
+                            type: string
+                            description: |
+                              Ceph version string Rook publishes for this bucket.
+                          count:
+                            type: integer
+                            format: int32
+                            minimum: 0
+                            description: |
+                              Number of mon daemons reporting this version.
+                mgrs:
+                  type: object
+                  description: |
+                    Ceph manager daemon count and per-version histogram, derived from
+                    `CephCluster.status.ceph.versions.mgr`. Rook deploys a single
+                    active manager by default (with optional standbys), so
+                    `knownToCeph == 1` is the typical healthy value.
+                  properties:
+                    knownToCeph:
+                      type: integer
+                      format: int32
+                      minimum: 0
+                      description: |
+                        Sum of `CephCluster.status.ceph.versions.mgr` values.
+                    byVersion:
+                      type: array
+                      description: |
+                        Per-version histogram for mgr daemons. Same ordering as
+                        `osds.byVersion`.
+                      items:
+                        type: object
+                        required:
+                          - version
+                          - count
+                        properties:
+                          version:
+                            type: string
+                            description: |
+                              Ceph version string Rook publishes for this bucket.
+                          count:
+                            type: integer
+                            format: int32
+                            minimum: 0
+                            description: |
+                              Number of mgr daemons reporting this version.
                 conditions:
                   type: array
                   description: |
@@ -305,6 +504,25 @@ spec:
         - jsonPath: .status.phase
           name: Phase
           type: string
+        - jsonPath: .status.health.status
+          name: Health
+          type: string
+        - jsonPath: .status.capacity.usedPercent
+          name: Used%
+          type: string
+          priority: 1
+        - jsonPath: .status.capacity.used
+          name: Used
+          type: string
+          priority: 1
+        - jsonPath: .status.capacity.total
+          name: Total
+          type: string
+          priority: 1
+        - jsonPath: .status.osds.desired
+          name: OSDs
+          type: integer
+          priority: 1
         - jsonPath: .status.cephVersion.running
           name: Ceph
           type: string

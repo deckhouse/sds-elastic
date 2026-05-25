@@ -166,6 +166,87 @@ func newCephClusterUnstructured(ec *v1alpha1.ElasticCluster, phase, runningVersi
 	return obj
 }
 
+// withCephClusterCephStatus mutates a CephCluster fixture's
+// status.ceph subtree (health, message, lastChecked, capacity, details,
+// versions) in-place and returns it for chaining. Each block is opt-in:
+// the capacity block is filled only when bytesTotal > 0, the versions
+// block only when versionsByKind is non-empty, etc.
+//
+// versionsByKind maps kind ("osd"/"mon"/"mgr") to the version-string →
+// daemon-count map Rook publishes under
+// `CephCluster.status.ceph.versions.<kind>`.
+func withCephClusterCephStatus(
+	cc *unstructured.Unstructured,
+	health, message, lastChecked string,
+	bytesTotal, bytesUsed, bytesAvailable int64,
+	lastUpdated string,
+	checks map[string]map[string]string,
+	versionsByKind map[string]map[string]int32,
+) *unstructured.Unstructured {
+	status, _ := cc.Object["status"].(map[string]interface{})
+	if status == nil {
+		status = map[string]interface{}{}
+		cc.Object["status"] = status
+	}
+	cephObj, _ := status["ceph"].(map[string]interface{})
+	if cephObj == nil {
+		cephObj = map[string]interface{}{}
+		status["ceph"] = cephObj
+	}
+	if health != "" {
+		cephObj["health"] = health
+	}
+	if message != "" {
+		cephObj["message"] = message
+	}
+	if lastChecked != "" {
+		cephObj["lastChecked"] = lastChecked
+	}
+	if bytesTotal > 0 || bytesUsed > 0 || bytesAvailable > 0 {
+		capObj := map[string]interface{}{
+			"bytesTotal":     bytesTotal,
+			"bytesUsed":      bytesUsed,
+			"bytesAvailable": bytesAvailable,
+		}
+		if lastUpdated != "" {
+			capObj["lastUpdated"] = lastUpdated
+		}
+		cephObj["capacity"] = capObj
+	}
+	if len(checks) > 0 {
+		details := map[string]interface{}{}
+		for name, props := range checks {
+			detail := map[string]interface{}{}
+			for k, v := range props {
+				detail[k] = v
+			}
+			details[name] = detail
+		}
+		cephObj["details"] = details
+	}
+	if len(versionsByKind) > 0 {
+		versions := map[string]interface{}{}
+		for kind, hist := range versionsByKind {
+			if len(hist) == 0 {
+				continue
+			}
+			kindMap := map[string]interface{}{}
+			for ver, count := range hist {
+				// Mimic Rook's wire format: Rook publishes counts as
+				// JSON numbers, which round-trip to float64 through
+				// unstructured.Unstructured. Use float64 here so the
+				// fixture matches the cache contents in production.
+				kindMap[ver] = float64(count)
+			}
+			versions[kind] = kindMap
+		}
+		if len(versions) > 0 {
+			cephObj["versions"] = versions
+		}
+	}
+	return cc
+}
+
 func newCephClusterConnectionUnstructured(name, phase string) *unstructured.Unstructured {
 	obj := &unstructured.Unstructured{}
 	obj.SetGroupVersionKind(external.CephClusterConnectionGVK)

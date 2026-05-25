@@ -111,7 +111,7 @@ spec:
                     running:
                       description: |
                         Версия, фактически работающая в кластере; берётся из
-                        `CephCluster.status.cephStatus.ceph.versions`.
+                        `CephCluster.status.ceph.versions`.
                     upgradeProgress:
                       description: Прогресс по этапам идущего rolling-upgrade.
                       properties:
@@ -123,6 +123,123 @@ spec:
                           description: Всего демонов в этапе.
                         lastTransitionTime:
                           description: Время последнего перехода фазы.
+                health:
+                  description: |
+                    Сводка здоровья Ceph по данным Rook (`CephCluster.status.ceph.health`).
+                    Используется UI для индикатора OK / Warn / Err и списка предупреждений.
+                  properties:
+                    status:
+                      description: |
+                        Одно из `HEALTH_OK`, `HEALTH_WARN`, `HEALTH_ERR`. Пусто, пока Rook
+                        не опубликовал первое значение.
+                    message:
+                      description: Краткое человекочитаемое сообщение Rook о текущем состоянии.
+                    lastChecked:
+                      description: Время последней успешной проверки здоровья кластера.
+                    checks:
+                      description: |
+                        Активные проверки Ceph (предупреждения/ошибки). Пусто при `HEALTH_OK`.
+                      items:
+                        properties:
+                          name:
+                            description: |
+                              Идентификатор проверки Ceph (например, `MON_DOWN`, `OSD_NEARFULL`,
+                              `POOL_NO_REDUNDANCY`).
+                          severity:
+                            description: |
+                              Серьёзность проверки, как сообщает Rook
+                              (`HEALTH_WARN` / `HEALTH_ERR`).
+                          message:
+                            description: Человекочитаемое описание проверки.
+                capacity:
+                  description: |
+                    Текущая утилизация хранилища, как её видит Rook
+                    (`CephCluster.status.ceph.capacity`). Заполняется после первого
+                    сбора метрик Rook.
+                  properties:
+                    total:
+                      description: |
+                        Общая raw-ёмкость кластера (сумма по всем OSD), в виде Kubernetes
+                        Quantity (BinarySI), например `500Gi` или `1.2Ti`.
+                    used:
+                      description: |
+                        Использованный raw-объём (данные + метаданные + overhead Ceph) в виде
+                        Kubernetes Quantity (BinarySI), например `200Gi`.
+                    available:
+                      description: |
+                        Свободный raw-объём в виде Kubernetes Quantity (BinarySI). Полезный
+                        объём для клиентов меньше — зависит от репликации пулов
+                        (`available / pool.size` для replicated-пулов).
+                    usedPercent:
+                      description: |
+                        `used / total * 100`, форматированное с двумя знаками после запятой.
+                    lastUpdated:
+                      description: Время последней успешной выгрузки метрик ёмкости.
+                osds:
+                  description: |
+                    Количество OSD-демонов и распределение по версиям. Источник —
+                    `CephCluster.status.ceph.versions.osd` (поле `desired` берётся из числа
+                    выбранных BlockDevice).
+                  properties:
+                    desired:
+                      description: |
+                        Сколько OSD контроллер запросил у Rook (== число выбранных BlockDevice
+                        для этого ElasticCluster).
+                    knownToCeph:
+                      description: |
+                        Сумма значений `CephCluster.status.ceph.versions.osd` — OSD-демоны,
+                        которые недавно сообщали Ceph свою версию. Это аппроксимация
+                        "alive в глазах Ceph", а не Pod readiness.
+                    byVersion:
+                      description: |
+                        Гистограмма по версиям OSD-демонов. Сортируется по `count` desc,
+                        затем по `version` asc. Пусто, пока ни один OSD не отчитался
+                        о версии.
+                      items:
+                        properties:
+                          version:
+                            description: |
+                              Строка версии Ceph, которую публикует Rook (как есть, например
+                              `ceph version 19.2.3 (...) squid (stable)`).
+                          count:
+                            description: Сколько OSD-демонов сообщили эту версию.
+                mons:
+                  description: |
+                    Количество mon-демонов и распределение по версиям, по данным
+                    `CephCluster.status.ceph.versions.mon`. UI использует `knownToCeph`
+                    для индикатора кворума (`knownToCeph >= floor(spec.mon.count/2)+1`).
+                  properties:
+                    knownToCeph:
+                      description: |
+                        Сумма значений `CephCluster.status.ceph.versions.mon`.
+                    byVersion:
+                      description: |
+                        Гистограмма по версиям mon-демонов. Сортируется как `osds.byVersion`.
+                      items:
+                        properties:
+                          version:
+                            description: Строка версии Ceph для этого бакета.
+                          count:
+                            description: Сколько mon-демонов сообщили эту версию.
+                mgrs:
+                  description: |
+                    Количество mgr-демонов и распределение по версиям, по данным
+                    `CephCluster.status.ceph.versions.mgr`. По умолчанию Rook разворачивает
+                    один активный mgr (опционально с standby), типичное healthy-значение —
+                    `knownToCeph == 1`.
+                  properties:
+                    knownToCeph:
+                      description: |
+                        Сумма значений `CephCluster.status.ceph.versions.mgr`.
+                    byVersion:
+                      description: |
+                        Гистограмма по версиям mgr-демонов. Сортируется как `osds.byVersion`.
+                      items:
+                        properties:
+                          version:
+                            description: Строка версии Ceph для этого бакета.
+                          count:
+                            description: Сколько mgr-демонов сообщили эту версию.
                 conditions:
                   description: |
                     Покомпонентные condition: `StorageReady`, `CephClusterReady`, `CredentialsReady`,

@@ -17,6 +17,7 @@ limitations under the License.
 package v1alpha1
 
 import (
+	"k8s.io/apimachinery/pkg/api/resource"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 )
 
@@ -122,6 +123,44 @@ type ElasticClusterStatus struct {
 	// +optional
 	CephVersion *CephVersionStatus `json:"cephVersion,omitempty"`
 
+	// Health is the latest Ceph health summary surfaced by Rook
+	// (CephCluster.status.ceph.health and the matching detail blocks).
+	// Drives the top-level OK / Warn / Err indicator on the UI dashboard.
+	// +optional
+	Health *CephHealthStatus `json:"health,omitempty"`
+
+	// Capacity reports cluster-wide storage usage as observed by Rook.
+	// Sourced from CephCluster.status.ceph.capacity. Empty until the
+	// CephCluster reports its first capacity probe.
+	// +optional
+	Capacity *CephCapacityStatus `json:"capacity,omitempty"`
+
+	// OSDs summarises OSD daemon count and the version histogram Rook
+	// publishes under CephCluster.status.ceph.versions.osd. `desired` is
+	// the OSD count the controller asked Rook for (== matched
+	// BlockDevices); `knownToCeph` is the sum of CephCluster.status.ceph.
+	// versions.osd values (daemons that have reported a version to Ceph
+	// since the last heartbeat); `byVersion` is the version → count
+	// breakdown, useful during rolling upgrades to spot daemons still on
+	// the old version.
+	// +optional
+	OSDs *OSDStatus `json:"osds,omitempty"`
+
+	// Mons reports the number of Ceph monitor daemons known to Ceph and
+	// their version histogram. Sourced from CephCluster.status.ceph.
+	// versions.mon. UI uses `knownToCeph` to render a coarse quorum
+	// indicator (`knownToCeph >= floor(spec.mon.count/2)+1`).
+	// +optional
+	Mons *DaemonStatus `json:"mons,omitempty"`
+
+	// Mgrs reports the number of Ceph manager daemons known to Ceph and
+	// their version histogram. Sourced from CephCluster.status.ceph.
+	// versions.mgr. Rook deploys a single active manager by default
+	// (with optional standbys), so `knownToCeph == 1` is the typical
+	// healthy value.
+	// +optional
+	Mgrs *DaemonStatus `json:"mgrs,omitempty"`
+
 	// Conditions hold the latest stage states. Known types:
 	// StorageReady, CephClusterReady, CredentialsReady, CsiCephReady,
 	// UpgradeReady, UpgradeInProgress, Ready.
@@ -158,6 +197,155 @@ type ElasticClusterCredentialRef struct {
 	// Name of the ElasticClusterCredential resource (1:1 with this
 	// ElasticCluster's metadata.name).
 	Name string `json:"name"`
+}
+
+// CephHealthStatus mirrors the CephCluster.status.ceph health summary
+// in a typed shape. UI renders `Status` as a colour token (HEALTH_OK
+// green, HEALTH_WARN yellow, HEALTH_ERR red) and a list of the active
+// `Checks` so the operator does not need to drill into the raw Rook CR.
+//
+// +k8s:deepcopy-gen=true
+type CephHealthStatus struct {
+	// Status is one of HEALTH_OK / HEALTH_WARN / HEALTH_ERR. Missing
+	// when CephCluster has not yet published a health assessment.
+	// +kubebuilder:validation:Enum=HEALTH_OK;HEALTH_WARN;HEALTH_ERR
+	// +optional
+	Status string `json:"status,omitempty"`
+
+	// Message is the short human-readable summary Rook attaches to
+	// the health probe. Empty when status is HEALTH_OK.
+	// +optional
+	Message string `json:"message,omitempty"`
+
+	// LastChecked is the timestamp of the latest health probe Rook
+	// successfully observed against the cluster.
+	// +optional
+	LastChecked *metav1.Time `json:"lastChecked,omitempty"`
+
+	// Checks lists the active health checks (warnings and errors)
+	// reported by Ceph. Empty on HEALTH_OK. The slice is bounded so
+	// the status never grows past the etcd object size limit.
+	// +optional
+	Checks []CephHealthCheck `json:"checks,omitempty"`
+}
+
+// +k8s:deepcopy-gen=true
+type CephHealthCheck struct {
+	// Name is the Ceph check identifier, for example MON_DOWN,
+	// OSD_NEARFULL, POOL_NO_REDUNDANCY.
+	Name string `json:"name"`
+
+	// Severity mirrors the per-check severity Rook publishes
+	// (HEALTH_WARN / HEALTH_ERR).
+	// +optional
+	Severity string `json:"severity,omitempty"`
+
+	// Message is the human-readable description Rook surfaces
+	// alongside the check.
+	// +optional
+	Message string `json:"message,omitempty"`
+}
+
+// CephCapacityStatus mirrors CephCluster.status.ceph.capacity. The
+// raw byte counters Rook publishes are exposed as resource.Quantity
+// (BinarySI) so a UI / kubectl printer column can render "1.2Ti" out
+// of the box, matching the convention sds-node-configurator uses on
+// its own size fields (LVMVolumeGroupStatus.{vgSize,vgFree}).
+//
+// +k8s:deepcopy-gen=true
+type CephCapacityStatus struct {
+	// Total is the total raw capacity of the cluster as seen by Rook
+	// (sum over all OSDs). On the wire: a Kubernetes Quantity string,
+	// for example "500Gi" or "1.2Ti".
+	// +optional
+	Total resource.Quantity `json:"total,omitempty"`
+
+	// Used is the consumed raw capacity (data + metadata + Ceph
+	// overhead). Quantity, see Total.
+	// +optional
+	Used resource.Quantity `json:"used,omitempty"`
+
+	// Available is the free raw capacity. Note that the usable
+	// capacity for client I/O depends on pool-level replication
+	// (~ Available / pool.size for replicated pools). Quantity, see
+	// Total.
+	// +optional
+	Available resource.Quantity `json:"available,omitempty"`
+
+	// UsedPercent is Used / Total * 100, formatted with two decimal
+	// places. Stored as a string so a trailing decimal is preserved
+	// verbatim for the UI without floating-point parsing.
+	// +optional
+	UsedPercent string `json:"usedPercent,omitempty"`
+
+	// LastUpdated is the timestamp of the latest capacity probe Rook
+	// successfully observed against the cluster.
+	// +optional
+	LastUpdated *metav1.Time `json:"lastUpdated,omitempty"`
+}
+
+// OSDStatus reports OSD daemon count plus the per-version histogram
+// Rook publishes under CephCluster.status.ceph.versions.osd. There is
+// intentionally no "running" / "byNode" surface here — Rook does not
+// expose either on CephCluster.status, and we explicitly chose not to
+// list rook-ceph-osd Pods just to derive them. Operators still see
+// per-Pod state via `kubectl get pod -l app=rook-ceph-osd`.
+//
+// +k8s:deepcopy-gen=true
+type OSDStatus struct {
+	// Desired is the OSD count the controller asked Rook for, equal
+	// to the number of BlockDevices ensureStorage adopted for this
+	// ElasticCluster. Surfaced verbatim, even before Rook has scheduled
+	// any rook-ceph-osd Pod, so a UI can render "Provisioning N OSDs"
+	// from the moment the EC is created.
+	// +optional
+	Desired int32 `json:"desired,omitempty"`
+
+	// KnownToCeph is sum(CephCluster.status.ceph.versions.osd values).
+	// Rook removes a daemon entry once it has not reported a version
+	// for a while, so this is a "alive in Ceph's eyes" approximation —
+	// not Pod readiness, not OSD up/in. Useful as a rough "9 of 9 OSDs
+	// reachable" indicator.
+	// +optional
+	KnownToCeph int32 `json:"knownToCeph,omitempty"`
+
+	// ByVersion reports the per-version histogram Rook publishes for
+	// OSD daemons. Sorted by count desc, version asc. Empty when no
+	// OSD has reported a version yet (cluster bootstrapping).
+	// +optional
+	ByVersion []DaemonVersionCount `json:"byVersion,omitempty"`
+}
+
+// DaemonStatus is the shared shape for mon and mgr observability,
+// derived from CephCluster.status.ceph.versions.{mon,mgr}. Same caveats
+// apply as for OSDStatus — these are Ceph-level counts, not Pod
+// readiness counters.
+//
+// +k8s:deepcopy-gen=true
+type DaemonStatus struct {
+	// KnownToCeph is sum(versions[<kind>] values) for this daemon kind.
+	// +optional
+	KnownToCeph int32 `json:"knownToCeph,omitempty"`
+
+	// ByVersion is the per-version histogram for this daemon kind.
+	// Same ordering as OSDStatus.ByVersion.
+	// +optional
+	ByVersion []DaemonVersionCount `json:"byVersion,omitempty"`
+}
+
+// DaemonVersionCount is a single (version, count) entry of the
+// CephCluster.status.ceph.versions.<kind> histogram. The Version is
+// the full Ceph version string Rook publishes verbatim, for example
+// "ceph version 19.2.3 (...) squid (stable)".
+//
+// +k8s:deepcopy-gen=true
+type DaemonVersionCount struct {
+	// Version is the Ceph version string Rook reports for this bucket.
+	Version string `json:"version"`
+
+	// Count is the number of daemons of the parent kind reporting this
+	// version.
+	Count int32 `json:"count"`
 }
 
 // +k8s:deepcopy-gen=true
