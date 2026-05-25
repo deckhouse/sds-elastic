@@ -1,6 +1,6 @@
 ---
 # Internal StorageClass that "glues" local PersistentVolumes (created by the
-# sds-elastic controller from LVMLogicalVolumes) to the PVCs Rook generates
+# sds-elastic controller from LVMLogicalVolumes ) to the PVCs Rook generates
 # for OSD storageClassDeviceSets. The name is reserved and may not be used by
 # any ElasticStorageClass — the validating webhook rejects user resources
 # with this metadata.name.
