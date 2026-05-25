@@ -1,43 +1,40 @@
 Changes:
-- Added three Custom Resources (`storage.deckhouse.io/v1alpha1`) and the
-  `sds-elastic-controller` reconciling them. `ElasticCluster` (ec) bootstraps
-  a Rook `CephCluster` from `BlockDevice` CRs selected by labels.
-  `ElasticStorageClass` (esc) declares one Ceph pool plus the matching
-  csi-ceph `CephStorageClass` per resource. `ElasticClusterCredential`
-  (ecc) is an internal cluster-scoped backup of the Ceph cluster identity
-  (FSID, mon-secret, admin-secret) populated from the `rook-ceph-mon` Secret.
-- The controller provisions one `LVMVolumeGroup` and one `LVMLogicalVolume`
-  per matched `BlockDevice` (managed by sds-node-configurator) and binds
-  the resulting local `PersistentVolume`s to the helm-managed
-  `sds-elastic-osd` StorageClass that backs Rook OSD `storageClassDeviceSets`.
-- 'The ESC field `spec.replication` (`AvailabilityWithoutConsistency`,
-  `ConsistencyAndAvailability`, `ErasureCodedCompact`) maps to a
-  production-tested pool layout per backend. The controller maintains
-  the matching `CephClusterConnection` (1:1 with the parent `ElasticCluster`)
-  and `CephStorageClass` (1:1 with the ESC) in csi-ceph.'
-- Added validating webhooks. `vendor-cr-validation` rejects direct edits
-  of `ceph.rook.io` and `objectbucket.io` resources in `d8-sds-elastic`
-  outside the controller and rook-ceph-system service accounts (users must
-  manage the cluster through `ElasticCluster` / `ElasticStorageClass`).
-  `elastic-storage-class-validation` enforces ESC name reservation
-  (`sds-elastic-osd` is reserved), `clusterRef` / `type` / `replication`
-  immutability and `RBD + ErasureCodedCompact` rejection.
-  `elastic-cluster-credential-validation` enforces FSID immutability
-  after first population.
-- Added module hooks. `010-uninstall` is a placeholder for finalizer-based
-  GC (B-N1 in the backlog). `020-webhook-certs` generates the TLS material
-  the validating webhooks consume.
-breaking_changes: |-
-  This release replaces the legacy aggregate `SdsElasticCluster` API surface
-  with the three CRs above. Operators upgrading from an earlier development
-  build must perform manual migration:
-  - `storage.deckhouse.io/v1alpha1.SdsElasticCluster` is removed. Delete
-    every `SdsElasticCluster` object before the upgrade — the helm chart
-    does not migrate state silently.
-  - The internal manual StorageClass `sds-elastic-osd-manual` is removed
-    together with its template; the controller now uses the helm-managed
-    `sds-elastic-osd` StorageClass exclusively. `helm upgrade` deletes the
-    old SC; if a foreign finalizer keeps it around, remove it manually.
-  - Module config value `sdsElastic.osdStorageClassName` and the controller
-    env `OSD_STORAGE_CLASS_NAME` are removed. The OSD StorageClass name is
-    no longer configurable.
+- Added three Custom Resources (`storage.deckhouse.io/v1alpha1`) and a controller
+  `sds-elastic-controller`, which will reconfigure them. `ElasticCluster` (ec) lifts
+  Rook `CephCluster` on top of `BlockDevice` CRs selected by labels. `ElasticStorageClass`
+  (esc) describes one Ceph pool and the corresponding `CephStorageClass` of the csi-ceph
+  module. `ElasticClusterCredential` (ecc) - internal cluster-scoped backup of the
+  Ceph cluster identity (FSID, mon-secret, admin-secret), filled from the Secret of
+  `rook-ceph-mon`.
+- The controller for each suitable `BlockDevice` creates one `LVMVolumeGroup` and
+  `LVMLogicalVolume` (managed by the sds-node-configurator module) and binds the resulting
+  local `PersistentVolume` to the helm-managed StorageClass `sds-elastic-osd`, which
+  serves as a backing for the Rook OSD `storageClassDeviceSets`.
+- The `ElasticStorageClass.spec.replication` field (`AvailabilityWithoutConsistency`,
+  `ConsistencyAndAvailability`, `ErasureCodedCompact`) is translated into the production
+  pool settings for each backend. The controller supports matching `CephClusterConnection`
+  (1:1 with parent `ElasticCluster`) and `CephStorageClass` (1:1 with ESC) in csi-ceph.
+- Added validating webhooks. `vendor-cr-validation` prohibits direct edits of the
+  `ceph.rook.io` and `objectbucket.io` resources in the `d8-sds-elastic` namespace
+  outside the Rook controller and operator ServiceAccounts (the user must manage the
+  cluster through `ElasticCluster` / `ElasticStorageClass`). `elastic-storage-class-validation`
+  enforces `sds-elastic-osd` name reservation, `clusterRef`/`type`/`replication` immutability,
+  and `RBD + ErasureCodedCompact` prohibition. `elastic-cluster-credential-validation`
+  ensures that the FSID is immutable after the first population.
+- Added module hooks. `010-uninstall` - preparation for GC via finalizers (B-N1 in
+  the backlog). `020-webhook-certs` prepares TLS material for validating webhooks.
+breaking_changes: 'This release replaces the `SdsElasticCluster` aggregate API with
+  three CRs above. Operators upgrading from an early dev build need to perform a manual
+  migration:
+
+  - `storage.deckhouse.io/v1alpha1.SdsElasticCluster` has been removed. Before upgrading,
+  you must delete all `SdsElasticCluster` objects - the helm chart does not automatically
+  migrate state.
+
+  - Internal manual StorageClass `sds-elastic-osd-manual` has been removed along with
+  its template; The controller now only works with the helm-managed StorageClass `sds-elastic-osd`.
+  `helm upgrade` will remove the old SC; if it is held by someone else''s finalizer,
+  remove it manually.
+
+  - Removed config-value `sdsElastic.osdStorageClassName` and controller environment
+  variable `OSD_STORAGE_CLASS_NAME`. The OSD StorageClass name is no longer configurable.'
