@@ -109,10 +109,11 @@
 
 {{- /*
   ValidatingWebhookConfiguration for ElasticClusterCredential.
-  Enforces FSID immutability after first population. The ECC CRD lives in
-  crds/internal/ and is not user-facing, but RBAC alone does not protect
-  the fsid field once a malicious or buggy controller chart change tries
-  to overwrite it — admission validation closes that gap.
+  Enforces FSID immutability after first population. The ECC CRD lives
+  in crds/internal/ (managed by the controller, not user-facing), but
+  RBAC alone does not protect the fsid field once a malicious or buggy
+  controller chart change tries to overwrite it — admission validation
+  closes that gap.
 */ -}}
 {{- $eccWebhookConfig := dict
   "name" "elastic-cluster-credential-validation"

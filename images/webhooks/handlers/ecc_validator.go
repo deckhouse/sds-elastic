@@ -42,11 +42,13 @@ import (
 //   - <fsid> -> <fsid> (unchanged):   no-op (other fields may change).
 //   - <fsid> -> "" or <other-fsid>:   rejected.
 //
-// Like the ESC validator, this rule duplicates the matching
-// `x-kubernetes-validations` block on the ECC CRD
-// (`crds/internal/elasticclustercredentials.yaml`). The duplication is
-// intentional defense-in-depth so the invariant survives a CRD applied
-// without CEL on older Kubernetes / dev clusters.
+// Like the ESC validator, this rule duplicates the FSID-immutability
+// guarantee that should ideally live as an `x-kubernetes-validations`
+// block on the ECC CRD (`crds/internal/elasticclustercredential.yaml`);
+// the CRD-level CEL is currently omitted because the controller
+// back-syncs fields incrementally and the resource transiently exists
+// with an empty FSID. Doing the check at admission time is intentional
+// defense-in-depth.
 //
 // MonSecret / AdminSecret are intentionally NOT immutable here — Rook
 // rotates the cephx secrets and the BACK-SYNC reconciler must be free
