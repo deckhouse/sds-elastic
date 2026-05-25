@@ -18,6 +18,7 @@ package controller
 
 import (
 	"context"
+	"errors"
 
 	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
@@ -458,6 +459,192 @@ var _ = Describe("ensureStorage", func() {
 			Expect(reason).To(Equal(storageReasonWaitingForLLV))
 			Expect(msg).To(ContainSubstring("(Failed)"))
 		})
+	})
+
+	Context("BD owned by another ElasticCluster", func() {
+		It("short-circuits with reason=OwnershipConflict and refuses to overwrite the foreign label", func() {
+			cl = newFakeClient(
+				ec,
+				newTestNode("node-a"),
+				newBlockDevice("bd-foreign", "node-a", "100Gi", true, map[string]string{
+					external.ECClusterLabel: "other-ec",
+				}),
+			)
+			r = newElasticClusterReconciler(cl)
+
+			done, osdCount, pvcRequest, reason, msg, err := r.ensureStorage(ctx, ec)
+			Expect(err).NotTo(HaveOccurred(),
+				"OwnershipConflict is a recoverable state; not a hard reconcile error")
+			Expect(done).To(BeFalse())
+			Expect(reason).To(Equal(v1alpha1.ECReasonOwnershipConflict))
+			Expect(osdCount).To(Equal(int32(0)))
+			Expect(pvcRequest.IsZero()).To(BeTrue())
+			Expect(msg).To(ContainSubstring("bd-foreign: claimed by other-ec"))
+
+			// BD label must remain pointing at the original owner — silently
+			// overwriting was the bug we are guarding against.
+			bd := &unstructured.Unstructured{}
+			bd.SetGroupVersionKind(external.BlockDeviceGVK)
+			Expect(cl.Get(ctx, types.NamespacedName{Name: "bd-foreign"}, bd)).To(Succeed())
+			Expect(bd.GetLabels()[external.ECClusterLabel]).To(Equal("other-ec"))
+
+			// Downstream resources must not have been provisioned: stage
+			// halted before Phase 0 could touch LVG/LLV/PV.
+			expectAbsent(ctx, cl, external.LVMVolumeGroupGVK, ec)
+			expectAbsent(ctx, cl, external.LVMLogicalVolumeGVK, ec)
+			expectAbsentPVs(ctx, cl, ec)
+		})
+
+		It("blocks the entire stage even when free BDs are also present (strict mode)", func() {
+			cl = newFakeClient(
+				ec,
+				newTestNode("node-a"),
+				newBlockDevice("bd-foreign", "node-a", "100Gi", true, map[string]string{
+					external.ECClusterLabel: "other-ec",
+				}),
+				newBlockDevice("bd-free-1", "node-a", "100Gi", true, nil),
+				newBlockDevice("bd-free-2", "node-a", "200Gi", true, nil),
+			)
+			r = newElasticClusterReconciler(cl)
+
+			done, osdCount, _, reason, msg, err := r.ensureStorage(ctx, ec)
+			Expect(err).NotTo(HaveOccurred())
+			Expect(done).To(BeFalse())
+			Expect(reason).To(Equal(v1alpha1.ECReasonOwnershipConflict))
+			Expect(osdCount).To(Equal(int32(0)),
+				"strict: even free BDs do not get adopted while a conflict is unresolved")
+			Expect(msg).To(ContainSubstring("bd-foreign: claimed by other-ec"))
+
+			// Free BDs must NOT have been adopted: the stage exited before
+			// Phase 0's adopt loop, so no label patches should have landed.
+			for _, bdName := range []string{"bd-free-1", "bd-free-2"} {
+				bd := &unstructured.Unstructured{}
+				bd.SetGroupVersionKind(external.BlockDeviceGVK)
+				Expect(cl.Get(ctx, types.NamespacedName{Name: bdName}, bd)).To(Succeed())
+				_, ok := bd.GetLabels()[external.ECClusterLabel]
+				Expect(ok).To(BeFalse(),
+					"free BD %q must remain unadopted while stage is blocked by a conflict", bdName)
+			}
+			expectAbsent(ctx, cl, external.LVMVolumeGroupGVK, ec)
+		})
+
+		It("aggregates multiple foreign-owned BDs into a sorted message", func() {
+			cl = newFakeClient(
+				ec,
+				newTestNode("node-a"),
+				newBlockDevice("bd-c", "node-a", "100Gi", true, map[string]string{
+					external.ECClusterLabel: "ec-gamma",
+				}),
+				newBlockDevice("bd-a", "node-a", "100Gi", true, map[string]string{
+					external.ECClusterLabel: "ec-alpha",
+				}),
+				newBlockDevice("bd-b", "node-a", "100Gi", true, map[string]string{
+					external.ECClusterLabel: "ec-beta",
+				}),
+			)
+			r = newElasticClusterReconciler(cl)
+
+			_, _, _, reason, msg, err := r.ensureStorage(ctx, ec)
+			Expect(err).NotTo(HaveOccurred())
+			Expect(reason).To(Equal(v1alpha1.ECReasonOwnershipConflict))
+			// Sorted by bdName for stable diffs in EC.status.
+			Expect(msg).To(ContainSubstring("bd-a: claimed by ec-alpha"))
+			Expect(msg).To(ContainSubstring("bd-b: claimed by ec-beta"))
+			Expect(msg).To(ContainSubstring("bd-c: claimed by ec-gamma"))
+			// The "bd-a" entry sorts before "bd-b" in the joined message.
+			Expect(msg).To(MatchRegexp("bd-a:.*bd-b:.*bd-c:"))
+		})
+
+		It("treats a label key with empty value as 'no owner' and adopts normally", func() {
+			cl = newFakeClient(
+				ec,
+				newTestNode("node-a"),
+				newBlockDevice("bd-a", "node-a", "100Gi", true, map[string]string{
+					external.ECClusterLabel: "",
+				}),
+			)
+			r = newElasticClusterReconciler(cl)
+
+			_, osdCount, _, reason, _, err := r.ensureStorage(ctx, ec)
+			Expect(err).NotTo(HaveOccurred())
+			Expect(reason).To(Equal(storageReasonWaitingForLVG),
+				"empty label value is treated as no owner; stage proceeds to LVG provisioning")
+			Expect(osdCount).To(Equal(int32(1)))
+
+			bd := &unstructured.Unstructured{}
+			bd.SetGroupVersionKind(external.BlockDeviceGVK)
+			Expect(cl.Get(ctx, types.NamespacedName{Name: "bd-a"}, bd)).To(Succeed())
+			Expect(bd.GetLabels()[external.ECClusterLabel]).To(Equal(testECName),
+				"adoption must overwrite an empty-string label value")
+		})
+	})
+})
+
+var _ = Describe("adoptBlockDevice", func() {
+	var (
+		ctx = context.Background()
+		ec  = newTestElasticCluster()
+	)
+
+	It("is a no-op when the BD already carries our label", func() {
+		bd := newBlockDevice("bd-a", "node-a", "100Gi", true, map[string]string{
+			external.ECClusterLabel: testECName,
+		})
+		cl := newFakeClient(ec, bd)
+		r := newElasticClusterReconciler(cl)
+
+		// Use the in-memory bd object directly so we observe whether the
+		// function tried to mutate it.
+		err := r.adoptBlockDevice(ctx, bd, ec)
+		Expect(err).NotTo(HaveOccurred())
+	})
+
+	It("returns ErrOwnershipConflict for a foreign label and leaves it untouched", func() {
+		bd := newBlockDevice("bd-foreign", "node-a", "100Gi", true, map[string]string{
+			external.ECClusterLabel: "other-ec",
+		})
+		cl := newFakeClient(ec, bd)
+		r := newElasticClusterReconciler(cl)
+
+		err := r.adoptBlockDevice(ctx, bd, ec)
+		Expect(err).To(HaveOccurred())
+		Expect(errors.Is(err, ErrOwnershipConflict)).To(BeTrue(),
+			"caller dispatches on errors.Is, the wrapper message is informational")
+		Expect(err.Error()).To(ContainSubstring("bd-foreign"))
+		Expect(err.Error()).To(ContainSubstring("other-ec"))
+
+		fresh := &unstructured.Unstructured{}
+		fresh.SetGroupVersionKind(external.BlockDeviceGVK)
+		Expect(cl.Get(ctx, types.NamespacedName{Name: "bd-foreign"}, fresh)).To(Succeed())
+		Expect(fresh.GetLabels()[external.ECClusterLabel]).To(Equal("other-ec"))
+	})
+
+	It("adopts a BD with no ECClusterLabel at all", func() {
+		bd := newBlockDevice("bd-a", "node-a", "100Gi", true, nil)
+		cl := newFakeClient(ec, bd)
+		r := newElasticClusterReconciler(cl)
+
+		Expect(r.adoptBlockDevice(ctx, bd, ec)).To(Succeed())
+
+		fresh := &unstructured.Unstructured{}
+		fresh.SetGroupVersionKind(external.BlockDeviceGVK)
+		Expect(cl.Get(ctx, types.NamespacedName{Name: "bd-a"}, fresh)).To(Succeed())
+		Expect(fresh.GetLabels()[external.ECClusterLabel]).To(Equal(testECName))
+	})
+
+	It("adopts a BD whose ECClusterLabel value is empty (treated as no owner)", func() {
+		bd := newBlockDevice("bd-a", "node-a", "100Gi", true, map[string]string{
+			external.ECClusterLabel: "",
+		})
+		cl := newFakeClient(ec, bd)
+		r := newElasticClusterReconciler(cl)
+
+		Expect(r.adoptBlockDevice(ctx, bd, ec)).To(Succeed())
+
+		fresh := &unstructured.Unstructured{}
+		fresh.SetGroupVersionKind(external.BlockDeviceGVK)
+		Expect(cl.Get(ctx, types.NamespacedName{Name: "bd-a"}, fresh)).To(Succeed())
+		Expect(fresh.GetLabels()[external.ECClusterLabel]).To(Equal(testECName))
 	})
 })
 

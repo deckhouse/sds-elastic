@@ -54,6 +54,39 @@ var _ = Describe("ElasticClusterReconciler.Reconcile", func() {
 		})
 	})
 
+	Context("BlockDevice owned by another ElasticCluster", func() {
+		It("surfaces OwnershipConflict on StorageReady and never adopts the foreign BD", func() {
+			ec := newTestElasticCluster()
+			cl := newFakeClient(
+				ec,
+				newTestNode("node-a"),
+				newBlockDevice("bd-foreign", "node-a", "100Gi", true, map[string]string{
+					external.ECClusterLabel: "other-ec",
+				}),
+			)
+			r := newElasticClusterReconciler(cl)
+			req := ctrl.Request{NamespacedName: types.NamespacedName{Name: testECName}}
+
+			result, err := r.Reconcile(ctx, req)
+			Expect(err).NotTo(HaveOccurred(),
+				"OwnershipConflict is reported via status, not raised as a reconcile error")
+			Expect(result.RequeueAfter).NotTo(BeZero(),
+				"controller must keep requeueing so the operator's manual fix is picked up promptly")
+
+			latest := &v1alpha1.ElasticCluster{}
+			Expect(cl.Get(ctx, types.NamespacedName{Name: testECName}, latest)).To(Succeed())
+			Expect(latest.Status.Phase).To(Equal(v1alpha1.PhaseInProgress))
+
+			storage := findCondition(latest.Status.Conditions, v1alpha1.ECConditionStorageReady)
+			Expect(storage.Status).To(Equal(metav1.ConditionFalse))
+			Expect(storage.Reason).To(Equal(v1alpha1.ECReasonOwnershipConflict))
+			Expect(storage.Message).To(ContainSubstring("bd-foreign: claimed by other-ec"))
+
+			Expect(findCondition(latest.Status.Conditions, v1alpha1.ECConditionReady).Status).
+				To(Equal(metav1.ConditionFalse))
+		})
+	})
+
 	Context("fully seeded cluster", func() {
 		It("reaches Ready=True only after the sequential LVG → LLV → PV chain converges", func() {
 			ec := newTestElasticCluster()

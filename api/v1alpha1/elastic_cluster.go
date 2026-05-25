@@ -398,6 +398,19 @@ const (
 	ECConditionReady             = "Ready"
 )
 
+// Well-known condition reasons that surface on ElasticCluster.status.
+// These are the strings UI / dashboards filter on, so they are part of
+// the public contract.
+const (
+	// ECReasonOwnershipConflict is set on StorageReady when at least
+	// one BlockDevice matching ec.spec.storage.blockDeviceSelector is
+	// already labelled `sds-elastic.deckhouse.io/cluster=<otherEC>`.
+	// The controller refuses to overwrite the foreign claim — the
+	// operator must clear the label manually (or delete the
+	// conflicting EC) before this EC can adopt the BD.
+	ECReasonOwnershipConflict = "OwnershipConflict"
+)
+
 // Well-known UpgradeProgress phases.
 const (
 	UpgradePhaseMon       = "MonUpgrading"

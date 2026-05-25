@@ -18,9 +18,11 @@ package controller
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"reflect"
 	"sort"
+	"strings"
 
 	corev1 "k8s.io/api/core/v1"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
@@ -36,6 +38,21 @@ import (
 	"github.com/deckhouse/sds-elastic/images/controller/internal/builder"
 	"github.com/deckhouse/sds-elastic/images/controller/internal/external"
 )
+
+// ErrOwnershipConflict is returned by adoptBlockDevice when the BD already
+// carries `sds-elastic.deckhouse.io/cluster=<otherEC>`. ensureStorage maps
+// it (via listMatchingBlockDevices.conflicts) onto a StorageReady=False /
+// reason=OwnershipConflict condition rather than a hard reconcile error.
+var ErrOwnershipConflict = errors.New("blockdevice claimed by another ElasticCluster")
+
+// bdOwnershipConflict is a (BD name, current owner EC name) pair surfaced
+// by listMatchingBlockDevices when a BD matching this EC's selector is
+// already owned by a different EC. Aggregated into the StorageReady
+// condition's message so the operator sees what to clear.
+type bdOwnershipConflict struct {
+	bdName  string
+	ownerEC string
+}
 
 // Status.phase target values for the LVG/LLV chain managed by
 // sds-node-configurator. Hard-coded on purpose: importing the SNC api
@@ -120,13 +137,24 @@ func (r *ElasticClusterReconciler) ensureStorage(
 	ctx context.Context,
 	ec *v1alpha1.ElasticCluster,
 ) (done bool, osdCount int32, pvcRequest resource.Quantity, reason, msg string, err error) {
-	matchedBDs, listErr := r.listMatchingBlockDevices(ctx, ec)
+	matchedBDs, conflicts, listErr := r.listMatchingBlockDevices(ctx, ec)
 	if listErr != nil {
 		if isNoMatchErr(listErr) {
 			return false, 0, resource.Quantity{}, storageReasonWaitingForBDCRD,
 				"waiting for BlockDevice CRD (sds-node-configurator)", nil
 		}
 		return false, 0, resource.Quantity{}, "", "", fmt.Errorf("list BlockDevices: %w", listErr)
+	}
+	if len(conflicts) > 0 {
+		// Surface conflicts before everything else: even one foreign-owned
+		// BD halts the stage so we never silently transfer ownership or
+		// half-provision the cluster against a contested device set.
+		parts := make([]string, 0, len(conflicts))
+		for _, c := range conflicts {
+			parts = append(parts, fmt.Sprintf("%s: claimed by %s", c.bdName, c.ownerEC))
+		}
+		return false, 0, resource.Quantity{}, v1alpha1.ECReasonOwnershipConflict,
+			fmt.Sprintf("ownership conflicts: %s", strings.Join(parts, "; ")), nil
 	}
 	if len(matchedBDs) == 0 {
 		return false, 0, resource.Quantity{}, storageReasonNoBlockDevices,
@@ -154,6 +182,15 @@ func (r *ElasticClusterReconciler) ensureStorage(
 		}
 
 		if err := r.adoptBlockDevice(ctx, &bd, ec); err != nil {
+			if errors.Is(err, ErrOwnershipConflict) {
+				// listMatchingBlockDevices already filters foreign-owned
+				// BDs into the conflicts slice; reaching here means a
+				// concurrent relabel slipped in between List and Patch
+				// (caught by MergeFromWithOptimisticLock). Surface as the
+				// same reason, not a hard error — the next reconcile
+				// re-Lists and the BD lands in conflicts properly.
+				return false, 0, resource.Quantity{}, v1alpha1.ECReasonOwnershipConflict, err.Error(), nil
+			}
 			return false, 0, resource.Quantity{}, "", "", fmt.Errorf("adopt BlockDevice %q: %w", bdName, err)
 		}
 
@@ -263,16 +300,32 @@ func (r *ElasticClusterReconciler) ensureStorage(
 		fmt.Sprintf("%d OSD volumes ready (LVG/LLV/PV)", osdCount), nil
 }
 
-// adoptBlockDevice patches the BD with the ECClusterLabel pointing at the
-// owning ElasticCluster. The label is the only durable signal the storage
-// stage uses to keep selecting the BD after sds-node-configurator flips
-// status.consumable=false (which it does as soon as a VG appears on the
-// device). The patch is idempotent — already-labelled BDs short-circuit.
+// adoptBlockDevice patches ECClusterLabel onto a BlockDevice that is
+// either unowned (no label, or label value == "") or already owned by
+// this EC (idempotent short-circuit). Refuses to overwrite a non-empty
+// ECClusterLabel pointing at a different EC: returns ErrOwnershipConflict
+// so the storage stage surfaces the conflict via StorageReady=False /
+// reason=OwnershipConflict instead of silently transferring ownership.
+//
+// Orphan recovery (the named owner no longer exists in the cluster) is
+// intentionally NOT auto-handled here — the operator must clear the
+// stale label manually. See B20 for OwnerReferences-based teardown that
+// would obviate manual cleanup.
+//
+// MergeFromWithOptimisticLock anchors the patch to the BD's
+// resourceVersion so a concurrent reconcile (or a manual relabel landing
+// between our List and Patch) cannot race past the trichotomy: a stale
+// pre-image yields HTTP 409, controller-runtime requeues, and the next
+// pass sees the freshly written foreign label and refuses.
 func (r *ElasticClusterReconciler) adoptBlockDevice(ctx context.Context, bd *unstructured.Unstructured, ec *v1alpha1.ElasticCluster) error {
-	if cur, ok := bd.GetLabels()[external.ECClusterLabel]; ok && cur == ec.Name {
+	cur, hasLabel := bd.GetLabels()[external.ECClusterLabel]
+	switch {
+	case hasLabel && cur == ec.Name:
 		return nil
+	case hasLabel && cur != "":
+		return fmt.Errorf("%w: %q claimed by %q", ErrOwnershipConflict, bd.GetName(), cur)
 	}
-	patch := client.MergeFrom(bd.DeepCopy())
+	patch := client.MergeFromWithOptions(bd.DeepCopy(), client.MergeFromWithOptimisticLock{})
 	labels := bd.GetLabels()
 	if labels == nil {
 		labels = map[string]string{}
@@ -282,36 +335,56 @@ func (r *ElasticClusterReconciler) adoptBlockDevice(ctx context.Context, bd *uns
 	return r.Client.Patch(ctx, bd, patch)
 }
 
-// listMatchingBlockDevices returns BlockDevices that:
-//  1. match ec.spec.storage.blockDeviceSelector via labels;
-//  2. live on a node matched by ec.spec.storage.nodeSelector;
-//  3. are consumable (status.consumable == true).
-func (r *ElasticClusterReconciler) listMatchingBlockDevices(ctx context.Context, ec *v1alpha1.ElasticCluster) ([]unstructured.Unstructured, error) {
+// listMatchingBlockDevices returns:
+//
+//   - selected: BlockDevices that (a) match
+//     ec.spec.storage.blockDeviceSelector via labels, (b) live on a node
+//     matched by ec.spec.storage.nodeSelector, (c) are consumable or were
+//     previously adopted by this EC, and (d) are not labelled as owned by
+//     a different EC;
+//   - conflicts: BlockDevices that pass the label selector but already
+//     carry `sds-elastic.deckhouse.io/cluster=<otherEC>`. These are
+//     bubbled up to ensureStorage which short-circuits with
+//     StorageReady=False / reason=OwnershipConflict instead of silently
+//     transferring ownership.
+func (r *ElasticClusterReconciler) listMatchingBlockDevices(
+	ctx context.Context, ec *v1alpha1.ElasticCluster,
+) (selected []unstructured.Unstructured, conflicts []bdOwnershipConflict, err error) {
 	bdSelector, err := metav1.LabelSelectorAsSelector(ec.Spec.Storage.BlockDeviceSelector)
 	if err != nil {
-		return nil, fmt.Errorf("invalid blockDeviceSelector: %w", err)
+		return nil, nil, fmt.Errorf("invalid blockDeviceSelector: %w", err)
 	}
 	nodeSelector, err := metav1.LabelSelectorAsSelector(ec.Spec.Storage.NodeSelector)
 	if err != nil {
-		return nil, fmt.Errorf("invalid nodeSelector: %w", err)
+		return nil, nil, fmt.Errorf("invalid nodeSelector: %w", err)
 	}
 
 	matchingNodes, err := r.matchingNodeNames(ctx, nodeSelector)
 	if err != nil {
-		return nil, fmt.Errorf("list matching Nodes: %w", err)
+		return nil, nil, fmt.Errorf("list matching Nodes: %w", err)
 	}
 
 	bdList := &unstructured.UnstructuredList{}
 	bdList.SetGroupVersionKind(schemaListKind(external.BlockDeviceGVK))
 	if err := r.Client.List(ctx, bdList, &client.ListOptions{LabelSelector: bdSelector}); err != nil {
-		return nil, err
+		return nil, nil, err
 	}
 
 	out := make([]unstructured.Unstructured, 0, len(bdList.Items))
 	for _, bd := range bdList.Items {
+		cur, hasLabel := bd.GetLabels()[external.ECClusterLabel]
+		if hasLabel && cur != "" && cur != ec.Name {
+			conflicts = append(conflicts, bdOwnershipConflict{bdName: bd.GetName(), ownerEC: cur})
+			continue
+		}
+
 		nodeName, _, _ := unstructured.NestedString(bd.Object, "status", "nodeName")
 		consumable, _, _ := unstructured.NestedBool(bd.Object, "status", "consumable")
-		_, alreadyOurs := bd.GetLabels()[external.ECClusterLabel]
+		// Already-ours bypass: SNC flips consumable=false the moment it
+		// puts a VG on top of the device, so a label-free filter would
+		// drop the BD on the next reconcile and trigger a destructive
+		// osdCount shrink. The own-label keeps adopted BDs included.
+		alreadyOurs := hasLabel && cur == ec.Name
 		if !alreadyOurs && !consumable {
 			continue
 		}
@@ -321,7 +394,8 @@ func (r *ElasticClusterReconciler) listMatchingBlockDevices(ctx context.Context,
 		out = append(out, bd)
 	}
 	sort.Slice(out, func(i, j int) bool { return out[i].GetName() < out[j].GetName() })
-	return out, nil
+	sort.Slice(conflicts, func(i, j int) bool { return conflicts[i].bdName < conflicts[j].bdName })
+	return out, conflicts, nil
 }
 
 // matchingNodeNames returns the set of node names that match `sel`. An
