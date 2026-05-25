@@ -26,6 +26,7 @@ shell:
 ---
 image: bundle
 fromImage: builder/scratch
+fromCacheVersion: "202605251055"
 
 import:
   # Rendering .werf/images-digests.yaml is required!
