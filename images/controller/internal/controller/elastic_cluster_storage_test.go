@@ -25,6 +25,7 @@ import (
 	corev1 "k8s.io/api/core/v1"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	"k8s.io/apimachinery/pkg/api/resource"
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
 	"k8s.io/apimachinery/pkg/runtime/schema"
 	"k8s.io/apimachinery/pkg/types"
@@ -458,6 +459,104 @@ var _ = Describe("ensureStorage", func() {
 			Expect(done).To(BeFalse())
 			Expect(reason).To(Equal(storageReasonWaitingForLLV))
 			Expect(msg).To(ContainSubstring("(Failed)"))
+		})
+	})
+
+	Context("sticky adoption (selector drift after a BD has been adopted)", func() {
+		It("keeps an adopted BD whose role label no longer matches blockDeviceSelector", func() {
+			cl = newFakeClient(
+				ec,
+				newTestNode("node-a"),
+				// role label flipped away from "elastic-osd" — would
+				// fail bdSelector if the lookup were selector-only. The
+				// ECClusterLabel must keep it sticky.
+				newBlockDevice("bd-sticky", "node-a", "100Gi", false, map[string]string{
+					external.ECClusterLabel: testECName,
+					"role":                  "no-longer-matches",
+				}),
+			)
+			r = newElasticClusterReconciler(cl)
+
+			driveStorageToReady(ctx, r, cl, ec)
+
+			done, osdCount, _, _, _, err := r.ensureStorage(ctx, ec)
+			Expect(err).NotTo(HaveOccurred())
+			Expect(done).To(BeTrue())
+			Expect(osdCount).To(Equal(int32(1)),
+				"sticky union must keep an adopted BD even after selector drift "+
+					"so storageClassDeviceSets[0].count stays monotonic")
+		})
+
+		It("keeps an adopted BD whose node no longer matches nodeSelector", func() {
+			// Node intentionally lacks the storage role label so it
+			// would NOT pass nodeSelector — sticky path must bypass.
+			driftedNode := &corev1.Node{
+				ObjectMeta: metav1.ObjectMeta{
+					Name:   "node-drifted",
+					Labels: map[string]string{"node-role": "compute"},
+				},
+			}
+			cl = newFakeClient(
+				ec,
+				driftedNode,
+				newBlockDevice("bd-sticky-node", "node-drifted", "100Gi", false, map[string]string{
+					external.ECClusterLabel: testECName,
+				}),
+			)
+			r = newElasticClusterReconciler(cl)
+
+			_, osdCount, _, reason, _, err := r.ensureStorage(ctx, ec)
+			Expect(err).NotTo(HaveOccurred())
+			Expect(osdCount).To(Equal(int32(1)),
+				"node label drift must not orphan a previously-adopted BD: the local "+
+					"PV is bound to that node, dropping it would invalidate stored data")
+			Expect(reason).To(Equal(storageReasonWaitingForLVG),
+				"adoption proceeds normally; only LVG provisioning gates progress")
+		})
+
+		It("does not double-count when a BD is in both the sticky and selector lists", func() {
+			cl = newFakeClient(
+				ec,
+				newTestNode("node-a"),
+				// Adopted AND still matching the selector — must not
+				// appear twice in osdCount.
+				newBlockDevice("bd-shared", "node-a", "100Gi", true, map[string]string{
+					external.ECClusterLabel: testECName,
+				}),
+			)
+			r = newElasticClusterReconciler(cl)
+
+			_, osdCount, _, _, _, err := r.ensureStorage(ctx, ec)
+			Expect(err).NotTo(HaveOccurred())
+			Expect(osdCount).To(Equal(int32(1)),
+				"dedup by BD name must collapse the union to a single entry")
+		})
+
+		It("counts both adopted (selector-drifted) and freshly-matching BDs", func() {
+			cl = newFakeClient(
+				ec,
+				newTestNode("node-a"),
+				// Sticky-only: drifted out of the selector but still ours.
+				newBlockDevice("bd-sticky", "node-a", "100Gi", false, map[string]string{
+					external.ECClusterLabel: testECName,
+					"role":                  "drifted",
+				}),
+				// Fresh adoption candidate: matches selector, no label yet.
+				newBlockDevice("bd-fresh", "node-a", "200Gi", true, nil),
+			)
+			r = newElasticClusterReconciler(cl)
+
+			_, osdCount, _, reason, _, err := r.ensureStorage(ctx, ec)
+			Expect(err).NotTo(HaveOccurred())
+			Expect(osdCount).To(Equal(int32(2)),
+				"union must contain both populations")
+			Expect(reason).To(Equal(storageReasonWaitingForLVG))
+
+			fresh := &unstructured.Unstructured{}
+			fresh.SetGroupVersionKind(external.BlockDeviceGVK)
+			Expect(cl.Get(ctx, types.NamespacedName{Name: "bd-fresh"}, fresh)).To(Succeed())
+			Expect(fresh.GetLabels()[external.ECClusterLabel]).To(Equal(testECName),
+				"fresh selector-matching BD must be adopted in this same reconcile")
 		})
 	})
 

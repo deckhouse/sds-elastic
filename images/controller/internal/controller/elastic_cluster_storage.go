@@ -335,18 +335,31 @@ func (r *ElasticClusterReconciler) adoptBlockDevice(ctx context.Context, bd *uns
 	return r.Client.Patch(ctx, bd, patch)
 }
 
-// listMatchingBlockDevices returns:
+// listMatchingBlockDevices returns the union of two BlockDevice
+// populations as `selected`, plus any foreign-owned conflicts:
 //
-//   - selected: BlockDevices that (a) match
-//     ec.spec.storage.blockDeviceSelector via labels, (b) live on a node
-//     matched by ec.spec.storage.nodeSelector, (c) are consumable or were
-//     previously adopted by this EC, and (d) are not labelled as owned by
-//     a different EC;
-//   - conflicts: BlockDevices that pass the label selector but already
-//     carry `sds-elastic.deckhouse.io/cluster=<otherEC>`. These are
-//     bubbled up to ensureStorage which short-circuits with
-//     StorageReady=False / reason=OwnershipConflict instead of silently
-//     transferring ownership.
+//  1. Sticky-owned (always included): BlockDevices labelled with
+//     `sds-elastic.deckhouse.io/cluster=<ec.Name>`. These are BDs we
+//     have previously adopted; they bypass both
+//     `spec.storage.blockDeviceSelector` AND `spec.storage.nodeSelector`.
+//     The CephCluster.spec.storageClassDeviceSets[0].count is derived
+//     from len(selected); shrinking it does not, by itself, remove
+//     OSDs (Rook only does so with `removeOSDsIfOutAndSafeToRemove:
+//     true`, which we leave at the default `false`), but it does
+//     immediately stop new pods being scheduled and produces churn in
+//     the spec. Sticky inclusion makes the count monotonic for the
+//     lifetime of an EC: once a BD is adopted, the only way to
+//     decrement count is to manually clear the label after deleting
+//     the LVG/LLV/PV plumbing.
+//
+//  2. Selector-matching (included when consumable + node match):
+//     BDs that match `blockDeviceSelector` and live on a node matching
+//     `nodeSelector`. Foreign-owned BDs (label points at a different
+//     EC) are excluded and surfaced via `conflicts` so ensureStorage
+//     can short-circuit with reason=OwnershipConflict.
+//
+// Dedup is by BD name; the sticky list takes precedence so the
+// returned object is the freshest copy of the BD CR available.
 func (r *ElasticClusterReconciler) listMatchingBlockDevices(
 	ctx context.Context, ec *v1alpha1.ElasticCluster,
 ) (selected []unstructured.Unstructured, conflicts []bdOwnershipConflict, err error) {
@@ -364,33 +377,55 @@ func (r *ElasticClusterReconciler) listMatchingBlockDevices(
 		return nil, nil, fmt.Errorf("list matching Nodes: %w", err)
 	}
 
-	bdList := &unstructured.UnstructuredList{}
-	bdList.SetGroupVersionKind(schemaListKind(external.BlockDeviceGVK))
-	if err := r.Client.List(ctx, bdList, &client.ListOptions{LabelSelector: bdSelector}); err != nil {
+	// List 1: sticky — every BD already labelled as ours.
+	owned := &unstructured.UnstructuredList{}
+	owned.SetGroupVersionKind(schemaListKind(external.BlockDeviceGVK))
+	if err := r.Client.List(ctx, owned, &client.ListOptions{
+		LabelSelector: labels.SelectorFromSet(labels.Set{external.ECClusterLabel: ec.Name}),
+	}); err != nil {
 		return nil, nil, err
 	}
 
-	out := make([]unstructured.Unstructured, 0, len(bdList.Items))
-	for _, bd := range bdList.Items {
+	// List 2: BDs matching the user-defined blockDeviceSelector.
+	matched := &unstructured.UnstructuredList{}
+	matched.SetGroupVersionKind(schemaListKind(external.BlockDeviceGVK))
+	if err := r.Client.List(ctx, matched, &client.ListOptions{LabelSelector: bdSelector}); err != nil {
+		return nil, nil, err
+	}
+
+	seen := make(map[string]struct{}, len(owned.Items)+len(matched.Items))
+	out := make([]unstructured.Unstructured, 0, len(owned.Items)+len(matched.Items))
+
+	// Sticky pass: include unconditionally. We cannot rescind ownership
+	// without data-loss risk, so selector drift on a previously-adopted
+	// BD must NOT shrink the working set.
+	for _, bd := range owned.Items {
+		seen[bd.GetName()] = struct{}{}
+		out = append(out, bd)
+	}
+
+	// Selector pass: fresh adoption candidates plus conflict surfacing.
+	for _, bd := range matched.Items {
+		if _, dup := seen[bd.GetName()]; dup {
+			continue
+		}
 		cur, hasLabel := bd.GetLabels()[external.ECClusterLabel]
 		if hasLabel && cur != "" && cur != ec.Name {
 			conflicts = append(conflicts, bdOwnershipConflict{bdName: bd.GetName(), ownerEC: cur})
 			continue
 		}
-
+		// Reaching here: BD is not foreign-owned and not yet adopted by us
+		// (sticky path would have caught alreadyOurs). To enrol it for
+		// fresh adoption it must be consumable AND on a matching node.
 		nodeName, _, _ := unstructured.NestedString(bd.Object, "status", "nodeName")
 		consumable, _, _ := unstructured.NestedBool(bd.Object, "status", "consumable")
-		// Already-ours bypass: SNC flips consumable=false the moment it
-		// puts a VG on top of the device, so a label-free filter would
-		// drop the BD on the next reconcile and trigger a destructive
-		// osdCount shrink. The own-label keeps adopted BDs included.
-		alreadyOurs := hasLabel && cur == ec.Name
-		if !alreadyOurs && !consumable {
+		if !consumable {
 			continue
 		}
 		if !matchingNodes[nodeName] {
 			continue
 		}
+		seen[bd.GetName()] = struct{}{}
 		out = append(out, bd)
 	}
 	sort.Slice(out, func(i, j int) bool { return out[i].GetName() < out[j].GetName() })

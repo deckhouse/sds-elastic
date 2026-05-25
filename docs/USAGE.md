@@ -127,6 +127,34 @@ The controller also creates an internal [ElasticClusterCredential](./cr.html#ela
 d8 k get elasticclustercredential ceph-prod -o yaml
 ```
 
+## BlockDevice Adoption and Ownership
+
+Once an `ElasticCluster` selects a `BlockDevice` for the first time, the controller patches it with the `sds-elastic.deckhouse.io/cluster=<cluster-name>` label. The label is the durable record of which cluster owns the device and drives several behaviors:
+
+- **Single owner per BlockDevice.** If a `BlockDevice` matches the `blockDeviceSelector` of two `ElasticCluster` resources, the second one cannot adopt it. The controller refuses to overwrite the existing label and surfaces `StorageReady=False` with `Reason=OwnershipConflict` and a message listing each contested BD and its current owner. No LVMVolumeGroup, LVMLogicalVolume, or local PersistentVolume is created until every conflict is resolved — even free BDs in the selector remain unadopted while a conflict is pending.
+
+  To resolve a conflict, decide which cluster should own the BD and clear the label on the other side:
+
+  ```shell
+  d8 k label blockdevice <bd-name> sds-elastic.deckhouse.io/cluster-
+  ```
+
+  Or remove the conflicting `ElasticCluster` entirely. The next reconcile picks the BD up.
+
+- **Sticky adoption — adopted BlockDevices stay with the cluster.** Once a BD has been labelled by the controller, it remains part of the cluster's working set even if it later drifts out of `blockDeviceSelector` or `nodeSelector` (for example, the operator narrows the selector, the device's labels change, or its node is relabelled). This is intentional: the OSD on top of it is already provisioned, the local PV is bound to a specific node, and dropping it from the working set would shrink `CephCluster.spec.storageClassDeviceSets[0].count` and risk data unavailability. The cluster's OSD count is therefore monotonic for the lifetime of an `ElasticCluster` — it can grow when new BDs match the selector but never shrinks on its own.
+
+  As a side effect, `sds-node-configurator` flips `BlockDevice.status.consumable` to `false` once a VG appears on the device. Sticky adoption prevents this from kicking the BD out of the working set on the very next reconcile.
+
+- **Releasing a BlockDevice.** There is no automatic disown path on this experimental stage (planned as part of B20 — OwnerReferences and finalizer-driven teardown). To safely retire a BD from a cluster, either delete the entire `ElasticCluster` (the controller-managed objects are removed, see `Deleting Resources` below) or, if you must shrink one cluster only, manually delete the corresponding `LVMLogicalVolume` and `LVMVolumeGroup`, and only then clear the label:
+
+  ```shell
+  d8 k delete lvmlogicalvolume <name>
+  d8 k delete lvmvolumegroup <name>
+  d8 k label blockdevice <bd-name> sds-elastic.deckhouse.io/cluster-
+  ```
+
+  Doing this while pools still hold useful data risks losing replicas.
+
 ## Declaring StorageClasses
 
 Pools and the matching csi-ceph StorageClasses are declared per [ElasticStorageClass](./cr.html#elasticstorageclass). One ESC produces one Ceph pool + one `CephStorageClass` named after the ESC.
