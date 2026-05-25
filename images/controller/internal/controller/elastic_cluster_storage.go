@@ -61,17 +61,40 @@ const (
 	storageReasonWaitingForPV           = "WaitingForPersistentVolume"
 )
 
+// selectedBD captures the per-BlockDevice values the sequential storage
+// stages need to consume after Phase 0 has validated and adopted the BD.
+// Stored in a slice so subsequent stages can iterate without re-listing
+// BDs and without re-running validation.
+type selectedBD struct {
+	bdName   string
+	nodeName string
+	capacity resource.Quantity
+}
+
 // ensureStorage reconciles the LVM-backed storage chain BlockDevice → LVG →
 // LLV → local PV for every BlockDevice that matches
 // ec.spec.storage.{nodeSelector,blockDeviceSelector}.
 //
+// The stage is split into three sequential sub-phases that strictly
+// honour the LVG → LLV → PV dependency on the host:
+//
+//  1. Adopt every selected BD and upsert its LVG. Wait for
+//     LVG.status.phase == Ready before progressing.
+//  2. Upsert every LLV. Wait for LLV.status.phase == Created.
+//  3. Upsert every local PV. Wait for PV.status.phase ∈ {Available, Bound}.
+//
+// LLV CRs are NOT created until every LVG is Ready; PV CRs are NOT
+// created until every LLV is Created. The original implementation
+// upserted the whole chain in one pass and relied on sds-node-configurator
+// (SNC) to retry LLV reconcilation once its parent LVG flipped to Ready.
+// SNC currently has a watch race in this path — an LLV created before
+// its LVG sometimes never gets re-reconciled — so we sequence the
+// upserts ourselves to keep the contract independent of upstream bugs.
+//
 // Returns:
 //   - done       — true once every selected BD has a matching LVG/LLV/PV
 //     AND the underlying CRs report a target status.phase: LVG=Ready,
-//     LLV=Created, PV in {Available, Bound}. Without these checks the
-//     reconciler raced ahead of sds-node-configurator's host-side
-//     provisioning, leaving kubelet to FailedMapVolume on rook-ceph-osd-
-//     prepare pods because /dev/<vg>/<lv> did not yet exist.
+//     LLV=Created, PV in {Available, Bound}.
 //   - osdCount   — the total number of OSDs (== matched BlockDevices). Passed
 //     to the CephCluster builder so storageClassDeviceSets[0]
 //     asks for exactly the right number of PVCs.
@@ -110,12 +133,11 @@ func (r *ElasticClusterReconciler) ensureStorage(
 			"no BlockDevices match storage.{nodeSelector,blockDeviceSelector}", nil
 	}
 
-	var (
-		selected     int32
-		skipped      []string
-		minSize      resource.Quantity
-		managedNames []string
-	)
+	// Phase 0: validate every BD, adopt it (idempotent label patch), and
+	// upsert its LVG. LLV/PV CRs intentionally are NOT touched yet.
+	selected := make([]selectedBD, 0, len(matchedBDs))
+	skipped := []string{}
+	var minSize resource.Quantity
 	for i := range matchedBDs {
 		bd := matchedBDs[i]
 		bdName := bd.GetName()
@@ -144,89 +166,101 @@ func (r *ElasticClusterReconciler) ensureStorage(
 			return false, 0, resource.Quantity{}, "", "", fmt.Errorf("upsert LVMVolumeGroup %s: %w", lvg.GetName(), err)
 		}
 
-		llv := builder.ECLVMLogicalVolume(ec, bdName)
-		if err := r.upsertECUnstructured(ctx, llv); err != nil {
-			if isNoMatchErr(err) {
-				return false, 0, resource.Quantity{}, storageReasonWaitingForLLVCRD,
-					"waiting for LVMLogicalVolume CRD (sds-node-configurator)", nil
-			}
-			return false, 0, resource.Quantity{}, "", "", fmt.Errorf("upsert LVMLogicalVolume %s: %w", llv.GetName(), err)
-		}
-
-		pv := builder.ECOSDPersistentVolume(ec, bdName, nodeName, capacity)
-		if err := r.upsertECPersistentVolume(ctx, pv); err != nil {
-			return false, 0, resource.Quantity{}, "", "", fmt.Errorf("upsert PersistentVolume %s: %w", pv.Name, err)
-		}
-		if selected == 0 || capacity.Cmp(minSize) < 0 {
+		if len(selected) == 0 || capacity.Cmp(minSize) < 0 {
 			minSize = capacity
 		}
-		selected++
-		managedNames = append(managedNames, builder.ECOSDResourceName(ec, bdName))
+		selected = append(selected, selectedBD{bdName: bdName, nodeName: nodeName, capacity: capacity})
 	}
 
 	if len(skipped) > 0 {
-		return false, selected, minSize, storageReasonWaitingForBlockDevices,
+		return false, int32(len(selected)), minSize, storageReasonWaitingForBlockDevices,
 			fmt.Sprintf("selected %d BlockDevices for LVG/LLV/PV provisioning; skipped %d unusable: %v",
-				selected, len(skipped), skipped),
+				len(selected), len(skipped), skipped),
 			nil
 	}
-	if selected == 0 {
+	if len(selected) == 0 {
 		// listMatchingBlockDevices returned items but every one failed
 		// validation above. Treat as transient: surface "no usable BDs"
 		// rather than declaring storage Ready on an empty set.
 		return false, 0, resource.Quantity{}, storageReasonNoBlockDevices,
 			"no usable BlockDevices after validation", nil
 	}
+	osdCount = int32(len(selected))
+	pvcRequest = minSize
 
+	managedNames := make([]string, 0, len(selected))
+	for _, s := range selected {
+		managedNames = append(managedNames, builder.ECOSDResourceName(ec, s.bdName))
+	}
 	sort.Strings(managedNames)
 
-	// Wait for sds-node-configurator to actually flip phase=Ready on the
-	// LVG before declaring storage Ready: otherwise the LVG is just a CR
-	// and there is no /dev/<vg> on the host yet.
+	// Phase 1 gate: every LVG must be Ready before LLVs are created.
+	// Not gating here means SNC sees a fresh LLV pointing at a not-yet-
+	// provisioned VG and (today) hangs in NotReady because the LVG ready
+	// event does not re-enqueue the LLV. Sequencing the create on our
+	// side makes the contract independent of that watch race.
 	lvgPhases, err := r.fetchUnstructuredPhasesByLabel(ctx, ec, external.LVMVolumeGroupGVK)
 	if err != nil {
-		return false, selected, minSize, "", "", fmt.Errorf("list LVMVolumeGroups for status: %w", err)
+		return false, osdCount, pvcRequest, "", "", fmt.Errorf("list LVMVolumeGroups for status: %w", err)
 	}
-	if ready, pending := assessPhases(managedNames, lvgPhases, lvgPhaseReady); ready < int(selected) {
-		return false, selected, minSize, storageReasonWaitingForLVG,
+	if ready, pending := assessPhases(managedNames, lvgPhases, lvgPhaseReady); ready < int(osdCount) {
+		return false, osdCount, pvcRequest, storageReasonWaitingForLVG,
 			fmt.Sprintf("%d/%d LVMVolumeGroups Ready; pending: %s",
-				ready, selected, formatPending(pending)),
+				ready, osdCount, formatPending(pending)),
 			nil
 	}
 
-	// Wait for LLV to reach phase=Created (sds-node-configurator has
-	// allocated the LV inside the VG). Until then /dev/<vg>/<lv> does
-	// not exist and kubelet's FailedMapVolume retry loop is the only
-	// signal Rook gets.
+	// Phase 2: every LVG is Ready — upsert LLVs.
+	for _, s := range selected {
+		llv := builder.ECLVMLogicalVolume(ec, s.bdName)
+		if err := r.upsertECUnstructured(ctx, llv); err != nil {
+			if isNoMatchErr(err) {
+				return false, osdCount, pvcRequest, storageReasonWaitingForLLVCRD,
+					"waiting for LVMLogicalVolume CRD (sds-node-configurator)", nil
+			}
+			return false, osdCount, pvcRequest, "", "", fmt.Errorf("upsert LVMLogicalVolume %s: %w", llv.GetName(), err)
+		}
+	}
+
+	// Phase 2 gate: every LLV must be Created (LV provisioned on the
+	// host) before we expose the local PV. Otherwise kubelet would race
+	// FailedMapVolume / EvalHostSymlinks against the missing /dev/<vg>/<lv>.
 	llvPhases, err := r.fetchUnstructuredPhasesByLabel(ctx, ec, external.LVMLogicalVolumeGVK)
 	if err != nil {
-		return false, selected, minSize, "", "", fmt.Errorf("list LVMLogicalVolumes for status: %w", err)
+		return false, osdCount, pvcRequest, "", "", fmt.Errorf("list LVMLogicalVolumes for status: %w", err)
 	}
-	if ready, pending := assessPhases(managedNames, llvPhases, llvPhaseCreated); ready < int(selected) {
-		return false, selected, minSize, storageReasonWaitingForLLV,
+	if ready, pending := assessPhases(managedNames, llvPhases, llvPhaseCreated); ready < int(osdCount) {
+		return false, osdCount, pvcRequest, storageReasonWaitingForLLV,
 			fmt.Sprintf("%d/%d LVMLogicalVolumes Created; pending: %s",
-				ready, selected, formatPending(pending)),
+				ready, osdCount, formatPending(pending)),
 			nil
 	}
 
-	// Wait for the local PV to reach a phase that the K8s scheduler can
-	// bind to (Available or Bound). A freshly-Create()d PV starts in the
-	// empty / Pending phase; the volume binder transitions it once the
-	// LLV-backed device is observable.
+	// Phase 3: every LLV is Created — upsert local PVs.
+	for _, s := range selected {
+		pv := builder.ECOSDPersistentVolume(ec, s.bdName, s.nodeName, s.capacity)
+		if err := r.upsertECPersistentVolume(ctx, pv); err != nil {
+			return false, osdCount, pvcRequest, "", "", fmt.Errorf("upsert PersistentVolume %s: %w", pv.Name, err)
+		}
+	}
+
+	// Phase 3 gate: every PV must be Available or Bound. A freshly
+	// Create()d PV starts in the empty / Pending phase; the volume
+	// binder transitions it once the LLV-backed device is observable.
 	pvPhases, err := r.fetchPVPhasesByLabel(ctx, ec)
 	if err != nil {
-		return false, selected, minSize, "", "", fmt.Errorf("list PersistentVolumes for status: %w", err)
+		return false, osdCount, pvcRequest, "", "", fmt.Errorf("list PersistentVolumes for status: %w", err)
 	}
 	if ready, pending := assessPhases(managedNames, pvPhases,
-		string(corev1.VolumeAvailable), string(corev1.VolumeBound)); ready < int(selected) {
-		return false, selected, minSize, storageReasonWaitingForPV,
+		string(corev1.VolumeAvailable), string(corev1.VolumeBound)); ready < int(osdCount) {
+		return false, osdCount, pvcRequest, storageReasonWaitingForPV,
 			fmt.Sprintf("%d/%d PersistentVolumes Available|Bound; pending: %s",
-				ready, selected, formatPending(pending)),
+				ready, osdCount, formatPending(pending)),
 			nil
 	}
 
-	return true, selected, minSize, "",
-		fmt.Sprintf("%d OSD volumes ready (LVG/LLV/PV)", selected), nil
+	return true, osdCount, pvcRequest, "",
+		fmt.Sprintf("%d OSD volumes ready (LVG/LLV/PV)", osdCount), nil
 }
 
 // adoptBlockDevice patches the BD with the ECClusterLabel pointing at the

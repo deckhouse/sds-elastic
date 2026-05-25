@@ -26,6 +26,7 @@ import (
 	ctrl "sigs.k8s.io/controller-runtime"
 
 	v1alpha1 "github.com/deckhouse/sds-elastic/api/v1alpha1"
+	"github.com/deckhouse/sds-elastic/images/controller/internal/external"
 )
 
 var _ = Describe("ElasticClusterReconciler.Reconcile", func() {
@@ -54,7 +55,7 @@ var _ = Describe("ElasticClusterReconciler.Reconcile", func() {
 	})
 
 	Context("fully seeded cluster", func() {
-		It("reaches Ready=True only after the second reconcile observes converged storage phases", func() {
+		It("reaches Ready=True only after the sequential LVG → LLV → PV chain converges", func() {
 			ec := newTestElasticCluster()
 			cephImage := newTestCfg().CephImages[v1alpha1.DefaultCephVersion]
 
@@ -73,24 +74,43 @@ var _ = Describe("ElasticClusterReconciler.Reconcile", func() {
 			)
 			r := newElasticClusterReconciler(cl)
 
-			// First reconcile provisions LVG/LLV/PV CRs but storage cannot
-			// be Ready yet — sds-node-configurator has not flipped the
-			// status.phase fields. Reconciler must keep requeueing.
-			result, err := r.Reconcile(ctx, ctrl.Request{NamespacedName: types.NamespacedName{Name: testECName}})
+			req := ctrl.Request{NamespacedName: types.NamespacedName{Name: testECName}}
+			latest := &v1alpha1.ElasticCluster{}
+
+			// Reconcile #1 — only LVG CRs created; gate is WaitingForLVG.
+			result, err := r.Reconcile(ctx, req)
 			Expect(err).NotTo(HaveOccurred())
 			Expect(result.RequeueAfter).NotTo(BeZero(),
 				"non-ready cluster must keep requeueing until phases converge")
-
-			latest := &v1alpha1.ElasticCluster{}
 			Expect(cl.Get(ctx, types.NamespacedName{Name: testECName}, latest)).To(Succeed())
 			Expect(findCondition(latest.Status.Conditions, v1alpha1.ECConditionStorageReady).Reason).
 				To(Equal(storageReasonWaitingForLVG))
+			expectAbsent(ctx, cl, external.LVMLogicalVolumeGVK, ec)
+			expectAbsentPVs(ctx, cl, ec)
 
-			// Simulate sds-node-configurator + the K8s PV binder: flip the
-			// downstream phases the controller is waiting on.
-			markStorageProvisioned(ctx, cl, ec)
+			// SNC reports the host VG ready — Reconcile #2 creates LLVs.
+			markLVGsReady(ctx, cl, ec)
+			result, err = r.Reconcile(ctx, req)
+			Expect(err).NotTo(HaveOccurred())
+			Expect(result.RequeueAfter).NotTo(BeZero())
+			Expect(cl.Get(ctx, types.NamespacedName{Name: testECName}, latest)).To(Succeed())
+			Expect(findCondition(latest.Status.Conditions, v1alpha1.ECConditionStorageReady).Reason).
+				To(Equal(storageReasonWaitingForLLV))
+			expectAbsentPVs(ctx, cl, ec)
 
-			result, err = r.Reconcile(ctx, ctrl.Request{NamespacedName: types.NamespacedName{Name: testECName}})
+			// SNC reports the LV created — Reconcile #3 creates PVs.
+			markLLVsCreated(ctx, cl, ec)
+			result, err = r.Reconcile(ctx, req)
+			Expect(err).NotTo(HaveOccurred())
+			Expect(result.RequeueAfter).NotTo(BeZero())
+			Expect(cl.Get(ctx, types.NamespacedName{Name: testECName}, latest)).To(Succeed())
+			Expect(findCondition(latest.Status.Conditions, v1alpha1.ECConditionStorageReady).Reason).
+				To(Equal(storageReasonWaitingForPV))
+
+			// PV binder flips the local PVs to Available — Reconcile #4
+			// drains every stage and reaches Ready=True.
+			markPVsAvailable(ctx, cl, ec)
+			result, err = r.Reconcile(ctx, req)
 			Expect(err).NotTo(HaveOccurred())
 			Expect(result.RequeueAfter).To(BeZero())
 

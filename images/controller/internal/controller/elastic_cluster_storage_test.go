@@ -22,6 +22,7 @@ import (
 	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
 	corev1 "k8s.io/api/core/v1"
+	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	"k8s.io/apimachinery/pkg/api/resource"
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
 	"k8s.io/apimachinery/pkg/runtime/schema"
@@ -69,13 +70,70 @@ func markPVPhase(ctx context.Context, cl client.Client, ec *v1alpha1.ElasticClus
 	}
 }
 
-// markStorageProvisioned simulates the happy outcome of all downstream
-// provisioners (sds-node-configurator + K8s PV binder) by flipping the
-// observed phases on every LVG/LLV/PV the controller has just upserted.
-func markStorageProvisioned(ctx context.Context, cl client.Client, ec *v1alpha1.ElasticCluster) {
+// markLVGsReady / markLLVsCreated / markPVsAvailable wrap the generic
+// helpers with the target phase used by ensureStorage gates. Tests use
+// them to clearly express which downstream provisioner just finished.
+func markLVGsReady(ctx context.Context, cl client.Client, ec *v1alpha1.ElasticCluster) {
 	markUnstructuredPhase(ctx, cl, external.LVMVolumeGroupGVK, ec, "Ready")
+}
+func markLLVsCreated(ctx context.Context, cl client.Client, ec *v1alpha1.ElasticCluster) {
 	markUnstructuredPhase(ctx, cl, external.LVMLogicalVolumeGVK, ec, "Created")
+}
+func markPVsAvailable(ctx context.Context, cl client.Client, ec *v1alpha1.ElasticCluster) {
 	markPVPhase(ctx, cl, ec, corev1.VolumeAvailable)
+}
+
+// driveStorageToReady walks ensureStorage through the full sequential
+// chain — call → mark LVGs Ready → call → mark LLVs Created → call →
+// mark PVs Available → call done=true. Tests that only care about the
+// final state use this to keep the body compact.
+func driveStorageToReady(ctx context.Context, r *ElasticClusterReconciler, cl client.Client, ec *v1alpha1.ElasticCluster) {
+	// Phase 1 → Phase 2 transition.
+	done, _, _, reason, _, err := r.ensureStorage(ctx, ec)
+	Expect(err).NotTo(HaveOccurred())
+	Expect(done).To(BeFalse())
+	Expect(reason).To(Equal(storageReasonWaitingForLVG))
+	markLVGsReady(ctx, cl, ec)
+
+	// Phase 2 → Phase 3 transition.
+	done, _, _, reason, _, err = r.ensureStorage(ctx, ec)
+	Expect(err).NotTo(HaveOccurred())
+	Expect(done).To(BeFalse())
+	Expect(reason).To(Equal(storageReasonWaitingForLLV))
+	markLLVsCreated(ctx, cl, ec)
+
+	// Phase 3 → done transition.
+	done, _, _, reason, _, err = r.ensureStorage(ctx, ec)
+	Expect(err).NotTo(HaveOccurred())
+	Expect(done).To(BeFalse())
+	Expect(reason).To(Equal(storageReasonWaitingForPV))
+	markPVsAvailable(ctx, cl, ec)
+
+	done, _, _, reason, _, err = r.ensureStorage(ctx, ec)
+	Expect(err).NotTo(HaveOccurred())
+	Expect(done).To(BeTrue())
+	Expect(reason).To(BeEmpty())
+}
+
+// expectAbsent asserts that no CR of the given GVK exists with the
+// ECClusterLabel set to ec.Name. Used by the sequential-flow tests to
+// pin down the invariant that LLV/PV CRs are NOT created before their
+// upstream stage gate has been cleared.
+func expectAbsent(ctx context.Context, cl client.Client, gvk schema.GroupVersionKind, ec *v1alpha1.ElasticCluster) {
+	list := &unstructured.UnstructuredList{}
+	list.SetGroupVersionKind(schema.GroupVersionKind{
+		Group: gvk.Group, Version: gvk.Version, Kind: gvk.Kind + "List",
+	})
+	Expect(cl.List(ctx, list, client.MatchingLabels{external.ECClusterLabel: ec.Name})).To(Succeed())
+	Expect(list.Items).To(BeEmpty(),
+		"%s CRs must not exist before their stage gate has cleared", gvk.Kind)
+}
+
+func expectAbsentPVs(ctx context.Context, cl client.Client, ec *v1alpha1.ElasticCluster) {
+	list := &corev1.PersistentVolumeList{}
+	Expect(cl.List(ctx, list, client.MatchingLabels{external.ECClusterLabel: ec.Name})).To(Succeed())
+	Expect(list.Items).To(BeEmpty(),
+		"local PersistentVolumes must not exist before their stage gate has cleared")
 }
 
 var _ = Describe("ensureStorage", func() {
@@ -99,7 +157,7 @@ var _ = Describe("ensureStorage", func() {
 			r = newElasticClusterReconciler(cl)
 		})
 
-		It("first reconcile upserts LVG/LLV/PV and gates on LVG phase", func() {
+		It("first reconcile upserts only LVGs and gates on LVG phase", func() {
 			done, osdCount, pvcRequest, reason, msg, err := r.ensureStorage(ctx, ec)
 			Expect(err).NotTo(HaveOccurred())
 			Expect(done).To(BeFalse(),
@@ -121,24 +179,51 @@ var _ = Describe("ensureStorage", func() {
 				lvg := &unstructured.Unstructured{}
 				lvg.SetGroupVersionKind(external.LVMVolumeGroupGVK)
 				Expect(cl.Get(ctx, types.NamespacedName{Name: builder.ECOSDResourceName(ec, bdName)}, lvg)).To(Succeed())
+			}
 
+			// LLV/PV must NOT have been created yet — sequencing is the
+			// whole point of the sequential refactor: SNC's watch race
+			// on out-of-order LLV must not be reachable.
+			expectAbsent(ctx, cl, external.LVMLogicalVolumeGVK, ec)
+			expectAbsentPVs(ctx, cl, ec)
+		})
+
+		It("creates LLVs only after every LVG is Ready, PVs only after every LLV is Created", func() {
+			// Phase 1 reconcile: only LVGs.
+			_, _, _, reason, _, err := r.ensureStorage(ctx, ec)
+			Expect(err).NotTo(HaveOccurred())
+			Expect(reason).To(Equal(storageReasonWaitingForLVG))
+			expectAbsent(ctx, cl, external.LVMLogicalVolumeGVK, ec)
+			expectAbsentPVs(ctx, cl, ec)
+
+			markLVGsReady(ctx, cl, ec)
+
+			// Phase 2 reconcile: LLVs created, no PVs.
+			_, _, _, reason, _, err = r.ensureStorage(ctx, ec)
+			Expect(err).NotTo(HaveOccurred())
+			Expect(reason).To(Equal(storageReasonWaitingForLLV))
+			for _, bdName := range []string{"bd-a", "bd-b", "bd-c"} {
 				llv := &unstructured.Unstructured{}
 				llv.SetGroupVersionKind(external.LVMLogicalVolumeGVK)
 				Expect(cl.Get(ctx, types.NamespacedName{Name: builder.ECOSDResourceName(ec, bdName)}, llv)).To(Succeed())
+			}
+			expectAbsentPVs(ctx, cl, ec)
 
+			markLLVsCreated(ctx, cl, ec)
+
+			// Phase 3 reconcile: PVs created.
+			_, _, _, reason, _, err = r.ensureStorage(ctx, ec)
+			Expect(err).NotTo(HaveOccurred())
+			Expect(reason).To(Equal(storageReasonWaitingForPV))
+			for _, bdName := range []string{"bd-a", "bd-b", "bd-c"} {
 				pv := &corev1.PersistentVolume{}
 				Expect(cl.Get(ctx, types.NamespacedName{Name: builder.ECOSDResourceName(ec, bdName)}, pv)).To(Succeed())
 				Expect(pv.Labels[external.ECClusterLabel]).To(Equal(testECName))
 			}
-		})
 
-		It("becomes Ready after sds-node-configurator and the PV binder converge", func() {
-			done, _, _, _, _, err := r.ensureStorage(ctx, ec)
-			Expect(err).NotTo(HaveOccurred())
-			Expect(done).To(BeFalse())
+			markPVsAvailable(ctx, cl, ec)
 
-			markStorageProvisioned(ctx, cl, ec)
-
+			// Final reconcile: done.
 			done, osdCount, pvcRequest, reason, msg, err := r.ensureStorage(ctx, ec)
 			Expect(err).NotTo(HaveOccurred())
 			Expect(done).To(BeTrue())
@@ -159,6 +244,8 @@ var _ = Describe("ensureStorage", func() {
 				newBlockDevice("bd-b", "node-a", "100Gi", true, nil),
 			)
 			r = newElasticClusterReconciler(cl)
+			// Phase 0+1: upsert LVGs. Subsequent specs decide where to
+			// drive the chain to next.
 			_, _, _, _, _, err := r.ensureStorage(ctx, ec)
 			Expect(err).NotTo(HaveOccurred())
 		})
@@ -170,20 +257,27 @@ var _ = Describe("ensureStorage", func() {
 			Expect(reason).To(Equal(storageReasonWaitingForLVG))
 			Expect(msg).To(ContainSubstring("0/2 LVMVolumeGroups Ready"))
 			Expect(msg).To(ContainSubstring("(NoStatus)"))
+			expectAbsent(ctx, cl, external.LVMLogicalVolumeGVK, ec)
+			expectAbsentPVs(ctx, cl, ec)
 		})
 
-		It("reports WaitingForLLV once LVG is Ready but LLV is not Created", func() {
-			markUnstructuredPhase(ctx, cl, external.LVMVolumeGroupGVK, ec, "Ready")
+		It("reports WaitingForLLV once LVG is Ready and the next reconcile creates LLVs", func() {
+			markLVGsReady(ctx, cl, ec)
 			done, _, _, reason, msg, err := r.ensureStorage(ctx, ec)
 			Expect(err).NotTo(HaveOccurred())
 			Expect(done).To(BeFalse())
 			Expect(reason).To(Equal(storageReasonWaitingForLLV))
 			Expect(msg).To(ContainSubstring("0/2 LVMLogicalVolumes Created"))
+			Expect(msg).To(ContainSubstring("(NoStatus)"))
+			// PV creation must still be gated.
+			expectAbsentPVs(ctx, cl, ec)
 		})
 
-		It("reports WaitingForPV once LVG/LLV are converged but PV phase has not flipped", func() {
-			markUnstructuredPhase(ctx, cl, external.LVMVolumeGroupGVK, ec, "Ready")
-			markUnstructuredPhase(ctx, cl, external.LVMLogicalVolumeGVK, ec, "Created")
+		It("reports WaitingForPV once LVG/LLV are converged and the next reconcile creates PVs", func() {
+			markLVGsReady(ctx, cl, ec)
+			_, _, _, _, _, err := r.ensureStorage(ctx, ec)
+			Expect(err).NotTo(HaveOccurred())
+			markLLVsCreated(ctx, cl, ec)
 			done, _, _, reason, msg, err := r.ensureStorage(ctx, ec)
 			Expect(err).NotTo(HaveOccurred())
 			Expect(done).To(BeFalse())
@@ -192,7 +286,7 @@ var _ = Describe("ensureStorage", func() {
 		})
 
 		It("highlights a single laggard LVG via per-resource phase token", func() {
-			markUnstructuredPhase(ctx, cl, external.LVMVolumeGroupGVK, ec, "Ready")
+			markLVGsReady(ctx, cl, ec)
 			lvg := &unstructured.Unstructured{}
 			lvg.SetGroupVersionKind(external.LVMVolumeGroupGVK)
 			Expect(cl.Get(ctx, types.NamespacedName{Name: builder.ECOSDResourceName(ec, "bd-a")}, lvg)).To(Succeed())
@@ -206,10 +300,18 @@ var _ = Describe("ensureStorage", func() {
 			Expect(reason).To(Equal(storageReasonWaitingForLVG))
 			Expect(msg).To(ContainSubstring("1/2 LVMVolumeGroups Ready"))
 			Expect(msg).To(ContainSubstring("(Pending)"))
+			expectAbsent(ctx, cl, external.LVMLogicalVolumeGVK, ec)
 		})
 
-		It("becomes Ready once all phases match targets", func() {
-			markStorageProvisioned(ctx, cl, ec)
+		It("becomes Ready after the full sequential chain converges", func() {
+			markLVGsReady(ctx, cl, ec)
+			_, _, _, _, _, err := r.ensureStorage(ctx, ec)
+			Expect(err).NotTo(HaveOccurred())
+			markLLVsCreated(ctx, cl, ec)
+			_, _, _, _, _, err = r.ensureStorage(ctx, ec)
+			Expect(err).NotTo(HaveOccurred())
+			markPVsAvailable(ctx, cl, ec)
+
 			done, _, _, reason, _, err := r.ensureStorage(ctx, ec)
 			Expect(err).NotTo(HaveOccurred())
 			Expect(done).To(BeTrue())
@@ -217,9 +319,14 @@ var _ = Describe("ensureStorage", func() {
 		})
 
 		It("accepts Bound PVs as Ready (post-binding state)", func() {
-			markUnstructuredPhase(ctx, cl, external.LVMVolumeGroupGVK, ec, "Ready")
-			markUnstructuredPhase(ctx, cl, external.LVMLogicalVolumeGVK, ec, "Created")
+			markLVGsReady(ctx, cl, ec)
+			_, _, _, _, _, err := r.ensureStorage(ctx, ec)
+			Expect(err).NotTo(HaveOccurred())
+			markLLVsCreated(ctx, cl, ec)
+			_, _, _, _, _, err = r.ensureStorage(ctx, ec)
+			Expect(err).NotTo(HaveOccurred())
 			markPVPhase(ctx, cl, ec, corev1.VolumeBound)
+
 			done, _, _, _, _, err := r.ensureStorage(ctx, ec)
 			Expect(err).NotTo(HaveOccurred())
 			Expect(done).To(BeTrue())
@@ -238,7 +345,7 @@ var _ = Describe("ensureStorage", func() {
 			r = newElasticClusterReconciler(cl)
 		})
 
-		It("provisions healthy devices and short-circuits with WaitingForBlockDevices", func() {
+		It("provisions healthy LVGs and short-circuits with WaitingForBlockDevices", func() {
 			done, osdCount, pvcRequest, reason, msg, err := r.ensureStorage(ctx, ec)
 			Expect(err).NotTo(HaveOccurred())
 			Expect(done).To(BeFalse())
@@ -250,6 +357,8 @@ var _ = Describe("ensureStorage", func() {
 				"only bd-good is selected, so pvcRequest must equal its 100Gi size, got %s", pvcRequest.String())
 			Expect(msg).To(ContainSubstring("skipped"))
 			Expect(msg).To(ContainSubstring("bd-bad-size"))
+			expectAbsent(ctx, cl, external.LVMLogicalVolumeGVK, ec)
+			expectAbsentPVs(ctx, cl, ec)
 		})
 	})
 
@@ -268,7 +377,7 @@ var _ = Describe("ensureStorage", func() {
 	})
 
 	Context("adopted non-consumable BlockDevice", func() {
-		It("keeps selecting BD with ECClusterLabel and progresses once phases converge", func() {
+		It("keeps selecting BD with ECClusterLabel and converges through the sequential chain", func() {
 			cl = newFakeClient(
 				ec,
 				newTestNode("node-a"),
@@ -278,9 +387,7 @@ var _ = Describe("ensureStorage", func() {
 			)
 			r = newElasticClusterReconciler(cl)
 
-			_, _, _, _, _, err := r.ensureStorage(ctx, ec)
-			Expect(err).NotTo(HaveOccurred())
-			markStorageProvisioned(ctx, cl, ec)
+			driveStorageToReady(ctx, r, cl, ec)
 
 			done, osdCount, pvcRequest, reason, _, err := r.ensureStorage(ctx, ec)
 			Expect(err).NotTo(HaveOccurred())
@@ -290,6 +397,93 @@ var _ = Describe("ensureStorage", func() {
 			expected100Gi := resource.MustParse("100Gi")
 			Expect(pvcRequest.Cmp(expected100Gi)).To(Equal(0))
 		})
+	})
+
+	Context("invariant: LLV/PV are not created before their stage gate", func() {
+		It("never creates LLVs while any LVG is still NoStatus, even across many reconciles", func() {
+			cl = newFakeClient(
+				ec,
+				newTestNode("node-a"),
+				newBlockDevice("bd-a", "node-a", "100Gi", true, nil),
+				newBlockDevice("bd-b", "node-a", "200Gi", true, nil),
+			)
+			r = newElasticClusterReconciler(cl)
+			for i := 0; i < 5; i++ {
+				_, _, _, reason, _, err := r.ensureStorage(ctx, ec)
+				Expect(err).NotTo(HaveOccurred())
+				Expect(reason).To(Equal(storageReasonWaitingForLVG))
+				expectAbsent(ctx, cl, external.LVMLogicalVolumeGVK, ec)
+				expectAbsentPVs(ctx, cl, ec)
+			}
+		})
+
+		It("never creates PVs while any LLV is still NoStatus, even across many reconciles", func() {
+			cl = newFakeClient(
+				ec,
+				newTestNode("node-a"),
+				newBlockDevice("bd-a", "node-a", "100Gi", true, nil),
+				newBlockDevice("bd-b", "node-a", "200Gi", true, nil),
+			)
+			r = newElasticClusterReconciler(cl)
+
+			_, _, _, _, _, err := r.ensureStorage(ctx, ec)
+			Expect(err).NotTo(HaveOccurred())
+			markLVGsReady(ctx, cl, ec)
+
+			for i := 0; i < 5; i++ {
+				_, _, _, reason, _, err := r.ensureStorage(ctx, ec)
+				Expect(err).NotTo(HaveOccurred())
+				Expect(reason).To(Equal(storageReasonWaitingForLLV))
+				expectAbsentPVs(ctx, cl, ec)
+			}
+		})
+
+		It("propagates a transient SNC LLV failure (Failed phase) as WaitingForLLV", func() {
+			cl = newFakeClient(
+				ec,
+				newTestNode("node-a"),
+				newBlockDevice("bd-a", "node-a", "100Gi", true, nil),
+			)
+			r = newElasticClusterReconciler(cl)
+			_, _, _, _, _, err := r.ensureStorage(ctx, ec)
+			Expect(err).NotTo(HaveOccurred())
+			markLVGsReady(ctx, cl, ec)
+			_, _, _, _, _, err = r.ensureStorage(ctx, ec)
+			Expect(err).NotTo(HaveOccurred())
+			markUnstructuredPhase(ctx, cl, external.LVMLogicalVolumeGVK, ec, "Failed")
+
+			done, _, _, reason, msg, err := r.ensureStorage(ctx, ec)
+			Expect(err).NotTo(HaveOccurred())
+			Expect(done).To(BeFalse())
+			Expect(reason).To(Equal(storageReasonWaitingForLLV))
+			Expect(msg).To(ContainSubstring("(Failed)"))
+		})
+	})
+})
+
+var _ = Describe("ensureStorage non-existent CRD branches", func() {
+	It("no longer reaches LLV/PV creation when LVG-only fakes are wired", func() {
+		// Sanity check: even when the test suite has all GVKs registered,
+		// the sequential FSM must hold the LLV creation back. This guards
+		// against regressions where a later refactor inadvertently puts
+		// the LLV upsert back into the LVG loop.
+		ec := newTestElasticCluster()
+		ctx := context.Background()
+		cl := newFakeClient(
+			ec,
+			newTestNode("node-a"),
+			newBlockDevice("bd-a", "node-a", "100Gi", true, nil),
+		)
+		r := newElasticClusterReconciler(cl)
+
+		_, _, _, _, _, err := r.ensureStorage(ctx, ec)
+		Expect(err).NotTo(HaveOccurred())
+
+		llv := &unstructured.Unstructured{}
+		llv.SetGroupVersionKind(external.LVMLogicalVolumeGVK)
+		err = cl.Get(ctx, types.NamespacedName{Name: builder.ECOSDResourceName(ec, "bd-a")}, llv)
+		Expect(apierrors.IsNotFound(err)).To(BeTrue(),
+			"LLV must not exist after the first reconcile — only after the LVG phase gate has cleared")
 	})
 })
 
