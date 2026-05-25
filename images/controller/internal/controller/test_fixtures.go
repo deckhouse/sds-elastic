@@ -75,7 +75,48 @@ func newBlockDevice(name, nodeName, size string, consumable bool, extraLabels ma
 	return obj
 }
 
+// newRookMonSecret produces a rook-ceph-mon Secret carrying both the
+// modern "admin-secret" key and the legacy "ceph-secret" key with the
+// same admin key, mirroring how recent Rook releases populate both. Use
+// newRookMonSecretLegacy / newRookMonSecretAdminOnly when a test wants
+// to exercise a single key being present.
 func newRookMonSecret(fsid, adminSecret, monSecret string) *corev1.Secret {
+	return &corev1.Secret{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:      external.RookCephMonSecretName,
+			Namespace: testNamespace,
+		},
+		Data: map[string][]byte{
+			external.RookCephMonSecretFSIDKey:        []byte(fsid),
+			external.RookCephMonSecretAdminSecretKey: []byte(adminSecret),
+			external.RookCephMonSecretCephSecretKey:  []byte(adminSecret),
+			external.RookCephMonSecretMonSecretKey:   []byte(monSecret),
+		},
+	}
+}
+
+// newRookMonSecretLegacy produces the rook-ceph-mon Secret as written by
+// older Rook releases (and the Deckhouse-vendored Rook on this branch):
+// admin key under "ceph-secret" only, no "admin-secret" key. The ECC
+// reconciler's fallback path must accept this layout.
+func newRookMonSecretLegacy(fsid, cephSecret, monSecret string) *corev1.Secret {
+	return &corev1.Secret{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:      external.RookCephMonSecretName,
+			Namespace: testNamespace,
+		},
+		Data: map[string][]byte{
+			external.RookCephMonSecretFSIDKey:       []byte(fsid),
+			external.RookCephMonSecretCephSecretKey: []byte(cephSecret),
+			external.RookCephMonSecretMonSecretKey:  []byte(monSecret),
+		},
+	}
+}
+
+// newRookMonSecretAdminOnly produces the rook-ceph-mon Secret with only
+// the modern "admin-secret" key set (no legacy "ceph-secret"), exercising
+// the preferred branch of the ECC fallback chain.
+func newRookMonSecretAdminOnly(fsid, adminSecret, monSecret string) *corev1.Secret {
 	return &corev1.Secret{
 		ObjectMeta: metav1.ObjectMeta{
 			Name:      external.RookCephMonSecretName,

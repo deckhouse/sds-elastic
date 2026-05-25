@@ -272,11 +272,22 @@ func (r *ElasticClusterCredentialReconciler) getOrCreateECC(ctx context.Context,
 // desiredECCSpec extracts the three back-up fields from a rook-ceph-mon
 // Secret, trimming whitespace. Missing or empty data keys yield empty
 // strings (caller decides whether that means Pending).
+//
+// AdminSecret resolution prefers the post-1.13 Rook key "admin-secret"
+// and falls back to the legacy "ceph-secret" when the former is absent
+// or empty. Older Rook releases — including the version currently shipped
+// with Deckhouse — only populate "ceph-secret"; without the fallback the
+// ECC stays in Phase=Pending forever and the EC reconciler's CsiCephReady
+// stage hangs on "waiting for ECC.spec.adminSecret".
 func desiredECCSpec(secret *corev1.Secret) v1alpha1.ElasticClusterCredentialSpec {
+	admin := strings.TrimSpace(string(secret.Data[external.RookCephMonSecretAdminSecretKey]))
+	if admin == "" {
+		admin = strings.TrimSpace(string(secret.Data[external.RookCephMonSecretCephSecretKey]))
+	}
 	return v1alpha1.ElasticClusterCredentialSpec{
 		FSID:        strings.TrimSpace(string(secret.Data[external.RookCephMonSecretFSIDKey])),
 		MonSecret:   strings.TrimSpace(string(secret.Data[external.RookCephMonSecretMonSecretKey])),
-		AdminSecret: strings.TrimSpace(string(secret.Data[external.RookCephMonSecretAdminSecretKey])),
+		AdminSecret: admin,
 	}
 }
 

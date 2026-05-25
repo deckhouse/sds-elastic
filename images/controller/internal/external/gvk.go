@@ -86,12 +86,20 @@ const LVMLogicalVolumeManualFinalizer = "storage.deckhouse.io/manual-creation"
 const (
 	RookCephMonSecretName        = "rook-ceph-mon"
 	RookCephMonSecretUsernameKey = "ceph-username"
-	RookCephMonSecretKeyKey      = "ceph-secret"
 	RookCephMonSecretFSIDKey     = "fsid"
 
-	// RookCephMonSecretAdminSecretKey holds the cephx admin user key
-	// in the rook-ceph-mon Secret. Backed up to ECC.spec.adminSecret.
+	// RookCephMonSecretAdminSecretKey is the post-1.13 Rook key for the
+	// cephx admin user secret. Newer Rook releases write the rotated
+	// admin key here, while older releases (and a number of forks
+	// downstream of Deckhouse) only keep RookCephMonSecretCephSecretKey
+	// populated. Both are checked in order by the ECC reconciler.
 	RookCephMonSecretAdminSecretKey = "admin-secret"
+
+	// RookCephMonSecretCephSecretKey is the legacy Rook key for the
+	// cephx admin user secret. Always present (Rook keeps writing it
+	// for backward compatibility), so the ECC reconciler treats it as
+	// the canonical fallback when admin-secret is absent.
+	RookCephMonSecretCephSecretKey = "ceph-secret"
 
 	// RookCephMonSecretMonSecretKey holds the shared mon daemon secret
 	// in the rook-ceph-mon Secret. Backed up to ECC.spec.monSecret.

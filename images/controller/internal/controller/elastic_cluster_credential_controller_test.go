@@ -22,27 +22,62 @@ import (
 
 	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
+	corev1 "k8s.io/api/core/v1"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/types"
 	ctrl "sigs.k8s.io/controller-runtime"
 
 	v1alpha1 "github.com/deckhouse/sds-elastic/api/v1alpha1"
+	"github.com/deckhouse/sds-elastic/images/controller/internal/external"
 )
 
 var _ = Describe("ElasticClusterCredentialReconciler", func() {
 	var ctx = context.Background()
 
-	DescribeTable("desiredECCSpec",
-		func(fsid, admin, mon string, want v1alpha1.ElasticClusterCredentialSpec) {
-			secret := newRookMonSecret(fsid, admin, mon)
-			Expect(desiredECCSpec(secret)).To(Equal(want))
-		},
-		Entry("all fields",
-			"fsid-1", "admin-1", "mon-1",
-			v1alpha1.ElasticClusterCredentialSpec{FSID: "fsid-1", AdminSecret: "admin-1", MonSecret: "mon-1"},
-		),
-	)
+	Describe("desiredECCSpec", func() {
+		It("populates all three fields from a modern Rook secret", func() {
+			secret := newRookMonSecret("fsid-1", "admin-1", "mon-1")
+			Expect(desiredECCSpec(secret)).To(Equal(v1alpha1.ElasticClusterCredentialSpec{
+				FSID: "fsid-1", AdminSecret: "admin-1", MonSecret: "mon-1",
+			}))
+		})
+
+		It("falls back to ceph-secret when admin-secret is absent", func() {
+			secret := newRookMonSecretLegacy("fsid-1", "legacy-key", "mon-1")
+			Expect(desiredECCSpec(secret)).To(Equal(v1alpha1.ElasticClusterCredentialSpec{
+				FSID: "fsid-1", AdminSecret: "legacy-key", MonSecret: "mon-1",
+			}),
+				"older Rook (and the version currently shipped with Deckhouse) only populates ceph-secret; without the fallback the ECC stays Pending forever")
+		})
+
+		It("prefers admin-secret over ceph-secret when both are present", func() {
+			secret := newRookMonSecret("fsid-1", "admin-rotated", "mon-1")
+			secret.Data[external.RookCephMonSecretCephSecretKey] = []byte("legacy-stale")
+			Expect(desiredECCSpec(secret).AdminSecret).To(Equal("admin-rotated"),
+				"admin-secret wins so a freshly-rotated key always trumps the legacy mirror")
+		})
+
+		It("treats blank admin-secret the same as missing and uses ceph-secret", func() {
+			secret := newRookMonSecretLegacy("fsid-1", "fallback-key", "mon-1")
+			secret.Data[external.RookCephMonSecretAdminSecretKey] = []byte("   \n  ")
+			Expect(desiredECCSpec(secret).AdminSecret).To(Equal("fallback-key"))
+		})
+
+		It("returns empty AdminSecret when the secret has neither key", func() {
+			secret := &corev1.Secret{
+				ObjectMeta: metav1.ObjectMeta{
+					Name:      external.RookCephMonSecretName,
+					Namespace: testNamespace,
+				},
+				Data: map[string][]byte{
+					external.RookCephMonSecretFSIDKey:      []byte("fsid-1"),
+					external.RookCephMonSecretMonSecretKey: []byte("mon-1"),
+				},
+			}
+			Expect(desiredECCSpec(secret).AdminSecret).To(BeEmpty())
+		})
+	})
 
 	Describe("getOrCreateECC", func() {
 		It("creates ECC when missing", func() {
@@ -113,6 +148,21 @@ var _ = Describe("ElasticClusterCredentialReconciler", func() {
 			Expect(ecc.Spec.FSID).To(Equal("fsid-x"))
 			Expect(ecc.Status.Phase).To(Equal(v1alpha1.ECCPhasePopulated))
 			Expect(ecc.Status.LastSyncTime).NotTo(BeNil())
+		})
+
+		It("back-syncs a legacy Rook secret (ceph-secret only) into AdminSecret", func() {
+			ec := newTestElasticCluster()
+			cl := newFakeClient(ec, newRookMonSecretLegacy("fsid-x", "legacy-key", "mon-x"))
+			r := newElasticClusterCredentialReconciler(cl)
+
+			_, err := r.Reconcile(ctx, ctrl.Request{NamespacedName: types.NamespacedName{Name: testECName}})
+			Expect(err).NotTo(HaveOccurred())
+
+			ecc := &v1alpha1.ElasticClusterCredential{}
+			Expect(cl.Get(ctx, types.NamespacedName{Name: testECName}, ecc)).To(Succeed())
+			Expect(ecc.Spec.AdminSecret).To(Equal("legacy-key"),
+				"reproduces the in-cluster bug where Rook only writes 'ceph-secret' and the ECC stayed Pending until the fallback was added")
+			Expect(ecc.Status.Phase).To(Equal(v1alpha1.ECCPhasePopulated))
 		})
 
 		It("bumps LastSyncTime when admin-secret rotates", func() {
