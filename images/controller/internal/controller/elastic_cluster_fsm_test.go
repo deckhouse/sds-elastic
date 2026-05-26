@@ -74,11 +74,23 @@ var _ = Describe("ElasticCluster FSM scaffolding", func() {
 			Expect(findCondition(status.conditions, v1alpha1.ECConditionUpgradeInProgress)).To(BeNil())
 		})
 
-		It("sets UpgradeInProgress WaitingForPrev for upstream gates", func() {
+		// UpgradeInProgress is a signal, not a stage: gateAfter must
+		// leave it alone on every upstream gate so the True value
+		// published earlier in the same reconcile (by ensureCephCluster
+		// while CephCluster.status.phase=Progressing) is not clobbered
+		// to False/WaitingForPrev mid-rollout.
+		It("does not touch UpgradeInProgress when gating after upstream stages", func() {
 			gateAfter(status, v1alpha1.ECConditionStorageReady)
+			Expect(findCondition(status.conditions, v1alpha1.ECConditionUpgradeInProgress)).To(BeNil())
+		})
+
+		It("preserves a pre-existing UpgradeInProgress condition when gating", func() {
+			setUpgradeInProgress(status, true, "rolling pods")
+			gateAfter(status, v1alpha1.ECConditionCephClusterReady)
 			c := findCondition(status.conditions, v1alpha1.ECConditionUpgradeInProgress)
 			Expect(c).NotTo(BeNil())
-			Expect(c.Reason).To(Equal("WaitingForPrev"))
+			Expect(c.Status).To(Equal(metav1.ConditionTrue))
+			Expect(c.Reason).To(Equal("Upgrading"))
 		})
 	})
 

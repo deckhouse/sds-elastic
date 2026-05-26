@@ -327,6 +327,8 @@ d8 k describe elasticcluster <cluster-name>
 
 Useful conditions: `StorageReady`, `CephClusterReady`, `CredentialsReady`, `CsiCephReady`, `UpgradeReady`, `UpgradeInProgress`, and the aggregate `Ready`.
 
+The `UPGRADING` printcolumn (and the underlying `UpgradeInProgress` condition) tracks the per-daemon convergence picture Rook publishes under `CephCluster.status.ceph.versions.overall`. While the map carries more than one key the cluster is mid-rollout and `UPGRADING` stays `True` for the whole window — including the mon → mgr → osd → mds rolling phases when `CephCluster.status.phase=Progressing` and the FSM gates downstream stages. `UpgradeInProgress` flips back to `False` only once `versions.overall` has a single key matching the desired version. Note that `EC.status.cephVersion.running` (the `Ceph` printcolumn) reports the **lagging** version present in `versions.overall` while daemons disagree, so it shows what callers will still hit on the slowest-rolling daemon (typically OSDs), not Rook's already-bumped target marker.
+
 For an `ElasticStorageClass`:
 
 ```shell

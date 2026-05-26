@@ -327,6 +327,8 @@ d8 k describe elasticcluster <имя-кластера>
 
 Полезные condition'ы: `StorageReady`, `CephClusterReady`, `CredentialsReady`, `CsiCephReady`, `UpgradeReady`, `UpgradeInProgress` и агрегирующий `Ready`.
 
+Колонка `UPGRADING` (и стоящий за ней condition `UpgradeInProgress`) отслеживает гистограмму версий демонов, которую Rook публикует в `CephCluster.status.ceph.versions.overall`. Пока в map'е больше одного ключа — кластер находится в процессе раскатки, и `UPGRADING` остаётся `True` на всё время окна mon → mgr → osd → mds, в том числе когда `CephCluster.status.phase=Progressing` и FSM гейтит downstream-стейджи. `UpgradeInProgress` возвращается в `False` только когда в `versions.overall` остаётся единственный ключ, совпадающий с целевой версией. Поле `EC.status.cephVersion.running` (колонка `Ceph`) при наличии расхождения публикует **отстающую** версию из `versions.overall` — это та версия, на которую попадут запросы на самый медленный демон (обычно OSD), а не уже сменённый Rook'ом маркер целевой версии.
+
 Для `ElasticStorageClass`:
 
 ```shell

@@ -263,4 +263,84 @@ var _ = Describe("ElasticClusterReconciler.Reconcile", func() {
 				"CephCluster.spec.mon.count must remain 5 even after the trigger ESC is gone")
 		})
 	})
+
+	Context("rolling Ceph upgrade", func() {
+		// Reproduces the user-reported flap: while Rook rolls daemons,
+		// CephCluster.status.phase=Progressing causes ensureCephCluster
+		// to return done=false, which (before the fix) tripped
+		// gateAfter and forced UpgradeInProgress=False/WaitingForPrev
+		// every reconcile. The probe must run, publish UpgradeInProgress=
+		// True/Upgrading, and the gate must leave it alone — and the
+		// `Ceph` printcolumn (status.cephVersion.running) must show the
+		// lagging version, not Rook's already-bumped target marker.
+		It("keeps UpgradeInProgress=True/Upgrading while CephCluster.status.phase=Progressing with mixed versions.overall", func() {
+			ec := newTestElasticCluster()
+			cephImage := newTestCfg().CephImages[v1alpha1.DefaultCephVersion]
+
+			cc := newCephClusterUnstructured(ec, "Progressing", "20.2.1-0", cephImage)
+			withCephClusterCephStatus(cc, "HEALTH_OK", "", "", 0, 0, 0, "", nil, map[string]map[string]int32{
+				"mon":     {cephVerString2021: 3},
+				"mgr":     {cephVerString2021: 2},
+				"osd":     {cephVerString1923: 4},
+				"overall": {cephVerString1923: 4, cephVerString2021: 5},
+			})
+
+			cl := newFakeClient(
+				ec,
+				newTestNode("node-a"),
+				newBlockDevice("bd-a", "node-a", "100Gi", true, nil),
+				newRookMonSecret("fsid-abc", "admin-key", "mon-key"),
+				newRookMonEndpointsCM("a=10.0.0.1:6789", "a"),
+				cc,
+				&v1alpha1.ElasticClusterCredential{
+					ObjectMeta: metav1.ObjectMeta{Name: testECName},
+					Spec:       v1alpha1.ElasticClusterCredentialSpec{AdminSecret: "admin-key"},
+				},
+				newCephClusterConnectionUnstructured(testECName, "Created"),
+			)
+			r := newElasticClusterReconciler(cl)
+
+			req := ctrl.Request{NamespacedName: types.NamespacedName{Name: testECName}}
+			latest := &v1alpha1.ElasticCluster{}
+
+			// Drive the storage chain to Ready so the FSM reaches the
+			// CephCluster stage; the upgrade probe runs there. We do
+			// not need to drain the rest of the FSM — the gate at
+			// CephClusterReady (phase=Progressing) is exactly the
+			// scenario under test.
+			_, err := r.Reconcile(ctx, req)
+			Expect(err).NotTo(HaveOccurred())
+			markLVGsReady(ctx, cl, ec)
+			_, err = r.Reconcile(ctx, req)
+			Expect(err).NotTo(HaveOccurred())
+			markLLVsCreated(ctx, cl, ec)
+			_, err = r.Reconcile(ctx, req)
+			Expect(err).NotTo(HaveOccurred())
+			markPVsAvailable(ctx, cl, ec)
+			_, err = r.Reconcile(ctx, req)
+			Expect(err).NotTo(HaveOccurred())
+
+			Expect(cl.Get(ctx, types.NamespacedName{Name: testECName}, latest)).To(Succeed())
+
+			// CephClusterReady must be False (Rook is still rolling),
+			// downstream stages gated.
+			ccReady := findCondition(latest.Status.Conditions, v1alpha1.ECConditionCephClusterReady)
+			Expect(ccReady).NotTo(BeNil())
+			Expect(ccReady.Status).To(Equal(metav1.ConditionFalse))
+			Expect(ccReady.Message).To(ContainSubstring("phase=\"Progressing\""))
+
+			// Core assertion: UpgradeInProgress survived the gate.
+			upg := findCondition(latest.Status.Conditions, v1alpha1.ECConditionUpgradeInProgress)
+			Expect(upg).NotTo(BeNil(), "UpgradeInProgress must be published by ensureCephCluster even while gating")
+			Expect(upg.Status).To(Equal(metav1.ConditionTrue))
+			Expect(upg.Reason).To(Equal("Upgrading"))
+			Expect(upg.Message).To(ContainSubstring("Rook rolling pods"))
+
+			// Lagging version on the printcolumn so callers see the
+			// still-rolling daemons' version, not Rook's target marker.
+			Expect(latest.Status.CephVersion).NotTo(BeNil())
+			Expect(latest.Status.CephVersion.Running).To(Equal(cephVerString1923))
+			Expect(latest.Status.CephVersion.Requested).To(Equal(v1alpha1.DefaultCephVersion))
+		})
+	})
 })

@@ -43,29 +43,39 @@ import (
 // regardless of whether the upsert succeeds — recording an intent the
 // next reconcile can pick up is preferable to silently dropping it.
 //
+// Also returns a *cephUpgradeProbe whenever the CephCluster object has
+// been fetched. The probe drives the UpgradeInProgress signal, which
+// must stay accurate even when status.phase=Progressing causes the FSM
+// to gate the EC reconciler upstream of UpgradeReady (a Rook rolling
+// upgrade flips status.phase=Progressing for tens of minutes — exactly
+// the period during which UPGRADING=True is interesting). Returning the
+// probe alongside the FSM result lets reconcileNormal publish it before
+// gateAfter clobbers the condition.
+//
 // pvcStorageRequest must equal min(BD.size) over the BDs that ensureStorage
 // adopted for this EC; it is propagated into the CephCluster's
 // volumeClaimTemplates[0].spec.resources.requests.storage so that every
 // per-OSD PVC binds to one of the local-PVs produced by ensureStorage.
-func (r *ElasticClusterReconciler) ensureCephCluster(ctx context.Context, ec *v1alpha1.ElasticCluster, osdCount int32, pvcStorageRequest resource.Quantity) (bool, string, *v1alpha1.CephTopologyStatus, error) {
+func (r *ElasticClusterReconciler) ensureCephCluster(ctx context.Context, ec *v1alpha1.ElasticCluster, osdCount int32, pvcStorageRequest resource.Quantity) (bool, string, *v1alpha1.CephTopologyStatus, *cephUpgradeProbe, error) {
 	monCount, mgrCount, reason, err := r.computeCephTopology(ctx, ec)
 	if err != nil {
-		return false, "", nil, fmt.Errorf("compute Ceph topology: %w", err)
+		return false, "", nil, nil, fmt.Errorf("compute Ceph topology: %w", err)
 	}
 	topology := buildCephTopologyStatus(ec, monCount, mgrCount, reason)
 
-	cephImage, err := builder.CephImage(r.Cfg.CephImages, v1alpha1.DefaultCephVersion)
+	desiredVersion := v1alpha1.DefaultCephVersion
+	cephImage, err := builder.CephImage(r.Cfg.CephImages, desiredVersion)
 	if err != nil {
-		return false, "", topology, err
+		return false, "", topology, nil, err
 	}
 
 	placementAll := builder.ECPlacementAll(ec, nil /* tolerations TBD via module config */)
 	desired := builder.ECCephCluster(ec, r.Cfg.ControllerNamespace, cephImage, osdCount, pvcStorageRequest, placementAll, monCount, mgrCount)
 	if err := r.upsertECUnstructured(ctx, desired); err != nil {
 		if isNoMatchErr(err) {
-			return false, "waiting for CephCluster CRD (Rook)", topology, nil
+			return false, "waiting for CephCluster CRD (Rook)", topology, nil, nil
 		}
-		return false, "", topology, fmt.Errorf("upsert CephCluster: %w", err)
+		return false, "", topology, nil, fmt.Errorf("upsert CephCluster: %w", err)
 	}
 
 	cc := &unstructured.Unstructured{}
@@ -75,17 +85,19 @@ func (r *ElasticClusterReconciler) ensureCephCluster(ctx context.Context, ec *v1
 		Name:      builder.ECCephClusterName(ec),
 	}, cc)
 	if apierrors.IsNotFound(err) {
-		return false, "CephCluster CR not yet visible", topology, nil
+		return false, "CephCluster CR not yet visible", topology, nil, nil
 	}
 	if err != nil {
-		return false, "", topology, err
+		return false, "", topology, nil, err
 	}
+
+	probe := probeCephUpgradeState(cc, cephImage, desiredVersion)
 
 	phase, _, _ := unstructured.NestedString(cc.Object, "status", "phase")
 	if phase != "Ready" {
-		return false, fmt.Sprintf("CephCluster phase=%q (waiting for Ready)", phase), topology, nil
+		return false, fmt.Sprintf("CephCluster phase=%q (waiting for Ready)", phase), topology, &probe, nil
 	}
-	return true, fmt.Sprintf("CephCluster %s is Ready", cc.GetName()), topology, nil
+	return true, fmt.Sprintf("CephCluster %s is Ready", cc.GetName()), topology, &probe, nil
 }
 
 // buildCephTopologyStatus assembles the CephTopologyStatus value the

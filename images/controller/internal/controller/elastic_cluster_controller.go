@@ -257,9 +257,21 @@ func (r *ElasticClusterReconciler) reconcileNormal(ctx context.Context, ec *v1al
 		return r.finishReconcile(ctx, ec, status, err)
 	}
 
-	cephDone, msg, cephTopology, err := r.ensureCephCluster(ctx, ec, osdCount, pvcRequest)
+	cephDone, msg, cephTopology, upgradeProbe, err := r.ensureCephCluster(ctx, ec, osdCount, pvcRequest)
 	if cephTopology != nil {
 		status.cephTopology = cephTopology
+	}
+	// Publish the upgrade signal BEFORE the FSM gate. ensureCephCluster
+	// returns done=false during a Rook rolling upgrade
+	// (CephCluster.status.phase=Progressing for the entire mon → mgr →
+	// osd → mds rollout window), so r.advance(...) below would otherwise
+	// trip gateAfter and the UpgradeInProgress condition would flap to
+	// False/WaitingForPrev exactly while the rollout is happening. Doing
+	// the publish here keeps the signal True for the duration of the
+	// rollout, regardless of the FSM gate.
+	if upgradeProbe != nil {
+		applyUpgradeProbeToStatus(status, v1alpha1.DefaultCephVersion, *upgradeProbe)
+		setUpgradeInProgress(status, upgradeProbe.InProgress, upgradeProbe.Msg)
 	}
 	if !r.advance(status, v1alpha1.ECConditionCephClusterReady, cephDone, "", msg, err) {
 		return r.finishReconcile(ctx, ec, status, err)
@@ -325,16 +337,25 @@ func (r *ElasticClusterReconciler) advance(status *ecStatusBuilder, condType str
 // as False/WaitingForPrev, plus the aggregate Ready. Idempotent; safe to
 // call from both the Error and InProgress paths.
 //
-// UpgradeInProgress is intentionally NOT touched when gating after
-// ECConditionUpgradeReady itself: the caller (`reconcileNormal` last
-// branch) immediately calls setUpgradeInProgress with the authoritative
-// value from ensureUpgrade, and a transient WaitingForPrev → Upgrading
-// flip would rewrite LastTransitionTime every reconcile during a real
-// rolling upgrade, defeating the no-op short-circuit in updateECStatus.
+// UpgradeInProgress is intentionally NOT touched here. It is a signal,
+// not a stage, and is published by two authoritative sites:
 //
-// For all other stages, UpgradeInProgress=False/WaitingForPrev is the
-// correct signal: an upstream error means we cannot tell what Rook is
-// doing yet.
+//   - ensureCephCluster (via reconcileNormal) — runs every time the
+//     CephCluster object is reachable, even when status.phase is not
+//     Ready, so the True/False value reflects the current cluster state
+//     during a Rook rolling upgrade (which keeps phase=Progressing for
+//     the entire mon → mgr → osd rollout window).
+//   - ensureUpgrade — runs at the UpgradeReady stage and gates that
+//     condition; reuses the same probe.
+//
+// Forcing WaitingForPrev here used to clobber the True signal exactly
+// while a rolling upgrade was rolling, surfacing as `UPGRADING=False
+// REASON=WaitingForPrev` immediately after the upgrade started. Letting
+// the explicit publishers own the condition keeps the signal accurate
+// for the entire rollout. When upstream stages fail before the
+// CephCluster has been fetched (e.g. StorageReady error), the previous
+// UpgradeInProgress value stays sticky on the status — acceptable,
+// since we have no fresh evidence either way.
 func gateAfter(status *ecStatusBuilder, afterStage string) {
 	startIdx := -1
 	for i, t := range stageOrder {
@@ -348,10 +369,6 @@ func gateAfter(status *ecStatusBuilder, afterStage string) {
 			status.setCondition(t, metav1.ConditionFalse, "WaitingForPrev",
 				fmt.Sprintf("waiting for %s", afterStage))
 		}
-	}
-	if afterStage != v1alpha1.ECConditionUpgradeReady {
-		status.setCondition(v1alpha1.ECConditionUpgradeInProgress, metav1.ConditionFalse,
-			"WaitingForPrev", fmt.Sprintf("waiting for %s", afterStage))
 	}
 	status.setCondition(v1alpha1.ECConditionReady, metav1.ConditionFalse,
 		"WaitingForPrev", fmt.Sprintf("waiting for %s", afterStage))
