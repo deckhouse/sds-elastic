@@ -1,7 +1,6 @@
 module github.com/deckhouse/sds-elastic/images/webhooks
 
 go 1.25.10
-
 require (
 	github.com/sirupsen/logrus v1.9.3
 	github.com/slok/kubewebhook/v2 v2.7.0
