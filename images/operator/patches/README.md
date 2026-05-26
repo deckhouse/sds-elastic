@@ -3,7 +3,7 @@
 ## 001-Rename-CRD-API-group-to-internal-ceph-rook-io.patch
 
 Renames the Rook CRD API group from `ceph.rook.io` to
-`internal.ceph.rook.io` so that the sds-elastic-managed Rook operator can
+`internal.ceph.rook.io`, so that the sds-elastic-managed Rook operator can
 coexist with a user-installed upstream Rook on the same Kubernetes
 cluster (no discovery / RBAC / etcd-key overlap).
 
