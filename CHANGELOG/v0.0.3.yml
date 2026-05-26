@@ -1,39 +1,34 @@
 Changes:
-- Renamed the Rook CRD API group from upstream `ceph.rook.io` to
-  `internal.ceph.rook.io`. The vendored Rook operator is now built with a
-  three-line source patch (`images/operator/patches/`) that flips two
-  group constants (`pkg/apis/ceph.rook.io/{,/v1}register.go`) and the
-  hardcoded OwnerReference APIVersion on CSI Secrets owned by CephCluster
-  (`pkg/operator/ceph/csi/secrets.go`). All Rook clientsets, finalizers
-  and the SchemeGroupVersion derive from those constants, so the rename
-  reroutes every Group-aware API call to the new group with no further
-  upstream edits.
-- All 18 vendored Rook CRDs in `crds/vendor/` are renamed accordingly
-  (`metadata.name` and `spec.group`). `objectbucket.io` CRDs are not
-  touched.
-- The sds-elastic controller (`images/controller/internal/external/gvk.go`)
-  and the vendor-CR validating webhook (`images/webhooks/handlers/
-  vendorCRValidator.go`) target the new group.
-- RBAC manifests (`templates/rbac-for-us.yaml`,
-  `templates/controller/{rbac-for-us,controller}.yaml`) and module
-  documentation reflect the renamed group.
-breaking_changes: |-
-  Existing CRs created under the old `ceph.rook.io` group are not
-  automatically migrated to `internal.ceph.rook.io`. Upgrading a cluster
-  that already runs an earlier dev build of sds-elastic requires:
+- Renamed API group Rook CRD: from upstream `ceph.rook.io` to `internal.ceph.rook.io`.
+    The operator supplied with the Rook module is now built with a three-line source
+    patch (`images/operator/patches/`), which changes two group constants (`pkg/apis/ceph.rook.io/{,/v1}register.go`)
+    and a hardcoded APIVersion OwnerReference on CSI secrets belonging to CephCluster
+    (`pkg/operator/ceph/csi/secrets.go`). All Rook clients, finalizers, and SchemeGroupVersions
+    take a group from these constants, so renaming automatically redirects all API
+    calls that take into account the group to the new one without further edits to
+    the upstream code.
+- All 18 vendor Rook CRDs in `crds/vendor/` have been renamed (`metadata.name` and
+  `spec.group`). The `objectbucket.io` CRDs are not affected.
+- The sds-elastic controller (`images/controller/internal/external/gvk.go`) and the
+  vendor CR validating webhook (`images/webhooks/handlers/vendorCRValidator.go`) access
+  the new group.
+- RBAC manifests (`templates/rbac-for-us.yaml`, `templates/controller/{rbac-for-us,controller}.yaml`)
+  and module documentation have been updated to the renamed group.
+breaking_changes: 'Existing CRs created under the old `ceph.rook.io` group are not
+  automatically migrated to `internal.ceph.rook.io`. To upgrade a cluster that is
+  already running an early dev build of sds-elastic, you need to:
 
-  - Deleting all `ElasticCluster`, `ElasticStorageClass` and
-    `ElasticClusterCredential` objects so the controller can tear down the
-    underlying Rook CRs.
-  - Manually removing any leftover `ceph.rook.io/v1` objects in the
-    `d8-sds-elastic` namespace and their owner references on dependent
-    Secrets / ConfigMaps (the garbage collector resolves owner GVK via the
-    RESTMapper and will not follow stale `ceph.rook.io/v1` references
-    after the upgrade).
-  - Reapplying the module so the controller recreates the cluster under
-    `internal.ceph.rook.io/v1`.
+  - Remove all `ElasticCluster`, `ElasticStorageClass` and `ElasticClusterCredential`
+  objects so that the controller collapses the corresponding Rook-CRs.
 
-  CSI volumes (PV, PVC, StorageClass, attached pods) are unaffected by
-  the rename: ceph-csi does not consume the Rook CRDs and continues to
-  read its configuration from the `rook-ceph-mon` Secret and the
-  `rook-ceph-csi-config` ConfigMap.
+  - Manually delete the remains of the `ceph.rook.io/v1` objects in the namespace
+  `d8-sds-elastic` and the owner links to them on dependent Secrets and ConfigMaps
+  (garbage collector resolves the owner''s GVK via RESTMapper and will not follow
+  the "frozen" links `ceph.rook.io/v1` after the upgrade).
+
+  - Apply the module again - the controller will recreate the cluster under `internal.ceph.rook.io/v1`.
+
+
+  CSI volumes (PV, PVC, StorageClass, mounted pods) do not suffer from renaming: ceph-csi
+  does not read the Rook CRD and continues to take the configuration from the Secret
+  of `rook-ceph-mon` and ConfigMap of `rook-ceph-csi-config`.'
