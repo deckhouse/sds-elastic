@@ -74,6 +74,24 @@ func main() {
 		os.Exit(1)
 	}
 
+	// EC and ESC validators both need cluster-wide read access to
+	// ElasticCluster, BlockDevice, and Node CRs to enforce their
+	// admission contracts (orphan-guard / pre-flight conflict for EC,
+	// HighRedundancy preflight for ESC). The webhook is co-deployed
+	// with the controller and shares its ServiceAccount, so
+	// InClusterConfig is the only path supported here — fail fast at
+	// startup if it is not available.
+	restCfg, err := rest.InClusterConfig()
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "error building in-cluster config for validators: %s", err)
+		os.Exit(1)
+	}
+	dynClient, err := dynamic.NewForConfig(restCfg)
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "error building dynamic client for validators: %s", err)
+		os.Exit(1)
+	}
+
 	vendorCRValidatingWebhookHandler, err := handlers.GetValidatingWebhookHandler(
 		handlers.VendorCRValidate,
 		VendorCRValidatorID,
@@ -86,7 +104,7 @@ func main() {
 	}
 
 	escValidatingWebhookHandler, err := handlers.GetValidatingWebhookHandler(
-		handlers.ElasticStorageClassValidate,
+		handlers.NewElasticStorageClassValidator(dynClient),
 		ElasticStorageClassValidatorID,
 		&unstructured.Unstructured{},
 		logger,
@@ -104,22 +122,6 @@ func main() {
 	)
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "error creating eccValidatingWebhookHandler: %s", err)
-		os.Exit(1)
-	}
-
-	// EC validator needs cluster-wide read access to BlockDevice and
-	// Node CRs to enforce its orphan-guard and pre-flight conflict
-	// branches. The webhook is co-deployed with the controller and
-	// shares its ServiceAccount, so InClusterConfig is the only path
-	// supported here — fail fast at startup if it is not available.
-	restCfg, err := rest.InClusterConfig()
-	if err != nil {
-		fmt.Fprintf(os.Stderr, "error building in-cluster config for ec-validator: %s", err)
-		os.Exit(1)
-	}
-	dynClient, err := dynamic.NewForConfig(restCfg)
-	if err != nil {
-		fmt.Fprintf(os.Stderr, "error building dynamic client for ec-validator: %s", err)
 		os.Exit(1)
 	}
 

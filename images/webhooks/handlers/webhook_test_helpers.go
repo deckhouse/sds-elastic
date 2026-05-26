@@ -68,3 +68,30 @@ func eccSpec(fsid, monSecret, adminSecret string) map[string]interface{} {
 		"adminSecret": adminSecret,
 	}
 }
+
+// newECStubUnstructured builds a minimal ElasticCluster fixture suitable
+// for the ESC HighRedundancy preflight: the validator only reads
+// metadata.name and spec.storage.nodeSelector, so spec.network and the
+// blockDeviceSelector are intentionally omitted.
+//
+// The empty {} default for nodeSelector mirrors the CRD shape the
+// validator gets from the API server: `unstructured.NestedMap` returns
+// (empty, true, nil) for a present-but-empty selector, which
+// labelSelectorFromMap turns into labels.Everything (matches every
+// Node) — the same semantics the controller uses.
+func newECStubUnstructured(name string, nodeSel map[string]interface{}) *unstructured.Unstructured {
+	storage := map[string]interface{}{
+		"blockDeviceSelector": map[string]interface{}{},
+	}
+	if nodeSel != nil {
+		storage["nodeSelector"] = nodeSel
+	} else {
+		storage["nodeSelector"] = map[string]interface{}{}
+	}
+	obj := &unstructured.Unstructured{}
+	obj.SetAPIVersion("storage.deckhouse.io/v1alpha1")
+	obj.SetKind("ElasticCluster")
+	obj.SetName(name)
+	obj.Object["spec"] = map[string]interface{}{"storage": storage}
+	return obj
+}

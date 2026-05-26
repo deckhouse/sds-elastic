@@ -219,7 +219,17 @@ EOF
 - a third simultaneous failure pauses I/O but does not lose data — Ceph backfills the surviving copy onto free cluster space and resumes;
 - data loss only at the fourth simultaneous failure.
 
-The mode requires at least **5 storage nodes** (4 for the pool's CRUSH placement at `failureDomain=host` and 5 to host a 5-mon quorum). The first time you create a `HighRedundancy` ESC against an `ElasticCluster`, the controller automatically promotes the underlying `CephCluster` to `mon.count=5`, `mgr.count=3` (the standard topology is `3, 2`). The promotion is **sticky**: deleting the last `HighRedundancy` ESC does NOT roll the counts back, because silently weakening a live cluster's fault-tolerance guarantee is unsafe. The audit trail lives on `ElasticCluster.status.cephTopology`:
+The mode requires at least **5 storage nodes** (4 for the pool's CRUSH placement at `failureDomain=host` and 5 to host a 5-mon quorum). The first time you create a `HighRedundancy` ESC against an `ElasticCluster`, the controller automatically promotes the underlying `CephCluster` to `mon.count=5`, `mgr.count=3` (the standard topology is `3, 2`). The promotion is **sticky**: deleting the last `HighRedundancy` ESC does NOT roll the counts back, because silently weakening a live cluster's fault-tolerance guarantee is unsafe.
+
+A validating webhook gates ESC creation on the same thresholds so the sticky promotion cannot fire on an undersized cluster. CREATE of an ESC with `replication: HighRedundancy` is rejected when:
+
+- the parent `ElasticCluster` referenced by `spec.clusterRef` does not exist;
+- fewer than 5 nodes match `ElasticCluster.spec.storage.nodeSelector` (the 5-mon quorum floor);
+- adopted `BlockDevice` resources of the parent EC live on fewer than 4 distinct nodes (the 4-replica CRUSH placement floor).
+
+So the bootstrap order is fixed: apply the `ElasticCluster` first, wait until at least four storage nodes have adopted BDs (check via `kubectl get bd -l sds-elastic.deckhouse.io/cluster=<ec>` or `EC.status.phase=Ready`), and only then apply the `HighRedundancy` ESC. Trying to ship the EC and the HR ESC in the same `kubectl apply` is rejected by admission — the EC arrives first, but its adopted-BD set is still empty when the ESC admission runs.
+
+The audit trail lives on `ElasticCluster.status.cephTopology`:
 
 ```shell
 d8 k get elasticcluster ceph-prod -o jsonpath='{.status.cephTopology}'

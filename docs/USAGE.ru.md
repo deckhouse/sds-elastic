@@ -219,7 +219,17 @@ EOF
 - третий одновременный отказ останавливает I/O, но данные не теряются — Ceph в фоне восстанавливает выжившую копию на свободное пространство кластера и возобновляет работу;
 - потеря данных только при четвёртом одновременном отказе.
 
-Режим требует не менее **5 storage-узлов** (4 для CRUSH-размещения пула при `failureDomain=host` и 5 для кворума из 5 mon). При создании первого `HighRedundancy` ESC, ссылающегося на `ElasticCluster`, контроллер автоматически повышает топологию нижележащего `CephCluster` до `mon.count=5`, `mgr.count=3` (по умолчанию — `3, 2`). Повышение **залипающее**: удаление последнего `HighRedundancy` ESC НЕ возвращает счётчики обратно, поскольку молчаливое ослабление гарантии отказоустойчивости на живом кластере небезопасно. Аудит — в `ElasticCluster.status.cephTopology`:
+Режим требует не менее **5 storage-узлов** (4 для CRUSH-размещения пула при `failureDomain=host` и 5 для кворума из 5 mon). При создании первого `HighRedundancy` ESC, ссылающегося на `ElasticCluster`, контроллер автоматически повышает топологию нижележащего `CephCluster` до `mon.count=5`, `mgr.count=3` (по умолчанию — `3, 2`). Повышение **залипающее**: удаление последнего `HighRedundancy` ESC НЕ возвращает счётчики обратно, поскольку молчаливое ослабление гарантии отказоустойчивости на живом кластере небезопасно.
+
+Validating-вебхук закрывает создание ESC по тем же порогам, чтобы залипающее повышение не сработало на недостаточно крупном кластере. CREATE ESC с `replication: HighRedundancy` отклоняется, если:
+
+- родительский `ElasticCluster`, указанный в `spec.clusterRef`, не существует;
+- под `ElasticCluster.spec.storage.nodeSelector` подходит < 5 узлов (минимум для 5-mon-кворума);
+- adopted `BlockDevice` родительского EC лежат на < 4 разных узлах (минимум для CRUSH-размещения 4 реплик).
+
+Поэтому порядок bootstrap'а фиксирован: сначала применить `ElasticCluster`, дождаться, пока хотя бы на 4 узлах появятся adopted BD (`kubectl get bd -l sds-elastic.deckhouse.io/cluster=<ec>` или `EC.status.phase=Ready`), и только потом применять `HighRedundancy` ESC. Попытка отправить EC и HR-ESC в одном `kubectl apply` будет отклонена admission'ом: EC создастся первым, но его список adopted BD ещё пуст в момент admission ESC.
+
+Аудит — в `ElasticCluster.status.cephTopology`:
 
 ```shell
 d8 k get elasticcluster ceph-prod -o jsonpath='{.status.cephTopology}'

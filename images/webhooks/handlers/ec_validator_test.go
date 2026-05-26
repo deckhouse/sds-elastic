@@ -32,11 +32,16 @@ import (
 // dynClient builds a fake dynamic.Interface preloaded with the supplied
 // unstructured objects. The list-kind hints are required because the
 // fake client cannot infer them from a bare schema.
+//
+// Shared between EC and ESC validator tests; ESC tests need
+// elasticClusterGVR so the HighRedundancy preflight can Get the parent
+// EC the same way it does in production.
 func dynClient(objs ...runtime.Object) dynamic.Interface {
 	sch := runtime.NewScheme()
 	gvrToListKind := map[schema.GroupVersionResource]string{
-		blockDeviceGVR: "BlockDeviceList",
-		nodeGVR:        "NodeList",
+		blockDeviceGVR:    "BlockDeviceList",
+		nodeGVR:           "NodeList",
+		elasticClusterGVR: "ElasticClusterList",
 	}
 	return dynamicfake.NewSimpleDynamicClientWithCustomListKinds(sch, gvrToListKind, objs...)
 }

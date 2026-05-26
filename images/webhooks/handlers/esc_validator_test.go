@@ -24,13 +24,31 @@ import (
 	"github.com/slok/kubewebhook/v2/pkg/model"
 	corev1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
+	"k8s.io/apimachinery/pkg/runtime"
 )
 
 var _ = Describe("ElasticStorageClassValidate", func() {
 	var ctx = context.Background()
 
+	// validate runs the ESC validator with no preloaded dynamic objects.
+	// All non-HighRedundancy paths take this branch — the validator does
+	// not call the dynamic client unless `replication=HighRedundancy` on
+	// CREATE, so a bare fake client suffices.
 	validate := func(op model.AdmissionReviewOp, oldObj, newObj *unstructured.Unstructured) (bool, string, error) {
-		res, err := ElasticStorageClassValidate(ctx, admissionReview(op, oldObj), newObj)
+		validator := NewElasticStorageClassValidator(dynClient())
+		res, err := validator(ctx, admissionReview(op, oldObj), newObj)
+		if err != nil {
+			return false, "", err
+		}
+		return res.Valid, res.Message, nil
+	}
+
+	// validateWith mirrors validate but lets a test seed the dynamic
+	// client with an EC, BlockDevices, and Nodes for the HighRedundancy
+	// preflight to consume.
+	validateWith := func(objs []runtime.Object, op model.AdmissionReviewOp, oldObj, newObj *unstructured.Unstructured) (bool, string, error) {
+		validator := NewElasticStorageClassValidator(dynClient(objs...))
+		res, err := validator(ctx, admissionReview(op, oldObj), newObj)
 		if err != nil {
 			return false, "", err
 		}
@@ -95,7 +113,140 @@ var _ = Describe("ElasticStorageClassValidate", func() {
 	})
 
 	It("fail-closes on unexpected object type", func() {
-		_, err := ElasticStorageClassValidate(ctx, admissionReview(model.OperationCreate, nil), &corev1.Pod{})
+		validator := NewElasticStorageClassValidator(dynClient())
+		_, err := validator(ctx, admissionReview(model.OperationCreate, nil), &corev1.Pod{})
 		Expect(err).To(HaveOccurred())
 	})
+
+	Describe("HighRedundancy preflight", func() {
+		// helper: produce N nodes labelled role=storage and M
+		// BlockDevices owned by `ec` spread across the supplied
+		// nodeNames (one BD per nodeName by default — pass duplicates
+		// to simulate multiple BDs on the same host).
+		nodeLabels := map[string]string{"role": "storage"}
+		ecName := "ec-prod"
+
+		makeNodes := func(n int) []runtime.Object {
+			out := make([]runtime.Object, 0, n)
+			for i := 0; i < n; i++ {
+				out = append(out, nodeUnstructured(nodeNameOf(i), nodeLabels))
+			}
+			return out
+		}
+		makeBDsOnNodes := func(nodeNames ...string) []runtime.Object {
+			out := make([]runtime.Object, 0, len(nodeNames))
+			for i, n := range nodeNames {
+				out = append(out, bdUnstructured(bdNameOf(i), ecName, n, nil))
+			}
+			return out
+		}
+		newHRESC := func() *unstructured.Unstructured {
+			return newESCUnstructured("rbd-hr", escSpec(ecName, storageClassTypeRBD, replicationHighRedundancy))
+		}
+		nodeSel := matchLabels(nodeLabels)
+
+		It("rejects CREATE when parent EC is missing", func() {
+			esc := newHRESC()
+			valid, msg, err := validateWith(nil, model.OperationCreate, nil, esc)
+			Expect(err).NotTo(HaveOccurred())
+			Expect(valid).To(BeFalse())
+			Expect(msg).To(ContainSubstring(`"ec-prod"`))
+			Expect(msg).To(ContainSubstring("does not exist"))
+			Expect(msg).To(ContainSubstring("HighRedundancy"))
+		})
+
+		It("accepts CREATE when EC + 5 nodeSelector-matched nodes + 4 distinct OSD-host nodes are present", func() {
+			seed := append(makeNodes(5),
+				newECStubUnstructured(ecName, nodeSel),
+			)
+			seed = append(seed, makeBDsOnNodes("node-0", "node-1", "node-2", "node-3")...)
+			esc := newHRESC()
+			valid, msg, err := validateWith(seed, model.OperationCreate, nil, esc)
+			Expect(err).NotTo(HaveOccurred(), "msg=%s", msg)
+			Expect(valid).To(BeTrue(), "msg=%s", msg)
+		})
+
+		It("rejects CREATE when fewer than 5 nodes match nodeSelector", func() {
+			seed := append(makeNodes(4),
+				newECStubUnstructured(ecName, nodeSel),
+			)
+			seed = append(seed, makeBDsOnNodes("node-0", "node-1", "node-2", "node-3")...)
+			esc := newHRESC()
+			valid, msg, err := validateWith(seed, model.OperationCreate, nil, esc)
+			Expect(err).NotTo(HaveOccurred())
+			Expect(valid).To(BeFalse())
+			Expect(msg).To(ContainSubstring("at least 5"))
+			Expect(msg).To(ContainSubstring("have 4"))
+			Expect(msg).To(ContainSubstring(ecName))
+		})
+
+		It("rejects CREATE when fewer than 4 distinct nodes host adopted BlockDevices", func() {
+			seed := append(makeNodes(5),
+				newECStubUnstructured(ecName, nodeSel),
+			)
+			seed = append(seed, makeBDsOnNodes("node-0", "node-1", "node-2")...)
+			esc := newHRESC()
+			valid, msg, err := validateWith(seed, model.OperationCreate, nil, esc)
+			Expect(err).NotTo(HaveOccurred())
+			Expect(valid).To(BeFalse())
+			Expect(msg).To(ContainSubstring("at least 4 distinct nodes"))
+			Expect(msg).To(ContainSubstring("have 3"))
+		})
+
+		It("rejects CREATE when 4 BDs are clustered on only 3 nodes (distinct count, not BD count)", func() {
+			seed := append(makeNodes(5),
+				newECStubUnstructured(ecName, nodeSel),
+			)
+			// node-0 hosts two BDs; the distinct-node count is 3, not 4.
+			seed = append(seed, makeBDsOnNodes("node-0", "node-0", "node-1", "node-2")...)
+			esc := newHRESC()
+			valid, msg, err := validateWith(seed, model.OperationCreate, nil, esc)
+			Expect(err).NotTo(HaveOccurred())
+			Expect(valid).To(BeFalse())
+			Expect(msg).To(ContainSubstring("have 3"))
+		})
+
+		It("accepts CREATE when 4 BDs lie on exactly 4 distinct nodes (boundary case)", func() {
+			seed := append(makeNodes(5),
+				newECStubUnstructured(ecName, nodeSel),
+			)
+			seed = append(seed, makeBDsOnNodes("node-0", "node-1", "node-2", "node-3")...)
+			esc := newHRESC()
+			valid, msg, err := validateWith(seed, model.OperationCreate, nil, esc)
+			Expect(err).NotTo(HaveOccurred(), "msg=%s", msg)
+			Expect(valid).To(BeTrue(), "msg=%s", msg)
+		})
+
+		It("does NOT trigger preflight for non-HighRedundancy ESCs even on a tiny cluster", func() {
+			// No EC, no nodes, no BDs — the validator must skip the
+			// preflight entirely when replication is anything other
+			// than HighRedundancy. This guards against accidentally
+			// gating ConsistencyAndAvailability on the HR thresholds.
+			esc := newESCUnstructured("rbd-prod", escSpec(ecName, storageClassTypeRBD, "ConsistencyAndAvailability"))
+			valid, _, err := validateWith(nil, model.OperationCreate, nil, esc)
+			Expect(err).NotTo(HaveOccurred())
+			Expect(valid).To(BeTrue())
+		})
+	})
 })
+
+// nodeNameOf and bdNameOf produce stable, ordering-friendly names for
+// HR-preflight test fixtures: makeNodes(5) yields node-0..node-4 and
+// makeBDsOnNodes("node-0", "node-1") yields bd-0/bd-1.
+func nodeNameOf(i int) string { return "node-" + itoa(i) }
+func bdNameOf(i int) string   { return "bd-" + itoa(i) }
+
+func itoa(i int) string {
+	const digits = "0123456789"
+	if i == 0 {
+		return "0"
+	}
+	var buf [20]byte
+	n := len(buf)
+	for i > 0 {
+		n--
+		buf[n] = digits[i%10]
+		i /= 10
+	}
+	return string(buf[n:])
+}
