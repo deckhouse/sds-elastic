@@ -4,6 +4,15 @@ image: {{ .ModuleNamePrefix }}{{ .ImageName }}-src-artifact
 fromImage: builder/src
 final: false
 
+git:
+  - add: {{ .ModuleDir }}
+    to: /src
+    includePaths:
+      - images/{{ $.ImageName }}/patches
+    stageDependencies:
+      install:
+        - 'images/{{ $.ImageName }}/patches/**/*'
+
 secrets:
 - id: SOURCE_REPO
   value: {{ .SOURCE_REPO }}
@@ -11,6 +20,14 @@ secrets:
 shell:
   install:
     - git clone --branch v{{ $rook_version }} --depth 1 $(cat /run/secrets/SOURCE_REPO)/rook/rook.git /src/rook
+    - cd /src/rook
+    - |
+      shopt -s nullglob
+      for patchfile in /src/images/{{ $.ImageName }}/patches/*.patch; do
+        echo "Applying ${patchfile}"
+        git -c user.email=sds-elastic@flant.com -c user.name='sds-elastic build' am "${patchfile}"
+      done
+    - rm -rf /src/images/{{ $.ImageName }}/patches
     - rm -rf /src/rook/.git
 
 ---

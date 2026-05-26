@@ -4,29 +4,22 @@ kind: CustomResourceDefinition
 metadata:
   annotations:
     controller-gen.kubebuilder.io/version: v0.19.0
-  name: cephrbdmirrors.ceph.rook.io
+  name: cephcosidrivers.internal.ceph.rook.io
 spec:
-  group: ceph.rook.io
+  group: internal.ceph.rook.io
   names:
-    kind: CephRBDMirror
-    listKind: CephRBDMirrorList
-    plural: cephrbdmirrors
+    kind: CephCOSIDriver
+    listKind: CephCOSIDriverList
+    plural: cephcosidrivers
     shortNames:
-      - cephrbdm
-    singular: cephrbdmirror
+      - cephcosi
+    singular: cephcosidriver
   scope: Namespaced
   versions:
-    - additionalPrinterColumns:
-        - jsonPath: .status.phase
-          name: Phase
-          type: string
-        - jsonPath: .metadata.creationTimestamp
-          name: Age
-          type: date
-      name: v1
+    - name: v1
       schema:
         openAPIV3Schema:
-          description: CephRBDMirror represents a Ceph RBD Mirror
+          description: CephCOSIDriver represents the CRD for the Ceph COSI Driver Deployment
           properties:
             apiVersion:
               description: |-
@@ -46,38 +39,22 @@ spec:
             metadata:
               type: object
             spec:
-              description: RBDMirroringSpec represents the specification of an RBD mirror daemon
+              description: Spec represents the specification of a Ceph COSI Driver
               properties:
-                annotations:
-                  additionalProperties:
-                    type: string
-                  description: The annotations-related configuration to add/set on each Pod related object.
-                  nullable: true
-                  type: object
-                  x-kubernetes-preserve-unknown-fields: true
-                count:
-                  description: Count represents the number of rbd mirror instance to run
-                  minimum: 1
-                  type: integer
-                labels:
-                  additionalProperties:
-                    type: string
-                  description: The labels-related configuration to add/set on each Pod related object.
-                  nullable: true
-                  type: object
-                  x-kubernetes-preserve-unknown-fields: true
-                peers:
-                  description: Peers represents the peers spec
-                  nullable: true
-                  properties:
-                    secretNames:
-                      description: SecretNames represents the Kubernetes Secret names to add rbd-mirror or cephfs-mirror peers
-                      items:
-                        type: string
-                      type: array
-                  type: object
+                deploymentStrategy:
+                  description: DeploymentStrategy is the strategy to use to deploy the COSI driver.
+                  enum:
+                    - Never
+                    - Auto
+                    - Always
+                  type: string
+                image:
+                  description: Image is the container image to run the Ceph COSI driver
+                  type: string
+                objectProvisionerImage:
+                  description: ObjectProvisionerImage is the container image to run the COSI driver sidecar
+                  type: string
                 placement:
-                  nullable: true
                   properties:
                     nodeAffinity:
                       properties:
@@ -586,13 +563,8 @@ spec:
                         type: object
                       type: array
                   type: object
-                  x-kubernetes-preserve-unknown-fields: true
-                priorityClassName:
-                  description: PriorityClassName sets priority class on the rbd mirror pods
-                  type: string
                 resources:
-                  description: The resource requirements for the rbd mirror pods
-                  nullable: true
+                  description: Resources is the resource requirements for the COSI driver
                   properties:
                     claims:
                       description: |-
@@ -650,73 +622,10 @@ spec:
                         More info: https://kubernetes.io/docs/concepts/configuration/manage-resources-containers/
                       type: object
                   type: object
-                  x-kubernetes-preserve-unknown-fields: true
-              required:
-                - count
               type: object
-            status:
-              description: RBDMirrorStatus represents the status of the RBD mirror resource
-              properties:
-                cephx:
-                  properties:
-                    daemon:
-                      description: Daemon shows the CephX key status for local Ceph daemons associated with this resources.
-                      properties:
-                        keyCephVersion:
-                          description: |-
-                            KeyCephVersion reports the Ceph version that created the current generation's keys. This is
-                            same string format as reported by `CephCluster.status.version.version` to allow them to be
-                            compared. E.g., `20.2.0-0`.
-                            For all newly-created resources, this field set to the version of Ceph that created the key.
-                            The special value "Uninitialized" indicates that keys are being created for the first time.
-                            An empty string indicates that the version is unknown, as expected in brownfield deployments.
-                          type: string
-                        keyGeneration:
-                          description: |-
-                            KeyGeneration represents the CephX key generation for the last successful reconcile.
-                            For all newly-created resources, this field is set to `1`.
-                            When keys are rotated due to any rotation policy, the generation is incremented or updated to
-                            the configured policy generation.
-                            Generation `0` indicates that keys existed prior to the implementation of key tracking.
-                          format: int32
-                          type: integer
-                      type: object
-                  type: object
-                conditions:
-                  items:
-                    description: Condition represents a status condition on any Rook-Ceph Custom Resource.
-                    properties:
-                      lastHeartbeatTime:
-                        format: date-time
-                        type: string
-                      lastTransitionTime:
-                        format: date-time
-                        type: string
-                      message:
-                        type: string
-                      reason:
-                        description: ConditionReason is a reason for a condition
-                        type: string
-                      status:
-                        type: string
-                      type:
-                        description: ConditionType represent a resource's status
-                        type: string
-                    type: object
-                  type: array
-                observedGeneration:
-                  description: ObservedGeneration is the latest generation observed by the controller.
-                  format: int64
-                  type: integer
-                phase:
-                  type: string
-              type: object
-              x-kubernetes-preserve-unknown-fields: true
           required:
             - metadata
             - spec
           type: object
       served: true
       storage: true
-      subresources:
-        status: {}

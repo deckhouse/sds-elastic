@@ -4,9 +4,9 @@ kind: CustomResourceDefinition
 metadata:
   annotations:
     controller-gen.kubebuilder.io/version: v0.19.0
-  name: cephnfses.ceph.rook.io
+  name: cephnfses.internal.ceph.rook.io
 spec:
-  group: ceph.rook.io
+  group: internal.ceph.rook.io
   names:
     kind: CephNFS
     listKind: CephNFSList

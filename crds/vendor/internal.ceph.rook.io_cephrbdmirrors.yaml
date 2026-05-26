@@ -4,16 +4,16 @@ kind: CustomResourceDefinition
 metadata:
   annotations:
     controller-gen.kubebuilder.io/version: v0.19.0
-  name: cephfilesystemmirrors.ceph.rook.io
+  name: cephrbdmirrors.internal.ceph.rook.io
 spec:
-  group: ceph.rook.io
+  group: internal.ceph.rook.io
   names:
-    kind: CephFilesystemMirror
-    listKind: CephFilesystemMirrorList
-    plural: cephfilesystemmirrors
+    kind: CephRBDMirror
+    listKind: CephRBDMirrorList
+    plural: cephrbdmirrors
     shortNames:
-      - cephfsm
-    singular: cephfilesystemmirror
+      - cephrbdm
+    singular: cephrbdmirror
   scope: Namespaced
   versions:
     - additionalPrinterColumns:
@@ -26,7 +26,7 @@ spec:
       name: v1
       schema:
         openAPIV3Schema:
-          description: CephFilesystemMirror is the Ceph Filesystem Mirror object definition
+          description: CephRBDMirror represents a Ceph RBD Mirror
           properties:
             apiVersion:
               description: |-
@@ -46,7 +46,7 @@ spec:
             metadata:
               type: object
             spec:
-              description: FilesystemMirroringSpec is the filesystem mirroring specification
+              description: RBDMirroringSpec represents the specification of an RBD mirror daemon
               properties:
                 annotations:
                   additionalProperties:
@@ -54,11 +54,27 @@ spec:
                   description: The annotations-related configuration to add/set on each Pod related object.
                   nullable: true
                   type: object
+                  x-kubernetes-preserve-unknown-fields: true
+                count:
+                  description: Count represents the number of rbd mirror instance to run
+                  minimum: 1
+                  type: integer
                 labels:
                   additionalProperties:
                     type: string
                   description: The labels-related configuration to add/set on each Pod related object.
                   nullable: true
+                  type: object
+                  x-kubernetes-preserve-unknown-fields: true
+                peers:
+                  description: Peers represents the peers spec
+                  nullable: true
+                  properties:
+                    secretNames:
+                      description: SecretNames represents the Kubernetes Secret names to add rbd-mirror or cephfs-mirror peers
+                      items:
+                        type: string
+                      type: array
                   type: object
                 placement:
                   nullable: true
@@ -570,11 +586,12 @@ spec:
                         type: object
                       type: array
                   type: object
+                  x-kubernetes-preserve-unknown-fields: true
                 priorityClassName:
-                  description: PriorityClassName sets priority class on the cephfs-mirror pods
+                  description: PriorityClassName sets priority class on the rbd mirror pods
                   type: string
                 resources:
-                  description: The resource requirements for the cephfs-mirror pods
+                  description: The resource requirements for the rbd mirror pods
                   nullable: true
                   properties:
                     claims:
@@ -633,9 +650,12 @@ spec:
                         More info: https://kubernetes.io/docs/concepts/configuration/manage-resources-containers/
                       type: object
                   type: object
+                  x-kubernetes-preserve-unknown-fields: true
+              required:
+                - count
               type: object
             status:
-              description: FileMirrorStatus represents the status of the FileSystem mirror resource
+              description: RBDMirrorStatus represents the status of the RBD mirror resource
               properties:
                 cephx:
                   properties:
@@ -691,6 +711,7 @@ spec:
                 phase:
                   type: string
               type: object
+              x-kubernetes-preserve-unknown-fields: true
           required:
             - metadata
             - spec

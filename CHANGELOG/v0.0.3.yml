@@ -1,0 +1,39 @@
+Changes:
+- Renamed the Rook CRD API group from upstream `ceph.rook.io` to
+  `internal.ceph.rook.io`. The vendored Rook operator is now built with a
+  three-line source patch (`images/operator/patches/`) that flips two
+  group constants (`pkg/apis/ceph.rook.io/{,/v1}register.go`) and the
+  hardcoded OwnerReference APIVersion on CSI Secrets owned by CephCluster
+  (`pkg/operator/ceph/csi/secrets.go`). All Rook clientsets, finalizers
+  and the SchemeGroupVersion derive from those constants, so the rename
+  reroutes every Group-aware API call to the new group with no further
+  upstream edits.
+- All 18 vendored Rook CRDs in `crds/vendor/` are renamed accordingly
+  (`metadata.name` and `spec.group`). `objectbucket.io` CRDs are not
+  touched.
+- The sds-elastic controller (`images/controller/internal/external/gvk.go`)
+  and the vendor-CR validating webhook (`images/webhooks/handlers/
+  vendorCRValidator.go`) target the new group.
+- RBAC manifests (`templates/rbac-for-us.yaml`,
+  `templates/controller/{rbac-for-us,controller}.yaml`) and module
+  documentation reflect the renamed group.
+breaking_changes: |-
+  Existing CRs created under the old `ceph.rook.io` group are not
+  automatically migrated to `internal.ceph.rook.io`. Upgrading a cluster
+  that already runs an earlier dev build of sds-elastic requires:
+
+  - Deleting all `ElasticCluster`, `ElasticStorageClass` and
+    `ElasticClusterCredential` objects so the controller can tear down the
+    underlying Rook CRs.
+  - Manually removing any leftover `ceph.rook.io/v1` objects in the
+    `d8-sds-elastic` namespace and their owner references on dependent
+    Secrets / ConfigMaps (the garbage collector resolves owner GVK via the
+    RESTMapper and will not follow stale `ceph.rook.io/v1` references
+    after the upgrade).
+  - Reapplying the module so the controller recreates the cluster under
+    `internal.ceph.rook.io/v1`.
+
+  CSI volumes (PV, PVC, StorageClass, attached pods) are unaffected by
+  the rename: ceph-csi does not consume the Rook CRDs and continues to
+  read its configuration from the `rook-ceph-mon` Secret and the
+  `rook-ceph-csi-config` ConfigMap.

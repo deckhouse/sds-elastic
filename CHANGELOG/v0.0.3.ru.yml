@@ -1,0 +1,12 @@
+Изменения:
+  - Переименована API-группа Rook CRD: с upstream `ceph.rook.io` на `internal.ceph.rook.io`. Поставляемый с модулем Rook оператор теперь собирается с трёхстрочным патчем исходников (`images/operator/patches/`), который меняет две константы группы (`pkg/apis/ceph.rook.io/{,/v1}register.go`) и захардкоженный APIVersion OwnerReference на CSI-секретах, принадлежащих CephCluster (`pkg/operator/ceph/csi/secrets.go`). Все Rook-клиентсеты, finalizer'ы и SchemeGroupVersion берут группу из этих констант, поэтому переименование автоматически перенаправляет все вызовы API с учётом группы на новую без дальнейших правок upstream-кода.
+  - Все 18 вендорных Rook CRD в `crds/vendor/` переименованы (`metadata.name` и `spec.group`). CRD `objectbucket.io` не затронуты.
+  - Контроллер sds-elastic (`images/controller/internal/external/gvk.go`) и validating-вебхук вендорных CR (`images/webhooks/handlers/vendorCRValidator.go`) обращаются к новой группе.
+  - RBAC-манифесты (`templates/rbac-for-us.yaml`, `templates/controller/{rbac-for-us,controller}.yaml`) и документация модуля приведены к переименованной группе.
+breaking_changes: |-
+  Существующие CR, созданные под старой группой `ceph.rook.io`, автоматически не мигрируются на `internal.ceph.rook.io`. Для апгрейда кластера, на котором уже работает ранний dev-билд sds-elastic, необходимо:
+  - Удалить все объекты `ElasticCluster`, `ElasticStorageClass` и `ElasticClusterCredential`, чтобы контроллер свернул соответствующие Rook-CR.
+  - Вручную удалить остатки объектов `ceph.rook.io/v1` в namespace `d8-sds-elastic` и owner-ссылки на них на зависимых Secret'ах и ConfigMap'ах (garbage collector resolve'ит GVK владельца через RESTMapper и не будет следовать «зависшим» ссылкам `ceph.rook.io/v1` после апгрейда).
+  - Применить модуль заново — контроллер пересоздаст кластер под `internal.ceph.rook.io/v1`.
+
+  CSI-тома (PV, PVC, StorageClass, примонтированные поды) от переименования не страдают: ceph-csi не читает Rook CRD и продолжает забирать конфигурацию из Secret'а `rook-ceph-mon` и ConfigMap'а `rook-ceph-csi-config`.

@@ -4,16 +4,16 @@ kind: CustomResourceDefinition
 metadata:
   annotations:
     controller-gen.kubebuilder.io/version: v0.19.0
-  name: cephobjectrealms.ceph.rook.io
+  name: cephobjectzonegroups.internal.ceph.rook.io
 spec:
-  group: ceph.rook.io
+  group: internal.ceph.rook.io
   names:
-    kind: CephObjectRealm
-    listKind: CephObjectRealmList
-    plural: cephobjectrealms
+    kind: CephObjectZoneGroup
+    listKind: CephObjectZoneGroupList
+    plural: cephobjectzonegroups
     shortNames:
-      - cephor
-    singular: cephobjectrealm
+      - cephozg
+    singular: cephobjectzonegroup
   scope: Namespaced
   versions:
     - additionalPrinterColumns:
@@ -26,7 +26,7 @@ spec:
       name: v1
       schema:
         openAPIV3Schema:
-          description: CephObjectRealm represents a Ceph Object Store Gateway Realm
+          description: CephObjectZoneGroup represents a Ceph Object Store Gateway Zone Group
           properties:
             apiVersion:
               description: |-
@@ -46,19 +46,13 @@ spec:
             metadata:
               type: object
             spec:
-              description: ObjectRealmSpec represent the spec of an ObjectRealm
-              nullable: true
+              description: ObjectZoneGroupSpec represent the spec of an ObjectZoneGroup
               properties:
-                defaultRealm:
-                  description: Set this realm as the default in Ceph. Only one realm should be default.
-                  type: boolean
-                pull:
-                  description: PullSpec represents the pulling specification of a Ceph Object Storage Gateway Realm
-                  properties:
-                    endpoint:
-                      pattern: ^https*://
-                      type: string
-                  type: object
+                realm:
+                  description: The name of the realm the zone group is a member of.
+                  type: string
+              required:
+                - realm
               type: object
             status:
               description: Status represents the status of an object
@@ -95,6 +89,7 @@ spec:
               x-kubernetes-preserve-unknown-fields: true
           required:
             - metadata
+            - spec
           type: object
       served: true
       storage: true
