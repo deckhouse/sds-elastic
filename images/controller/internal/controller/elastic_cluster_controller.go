@@ -110,6 +110,7 @@ func AddElasticClusterReconcilerToManager(mgr manager.Manager, cfg *config.Optio
 	})
 
 	enqueueAll := handler.EnqueueRequestsFromMapFunc(r.enqueueAllElasticClusters)
+	enqueueByESC := handler.EnqueueRequestsFromMapFunc(r.enqueueECByESC)
 
 	b := ctrl.NewControllerManagedBy(mgr).
 		Named("elastic-cluster").
@@ -117,6 +118,13 @@ func AddElasticClusterReconcilerToManager(mgr manager.Manager, cfg *config.Optio
 		Watches(&corev1.Secret{}, enqueueAll, builder.WithPredicates(rookSecretPredicate)).
 		Watches(&corev1.ConfigMap{}, enqueueAll, builder.WithPredicates(monCMPredicate)).
 		Watches(&v1alpha1.ElasticClusterCredential{}, enqueueAll).
+		// ESC create / spec change / delete must reach the EC reconciler:
+		// presence of a HighRedundancy ESC is the trigger for the
+		// auto-promotion in computeCephTopology, so a pure RequeueAfter
+		// safety net would delay reaction up to one full requeue
+		// interval. The mapper resolves to the single EC named by the
+		// ESC's spec.clusterRef instead of fanning out to every EC.
+		Watches(&v1alpha1.ElasticStorageClass{}, enqueueByESC).
 		WithOptions(controller.Options{
 			MaxConcurrentReconciles: cfg.MaxConcurrentReconciles,
 		})
@@ -186,6 +194,22 @@ func (r *ElasticClusterReconciler) enqueueAllElasticClusters(ctx context.Context
 	return out
 }
 
+// enqueueECByESC maps an ESC change to the single EC the ESC references
+// via spec.clusterRef. Cluster-scoped resource, so no namespace; the
+// returned request name is the EC name. Returns no requests when the
+// ESC has an empty clusterRef — the ESC reconciler is responsible for
+// rejecting such ESCs as Invalid, and the EC reconciler does not need
+// to react to them.
+func (r *ElasticClusterReconciler) enqueueECByESC(_ context.Context, obj client.Object) []reconcile.Request {
+	esc, ok := obj.(*v1alpha1.ElasticStorageClass)
+	if !ok || esc.Spec.ClusterRef == "" {
+		return nil
+	}
+	return []reconcile.Request{{
+		NamespacedName: types.NamespacedName{Name: esc.Spec.ClusterRef},
+	}}
+}
+
 // Reconcile is the entry point of the FSM.
 func (r *ElasticClusterReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.Result, error) {
 	r.Log.Info(fmt.Sprintf("[Reconcile] start for ElasticCluster %q", req.Name))
@@ -233,7 +257,10 @@ func (r *ElasticClusterReconciler) reconcileNormal(ctx context.Context, ec *v1al
 		return r.finishReconcile(ctx, ec, status, err)
 	}
 
-	cephDone, msg, err := r.ensureCephCluster(ctx, ec, osdCount, pvcRequest)
+	cephDone, msg, cephTopology, err := r.ensureCephCluster(ctx, ec, osdCount, pvcRequest)
+	if cephTopology != nil {
+		status.cephTopology = cephTopology
+	}
 	if !r.advance(status, v1alpha1.ECConditionCephClusterReady, cephDone, "", msg, err) {
 		return r.finishReconcile(ctx, ec, status, err)
 	}
@@ -400,6 +427,7 @@ type ecStatusBuilder struct {
 	monMaxID       string
 	credentialsRef *v1alpha1.ElasticClusterCredentialRef
 	cephVersion    *v1alpha1.CephVersionStatus
+	cephTopology   *v1alpha1.CephTopologyStatus
 
 	// Observability fields populated by populateObservability after the
 	// FSM stages have run. Pointer-typed: nil means "not observed yet";
@@ -434,6 +462,7 @@ func newECStatusBuilder(ec *v1alpha1.ElasticCluster) *ecStatusBuilder {
 		sb.monMaxID = ec.Status.MonMaxID
 		sb.credentialsRef = ec.Status.CredentialsRef.DeepCopy()
 		sb.cephVersion = ec.Status.CephVersion.DeepCopy()
+		sb.cephTopology = ec.Status.CephTopology.DeepCopy()
 	}
 	return sb
 }
@@ -482,6 +511,9 @@ func (r *ElasticClusterReconciler) updateECStatus(ctx context.Context, ec *v1alp
 		}
 		if sb.cephVersion != nil {
 			latest.Status.CephVersion = sb.cephVersion
+		}
+		if sb.cephTopology != nil {
+			latest.Status.CephTopology = sb.cephTopology
 		}
 		if sb.observed {
 			// observed=true means populateObservability ran. Authoritatively

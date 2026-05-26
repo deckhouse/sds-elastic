@@ -198,6 +198,42 @@ EOF
 
 `ErasureCodedCompact` требует не менее 4 storage-узлов и недоступен для `type: RBD` (csi-ceph пока не provisioner-ит RBD-тома на erasure-coded пулах).
 
+### Пул, переживающий одновременный отказ двух хостов (`HighRedundancy`)
+
+```shell
+d8 k apply -f - <<EOF
+apiVersion: storage.deckhouse.io/v1alpha1
+kind: ElasticStorageClass
+metadata:
+  name: ceph-prod-rbd-hr
+spec:
+  clusterRef: ceph-prod
+  type: RBD
+  replication: HighRedundancy
+EOF
+```
+
+`HighRedundancy` создаёт пул с 4 репликами (`size=4`, `min_size=2`, `requireSafeReplicaSize=true`):
+
+- два одновременных отказа хостов сохраняют непрерывный I/O (2 реплики совпадают с `min_size`);
+- третий одновременный отказ останавливает I/O, но данные не теряются — Ceph в фоне восстанавливает выжившую копию на свободное пространство кластера и возобновляет работу;
+- потеря данных только при четвёртом одновременном отказе.
+
+Режим требует не менее **5 storage-узлов** (4 для CRUSH-размещения пула при `failureDomain=host` и 5 для кворума из 5 mon). При создании первого `HighRedundancy` ESC, ссылающегося на `ElasticCluster`, контроллер автоматически повышает топологию нижележащего `CephCluster` до `mon.count=5`, `mgr.count=3` (по умолчанию — `3, 2`). Повышение **залипающее**: удаление последнего `HighRedundancy` ESC НЕ возвращает счётчики обратно, поскольку молчаливое ослабление гарантии отказоустойчивости на живом кластере небезопасно. Аудит — в `ElasticCluster.status.cephTopology`:
+
+```shell
+d8 k get elasticcluster ceph-prod -o jsonpath='{.status.cephTopology}'
+# {"monCount":5,"mgrCount":3,"reason":"HighRedundancyESCPresent","lastPromotedAt":"2026-…"}
+```
+
+Возможные значения `reason`: `Standard`, `HighRedundancyESCPresent`, `StickyHighWaterMark`. Чтобы пересчитать топологию принудительно (например, после сознательного даунскейла кластера), очистите поле через status-subresource и запустите реконсиль:
+
+```shell
+d8 k patch elasticcluster ceph-prod \
+  --type=merge --subresource=status \
+  -p '{"status":{"cephTopology":null}}'
+```
+
 Дождитесь, пока каждый ESC перейдёт в `Ready`:
 
 ```shell

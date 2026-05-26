@@ -86,6 +86,15 @@ spec:
                       cost of split-brain risk; suitable for non-critical workloads.
                     - `ConsistencyAndAvailability` (default) — 3 replicas,
                       `min_size=2`. Recommended production setting.
+                    - `HighRedundancy` — 4 replicas, `min_size=2`,
+                      `requireSafeReplicaSize=true`. Tolerates two simultaneous
+                      host failures with continued I/O and one extra failure as
+                      a recovery margin (data loss only at the fourth simultaneous
+                      failure). Requires at least 5 storage nodes; the controller
+                      auto-promotes the underlying CephCluster to a 5-mon, 3-mgr
+                      topology while at least one HighRedundancy ESC exists, and
+                      keeps the promotion sticky after the trigger ESC is removed.
+                      See `ElasticCluster.status.cephTopology` for the audit trail.
                     - `ErasureCodedCompact` — k=2, m=2 with `jerasure`/`reed_sol_van`
                       and `allow_ec_overwrites=true`. Storage-efficient (1.5x overhead
                       vs 3x for replicated). Requires at least 4 storage nodes.
@@ -93,6 +102,7 @@ spec:
                   enum:
                     - AvailabilityWithoutConsistency
                     - ConsistencyAndAvailability
+                    - HighRedundancy
                     - ErasureCodedCompact
                   default: ConsistencyAndAvailability
             status:

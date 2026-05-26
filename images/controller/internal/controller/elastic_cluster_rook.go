@@ -22,6 +22,7 @@ import (
 
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	"k8s.io/apimachinery/pkg/api/resource"
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
 	"k8s.io/apimachinery/pkg/types"
 
@@ -36,23 +37,35 @@ import (
 // requeuing — Rook owns the convergence loop, sds-elastic only translates
 // the CR.
 //
+// Returns the effective CephTopologyStatus alongside the FSM result so
+// the caller can persist the (mon, mgr) high-water-mark on EC.status.
+// Topology is computed before the CephCluster upsert and applied
+// regardless of whether the upsert succeeds — recording an intent the
+// next reconcile can pick up is preferable to silently dropping it.
+//
 // pvcStorageRequest must equal min(BD.size) over the BDs that ensureStorage
 // adopted for this EC; it is propagated into the CephCluster's
 // volumeClaimTemplates[0].spec.resources.requests.storage so that every
 // per-OSD PVC binds to one of the local-PVs produced by ensureStorage.
-func (r *ElasticClusterReconciler) ensureCephCluster(ctx context.Context, ec *v1alpha1.ElasticCluster, osdCount int32, pvcStorageRequest resource.Quantity) (bool, string, error) {
+func (r *ElasticClusterReconciler) ensureCephCluster(ctx context.Context, ec *v1alpha1.ElasticCluster, osdCount int32, pvcStorageRequest resource.Quantity) (bool, string, *v1alpha1.CephTopologyStatus, error) {
+	monCount, mgrCount, reason, err := r.computeCephTopology(ctx, ec)
+	if err != nil {
+		return false, "", nil, fmt.Errorf("compute Ceph topology: %w", err)
+	}
+	topology := buildCephTopologyStatus(ec, monCount, mgrCount, reason)
+
 	cephImage, err := builder.CephImage(r.Cfg.CephImages, v1alpha1.DefaultCephVersion)
 	if err != nil {
-		return false, "", err
+		return false, "", topology, err
 	}
 
 	placementAll := builder.ECPlacementAll(ec, nil /* tolerations TBD via module config */)
-	desired := builder.ECCephCluster(ec, r.Cfg.ControllerNamespace, cephImage, osdCount, pvcStorageRequest, placementAll)
+	desired := builder.ECCephCluster(ec, r.Cfg.ControllerNamespace, cephImage, osdCount, pvcStorageRequest, placementAll, monCount, mgrCount)
 	if err := r.upsertECUnstructured(ctx, desired); err != nil {
 		if isNoMatchErr(err) {
-			return false, "waiting for CephCluster CRD (Rook)", nil
+			return false, "waiting for CephCluster CRD (Rook)", topology, nil
 		}
-		return false, "", fmt.Errorf("upsert CephCluster: %w", err)
+		return false, "", topology, fmt.Errorf("upsert CephCluster: %w", err)
 	}
 
 	cc := &unstructured.Unstructured{}
@@ -62,15 +75,57 @@ func (r *ElasticClusterReconciler) ensureCephCluster(ctx context.Context, ec *v1
 		Name:      builder.ECCephClusterName(ec),
 	}, cc)
 	if apierrors.IsNotFound(err) {
-		return false, "CephCluster CR not yet visible", nil
+		return false, "CephCluster CR not yet visible", topology, nil
 	}
 	if err != nil {
-		return false, "", err
+		return false, "", topology, err
 	}
 
 	phase, _, _ := unstructured.NestedString(cc.Object, "status", "phase")
 	if phase != "Ready" {
-		return false, fmt.Sprintf("CephCluster phase=%q (waiting for Ready)", phase), nil
+		return false, fmt.Sprintf("CephCluster phase=%q (waiting for Ready)", phase), topology, nil
 	}
-	return true, fmt.Sprintf("CephCluster %s is Ready", cc.GetName()), nil
+	return true, fmt.Sprintf("CephCluster %s is Ready", cc.GetName()), topology, nil
+}
+
+// buildCephTopologyStatus assembles the CephTopologyStatus value the
+// controller will publish on EC.status. The LastPromotedAt timestamp
+// follows two simple rules:
+//
+//   - Stamp a fresh `now` when at least one count is being raised
+//     compared to the previously-recorded values AND the new value
+//     crosses above the standard-profile baseline (defaultMon/MgrCount).
+//   - Otherwise preserve the previously-recorded timestamp (which is
+//     nil if the cluster has never left the standard profile).
+//
+// As a result, a non-nil LastPromotedAt is a binary "the cluster is at
+// or above the high-availability profile" marker for the UI, with the
+// timestamp pointing at when that state was first reached. Standard-
+// profile reconciles always produce a nil LastPromotedAt.
+//
+// The function does NOT lower counts back — that contract belongs to
+// computeCephTopology.
+func buildCephTopologyStatus(ec *v1alpha1.ElasticCluster, monCount, mgrCount int32, reason string) *v1alpha1.CephTopologyStatus {
+	out := &v1alpha1.CephTopologyStatus{
+		MonCount: monCount,
+		MgrCount: mgrCount,
+		Reason:   reason,
+	}
+	var (
+		prevMon, prevMgr int32
+		prevPromotedAt   *metav1.Time
+	)
+	if ec.Status != nil && ec.Status.CephTopology != nil {
+		prevMon = ec.Status.CephTopology.MonCount
+		prevMgr = ec.Status.CephTopology.MgrCount
+		prevPromotedAt = ec.Status.CephTopology.LastPromotedAt
+	}
+	out.LastPromotedAt = prevPromotedAt
+
+	if (monCount > prevMon || mgrCount > prevMgr) &&
+		(monCount > defaultMonCount || mgrCount > defaultMgrCount) {
+		now := metav1.Now()
+		out.LastPromotedAt = &now
+	}
+	return out
 }

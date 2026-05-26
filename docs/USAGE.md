@@ -198,6 +198,42 @@ EOF
 
 `ErasureCodedCompact` requires at least 4 storage nodes and is rejected for `type: RBD` (csi-ceph does not yet provision RBD volumes on erasure-coded pools).
 
+### Pool that survives two simultaneous host failures (`HighRedundancy`)
+
+```shell
+d8 k apply -f - <<EOF
+apiVersion: storage.deckhouse.io/v1alpha1
+kind: ElasticStorageClass
+metadata:
+  name: ceph-prod-rbd-hr
+spec:
+  clusterRef: ceph-prod
+  type: RBD
+  replication: HighRedundancy
+EOF
+```
+
+`HighRedundancy` produces a 4-replica pool (`size=4`, `min_size=2`, `requireSafeReplicaSize=true`):
+
+- two simultaneous host failures keep I/O continuous (2 replicas equal `min_size`);
+- a third simultaneous failure pauses I/O but does not lose data — Ceph backfills the surviving copy onto free cluster space and resumes;
+- data loss only at the fourth simultaneous failure.
+
+The mode requires at least **5 storage nodes** (4 for the pool's CRUSH placement at `failureDomain=host` and 5 to host a 5-mon quorum). The first time you create a `HighRedundancy` ESC against an `ElasticCluster`, the controller automatically promotes the underlying `CephCluster` to `mon.count=5`, `mgr.count=3` (the standard topology is `3, 2`). The promotion is **sticky**: deleting the last `HighRedundancy` ESC does NOT roll the counts back, because silently weakening a live cluster's fault-tolerance guarantee is unsafe. The audit trail lives on `ElasticCluster.status.cephTopology`:
+
+```shell
+d8 k get elasticcluster ceph-prod -o jsonpath='{.status.cephTopology}'
+# {"monCount":5,"mgrCount":3,"reason":"HighRedundancyESCPresent","lastPromotedAt":"2026-…"}
+```
+
+Possible `reason` values: `Standard`, `HighRedundancyESCPresent`, `StickyHighWaterMark`. To force a recompute (for example, after deliberately scaling down to a smaller cluster), clear the field via the status subresource and trigger a reconcile:
+
+```shell
+d8 k patch elasticcluster ceph-prod \
+  --type=merge --subresource=status \
+  -p '{"status":{"cephTopology":null}}'
+```
+
 Wait until each ESC reports `Ready`:
 
 ```shell

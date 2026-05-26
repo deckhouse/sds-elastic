@@ -45,11 +45,16 @@ func ECCephClusterDataDirHostPath(ec *v1alpha1.ElasticCluster) string {
 // Hardcoded production-ready values:
 //   - cephVersion.image                 — provided by the caller (module image).
 //   - dataDirHostPath                   — /opt/deckhouse/sds/elastic/<ec>.
-//   - mon.count=3, allowMultiplePerNode=false, no volumeClaimTemplate
-//     (mon data sits on the host path; survival across namespace deletion
-//     is achieved by ElasticClusterCredential + (in a future release) the
-//     monClusterMap status field).
-//   - mgr.count=2, allowMultiplePerNode=false, pg_autoscaler enabled.
+//   - mon.count / mgr.count             — supplied by the caller, computed
+//     from the active ElasticStorageClass inventory and the high-water-mark
+//     persisted in EC.status.cephTopology. Standard topology is (3, 2);
+//     a HighRedundancy ESC promotes the cluster to (5, 3) and the
+//     promotion is sticky — the controller never lowers the values back
+//     even if the trigger ESC is removed (see CephTopologyStatus). Both
+//     daemons run with allowMultiplePerNode=false and no
+//     volumeClaimTemplate (mon data sits on the host path; survival
+//     across namespace deletion is achieved by ElasticClusterCredential).
+//   - mgr modules: pg_autoscaler enabled.
 //   - network.provider=host. addressRanges populated only when
 //     ec.Spec.Network is set; otherwise Rook listens on every host IP.
 //   - network.connections.{encryption,compression}=false, requireMsgr2=false.
@@ -74,14 +79,15 @@ func ECCephCluster(
 	osdCount int32,
 	pvcStorageRequest resource.Quantity,
 	placementAll map[string]interface{},
+	monCount, mgrCount int32,
 ) *unstructured.Unstructured {
 	monSpec := map[string]interface{}{
-		"count":                int64(3),
+		"count":                int64(monCount),
 		"allowMultiplePerNode": false,
 	}
 
 	mgrSpec := map[string]interface{}{
-		"count":                int64(2),
+		"count":                int64(mgrCount),
 		"allowMultiplePerNode": false,
 		"modules": []interface{}{
 			map[string]interface{}{"name": "pg_autoscaler", "enabled": true},

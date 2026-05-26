@@ -63,7 +63,7 @@ const (
 // ReplicationMode encodes the high-level replication strategy.
 // The controller translates each value into pool-level settings (see
 // constants below for the precise semantics).
-// +kubebuilder:validation:Enum=AvailabilityWithoutConsistency;ConsistencyAndAvailability;ErasureCodedCompact
+// +kubebuilder:validation:Enum=AvailabilityWithoutConsistency;ConsistencyAndAvailability;HighRedundancy;ErasureCodedCompact
 type ReplicationMode string
 
 const (
@@ -75,6 +75,29 @@ const (
 	// ReplicationConsistencyAndAvailability is the production default:
 	// 3 replicas with min_size=2.
 	ReplicationConsistencyAndAvailability ReplicationMode = "ConsistencyAndAvailability"
+
+	// ReplicationHighRedundancy is a 4-replica setup with min_size=2 and
+	// requireSafeReplicaSize=true. Designed to tolerate two simultaneous
+	// host failures with continued I/O (2 replicas == min_size keeps the
+	// pool active) and to keep one extra copy as a recovery margin —
+	// data loss only occurs at the fourth simultaneous failure, while
+	// the third failure pauses I/O until Ceph backfills the surviving
+	// copy onto free cluster space.
+	//
+	// Operational implications:
+	//   - Storage overhead is 4x (vs 3x for ConsistencyAndAvailability).
+	//   - Minimum 5 storage nodes are required: 4 for the pool's CRUSH
+	//     placement (failureDomain=host) and 5 to host a 5-mon quorum
+	//     (the controller auto-promotes CephCluster.spec.mon.count to 5
+	//     when at least one HighRedundancy ESC is present, so the mon
+	//     plane survives the same two simultaneous host failures the
+	//     data plane is sized for).
+	//   - The promotion is sticky: deleting the last HighRedundancy ESC
+	//     does NOT roll mon.count back to 3 — silently weakening the
+	//     fault-tolerance guarantee on a live cluster is unsafe. See
+	//     CephTopologyStatus on ElasticClusterStatus for the
+	//     high-water-mark machinery.
+	ReplicationHighRedundancy ReplicationMode = "HighRedundancy"
 
 	// ReplicationErasureCodedCompact uses k=2,m=2 with jerasure/reed_sol_van
 	// and allow_ec_overwrites=true. Storage-efficient (1.5x overhead vs 3x

@@ -63,6 +63,12 @@ func ESCCephFSDataPoolName(esc *v1alpha1.ElasticStorageClass) string {
 // pool spec is derived from spec.replication:
 //   - AvailabilityWithoutConsistency  -> replicated, size=2, requireSafeReplicaSize=false.
 //   - ConsistencyAndAvailability      -> replicated, size=3, requireSafeReplicaSize=true.
+//   - HighRedundancy                  -> replicated, size=4, requireSafeReplicaSize=true.
+//     Survives 2 simultaneous host failures with continued I/O (2 replicas
+//     == default min_size=2 keeps PGs active) and one extra failure as a
+//     recovery margin before data loss; the controller auto-promotes
+//     CephCluster.spec.mon.count to 5 when at least one HighRedundancy ESC
+//     is present, see CephTopologyStatus on ElasticClusterStatus.
 //   - ErasureCodedCompact             -> rejected by the validating webhook for type=RBD; this builder is only
 //     called after webhook acceptance, so an EC value here is a programming
 //     bug and we surface it as an error rather than a partial spec.
@@ -134,6 +140,11 @@ func rbdReplicated(mode v1alpha1.ReplicationMode) (map[string]interface{}, error
 			"size":                   int64(3),
 			"requireSafeReplicaSize": true,
 		}, nil
+	case v1alpha1.ReplicationHighRedundancy:
+		return map[string]interface{}{
+			"size":                   int64(4),
+			"requireSafeReplicaSize": true,
+		}, nil
 	case v1alpha1.ReplicationErasureCodedCompact:
 		return nil, fmt.Errorf("RBD pool does not support replication=%s", mode)
 	default:
@@ -154,6 +165,13 @@ func cephfsDataPool(mode v1alpha1.ReplicationMode) (map[string]interface{}, erro
 		return map[string]interface{}{
 			"replicated": map[string]interface{}{
 				"size":                   int64(3),
+				"requireSafeReplicaSize": true,
+			},
+		}, nil
+	case v1alpha1.ReplicationHighRedundancy:
+		return map[string]interface{}{
+			"replicated": map[string]interface{}{
+				"size":                   int64(4),
 				"requireSafeReplicaSize": true,
 			},
 		}, nil

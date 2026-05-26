@@ -34,6 +34,15 @@ spec:
                       split-brain. Для некритичных нагрузок.
                     - `ConsistencyAndAvailability` (по умолчанию) — 3 реплики, `min_size=2`.
                       Рекомендуется для прода.
+                    - `HighRedundancy` — 4 реплики, `min_size=2`,
+                      `requireSafeReplicaSize=true`. Переживает одновременный отказ двух
+                      хостов с непрерывным I/O и сохраняет ещё одну реплику как запас на
+                      восстановление: потеря данных только при четвёртом одновременном
+                      отказе. Требует не менее 5 storage-узлов; пока существует хотя бы
+                      один HighRedundancy ESC, контроллер автоматически повышает
+                      топологию CephCluster до 5 mon и 3 mgr и не возвращает её обратно
+                      даже после удаления триггерного ESC. Аудит — в
+                      `ElasticCluster.status.cephTopology`.
                     - `ErasureCodedCompact` — k=2, m=2 (`jerasure`/`reed_sol_van`,
                       `allow_ec_overwrites=true`). Эффективнее по месту (1.5x против 3x).
                       Требует не менее 4 storage-узлов. Не поддерживается с `type: RBD`.

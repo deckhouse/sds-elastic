@@ -240,6 +240,34 @@ spec:
                             description: Строка версии Ceph для этого бакета.
                           count:
                             description: Сколько mgr-демонов сообщили эту версию.
+                cephTopology:
+                  description: |
+                    Эффективные счётчики mon/mgr, применённые контроллером к
+                    нижележащему CephCluster. Повышение монотонно (sticky): как только
+                    `ElasticStorageClass` с `replication: HighRedundancy` поднимает
+                    счётчики до high-availability-профиля (`monCount=5`, `mgrCount=3`),
+                    контроллер не понижает их обратно даже после удаления триггерного
+                    ESC. Чтобы пересчитать топологию принудительно, оператор может
+                    очистить это поле через status-subresource.
+                  properties:
+                    monCount:
+                      description: |
+                        Эффективный `CephCluster.spec.mon.count`.
+                    mgrCount:
+                      description: |
+                        Эффективный `CephCluster.spec.mgr.count`.
+                    reason:
+                      description: |
+                        Машинно-читаемая причина последнего решения по топологии.
+                        Известные значения: `Standard` (действует профиль по умолчанию),
+                        `HighRedundancyESCPresent` (живой HighRedundancy-ESC требует
+                        high-availability-профиль), `StickyHighWaterMark` (сохранённые
+                        счётчики выше того, что требует текущий набор ESC; повышение
+                        удерживается как high-water-mark).
+                    lastPromotedAt:
+                      description: |
+                        Время последнего повышения счётчиков. Пустое значение, если
+                        кластер ни разу не выходил из стандартного профиля.
                 conditions:
                   description: |
                     Покомпонентные condition: `StorageReady`, `CephClusterReady`, `CredentialsReady`,

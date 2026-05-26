@@ -79,6 +79,23 @@ var _ = Describe("builders", func() {
 			_, err := ESCCephBlockPool(esc, "ns")
 			Expect(err).To(HaveOccurred())
 		})
+
+		It("maps HighRedundancy to size=4 with requireSafeReplicaSize=true for RBD", func() {
+			esc := &v1alpha1.ElasticStorageClass{
+				ObjectMeta: metav1.ObjectMeta{Name: "sc"},
+				Spec: v1alpha1.ElasticStorageClassSpec{
+					Type:        v1alpha1.StorageClassTypeRBD,
+					Replication: v1alpha1.ReplicationHighRedundancy,
+				},
+			}
+			pool, err := ESCCephBlockPool(esc, "ns")
+			Expect(err).NotTo(HaveOccurred())
+			size, _, _ := unstructuredNestedInt64(pool, "spec", "replicated", "size")
+			Expect(size).To(Equal(int64(4)))
+			safe, found, _ := unstructured.NestedBool(pool.Object, "spec", "replicated", "requireSafeReplicaSize")
+			Expect(found).To(BeTrue())
+			Expect(safe).To(BeTrue())
+		})
 	})
 
 	Describe("ESCCephFilesystem", func() {
@@ -101,6 +118,26 @@ var _ = Describe("builders", func() {
 			Expect(ok).To(BeTrue())
 			_, hasEC := ecMap["erasureCoded"]
 			Expect(hasEC).To(BeTrue())
+		})
+
+		It("renders HighRedundancy CephFS data pool as replicated size=4 with requireSafeReplicaSize=true", func() {
+			esc := &v1alpha1.ElasticStorageClass{
+				ObjectMeta: metav1.ObjectMeta{Name: "fs-hr"},
+				Spec: v1alpha1.ElasticStorageClassSpec{
+					Type:        v1alpha1.StorageClassTypeCephFS,
+					Replication: v1alpha1.ReplicationHighRedundancy,
+				},
+			}
+			fs, err := ESCCephFilesystem(esc, "ns")
+			Expect(err).NotTo(HaveOccurred())
+
+			pools, _, _ := unstructuredNestedSlice(fs, "spec", "dataPools")
+			Expect(pools).To(HaveLen(1))
+			pool0 := pools[0].(map[string]interface{})
+			repl, ok := pool0["replicated"].(map[string]interface{})
+			Expect(ok).To(BeTrue(), "HighRedundancy data pool must be replicated, not erasureCoded")
+			Expect(repl["size"]).To(Equal(int64(4)))
+			Expect(repl["requireSafeReplicaSize"]).To(Equal(true))
 		})
 	})
 
@@ -158,7 +195,7 @@ var _ = Describe("builders", func() {
 	Describe("ECCephCluster", func() {
 		It("threads pvcStorageRequest into volumeClaimTemplates[0].spec.resources.requests.storage", func() {
 			pvcReq := resource.MustParse("50Gi")
-			cc := ECCephCluster(ec, "d8-sds-elastic", "registry.example.com/ceph:v19", int32(3), pvcReq, nil)
+			cc := ECCephCluster(ec, "d8-sds-elastic", "registry.example.com/ceph:v19", int32(3), pvcReq, nil, 3, 2)
 
 			sets, found, err := unstructuredNestedSlice(cc, "spec", "storage", "storageClassDeviceSets")
 			Expect(err).NotTo(HaveOccurred())
@@ -180,8 +217,8 @@ var _ = Describe("builders", func() {
 		})
 
 		It("renders different pvcStorageRequest values verbatim (1Gi vs 2Ti)", func() {
-			small := ECCephCluster(ec, "ns", "img", int32(1), resource.MustParse("1Gi"), nil)
-			big := ECCephCluster(ec, "ns", "img", int32(1), resource.MustParse("2Ti"), nil)
+			small := ECCephCluster(ec, "ns", "img", int32(1), resource.MustParse("1Gi"), nil, 3, 2)
+			big := ECCephCluster(ec, "ns", "img", int32(1), resource.MustParse("2Ti"), nil, 3, 2)
 
 			storageOf := func(o *unstructured.Unstructured) string {
 				sets, _, _ := unstructuredNestedSlice(o, "spec", "storage", "storageClassDeviceSets")
@@ -191,6 +228,29 @@ var _ = Describe("builders", func() {
 			}
 			Expect(storageOf(small)).To(Equal("1Gi"))
 			Expect(storageOf(big)).To(Equal("2Ti"))
+		})
+
+		It("threads monCount and mgrCount into spec.mon.count and spec.mgr.count", func() {
+			cc := ECCephCluster(ec, "ns", "img", int32(1), resource.MustParse("1Gi"), nil, 5, 3)
+
+			monCount, found, err := unstructured.NestedInt64(cc.Object, "spec", "mon", "count")
+			Expect(err).NotTo(HaveOccurred())
+			Expect(found).To(BeTrue())
+			Expect(monCount).To(Equal(int64(5)))
+
+			mgrCount, found, err := unstructured.NestedInt64(cc.Object, "spec", "mgr", "count")
+			Expect(err).NotTo(HaveOccurred())
+			Expect(found).To(BeTrue())
+			Expect(mgrCount).To(Equal(int64(3)))
+		})
+
+		It("supports the standard (3, 2) topology unchanged", func() {
+			cc := ECCephCluster(ec, "ns", "img", int32(1), resource.MustParse("1Gi"), nil, 3, 2)
+
+			monCount, _, _ := unstructured.NestedInt64(cc.Object, "spec", "mon", "count")
+			Expect(monCount).To(Equal(int64(3)))
+			mgrCount, _, _ := unstructured.NestedInt64(cc.Object, "spec", "mgr", "count")
+			Expect(mgrCount).To(Equal(int64(2)))
 		})
 	})
 })

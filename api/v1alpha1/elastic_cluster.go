@@ -161,6 +161,14 @@ type ElasticClusterStatus struct {
 	// +optional
 	Mgrs *DaemonStatus `json:"mgrs,omitempty"`
 
+	// CephTopology records the effective mon/mgr counts the controller
+	// asked Rook to apply. Promotion is sticky (monotonic): once a
+	// HighRedundancy ESC raises the counts to the high-availability
+	// profile (mon=5, mgr=3), they are never lowered back even if the
+	// trigger is removed. See CephTopologyStatus for the rationale.
+	// +optional
+	CephTopology *CephTopologyStatus `json:"cephTopology,omitempty"`
+
 	// Conditions hold the latest stage states. Known types:
 	// StorageReady, CephClusterReady, CredentialsReady, CsiCephReady,
 	// UpgradeReady, UpgradeInProgress, Ready.
@@ -347,6 +355,69 @@ type DaemonVersionCount struct {
 	// version.
 	Count int32 `json:"count"`
 }
+
+// CephTopologyStatus encodes the effective Ceph daemon counts the
+// controller has asked Rook to apply for this ElasticCluster's
+// underlying CephCluster, plus an audit trail explaining the most
+// recent change.
+//
+// Promotion is monotonic ("sticky high-water-mark"): once MonCount /
+// MgrCount have been raised — typically because at least one
+// HighRedundancy ESC was created against this EC, demanding a
+// double-fault-tolerant mon quorum — they are not lowered back even
+// when the trigger is removed. Silently weakening the fault-tolerance
+// guarantee on a live cluster would invalidate any disaster-recovery
+// promise an operator made downstream and is treated as an explicit
+// out-of-band action: clearing this status field by hand causes the
+// next reconcile to recompute from defaults.
+//
+// +k8s:deepcopy-gen=true
+type CephTopologyStatus struct {
+	// MonCount is the effective Rook mon.count applied to
+	// CephCluster.spec. The controller derives the desired value from
+	// (a) the standard pair (3, 2) and (b) any HighRedundancy ESC
+	// referencing this EC (which raises it to 5), then takes the
+	// element-wise max with the previously-recorded value to enforce
+	// stickiness.
+	// +kubebuilder:validation:Minimum=1
+	MonCount int32 `json:"monCount"`
+
+	// MgrCount is the effective Rook mgr.count. Same machinery as
+	// MonCount: standard 2, HighRedundancy 3, monotonic max.
+	// +kubebuilder:validation:Minimum=1
+	MgrCount int32 `json:"mgrCount"`
+
+	// Reason is a machine-readable explanation of the latest change.
+	// Known values:
+	//   - "Standard": defaults are in effect; no promotion has ever
+	//     happened (or the operator has manually reset the field).
+	//   - "HighRedundancyESCPresent": at least one ESC with
+	//     replication=HighRedundancy currently references this EC,
+	//     and the desired counts derived from that match the recorded
+	//     ones.
+	//   - "StickyHighWaterMark": the recorded counts are higher than
+	//     what the live ESC inventory currently demands; the prior
+	//     promotion is being preserved.
+	// +optional
+	Reason string `json:"reason,omitempty"`
+
+	// LastPromotedAt is the timestamp of the most recent (Mon|Mgr)Count
+	// increase. Empty until the first promotion. Reads of this field
+	// alongside Reason let a UI distinguish "we are currently in HA
+	// mode because an r4 ESC exists" from "we are still in HA mode
+	// because the high-water-mark was never reset, even though the
+	// triggering ESC is gone".
+	// +optional
+	LastPromotedAt *metav1.Time `json:"lastPromotedAt,omitempty"`
+}
+
+// CephTopology Reason values. Exposed as constants because dashboards
+// and the controller dispatcher both consume them.
+const (
+	CephTopologyReasonStandard                 = "Standard"
+	CephTopologyReasonHighRedundancyESCPresent = "HighRedundancyESCPresent"
+	CephTopologyReasonStickyHighWaterMark      = "StickyHighWaterMark"
+)
 
 // +k8s:deepcopy-gen=true
 type CephVersionStatus struct {

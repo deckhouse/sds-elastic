@@ -451,6 +451,47 @@ spec:
                             minimum: 0
                             description: |
                               Number of mgr daemons reporting this version.
+                cephTopology:
+                  type: object
+                  description: |
+                    Effective Ceph daemon counts the controller has applied to the
+                    underlying CephCluster. Promotion is sticky (monotonic): once an
+                    `ElasticStorageClass` with `replication: HighRedundancy` raises
+                    the counts to the high-availability profile (`monCount=5`,
+                    `mgrCount=3`), the controller never lowers them back, even when
+                    the trigger ESC is removed. Operators can force a recompute by
+                    clearing this field via the status subresource.
+                  required:
+                    - monCount
+                    - mgrCount
+                  properties:
+                    monCount:
+                      type: integer
+                      format: int32
+                      minimum: 1
+                      description: |
+                        Effective `CephCluster.spec.mon.count`.
+                    mgrCount:
+                      type: integer
+                      format: int32
+                      minimum: 1
+                      description: |
+                        Effective `CephCluster.spec.mgr.count`.
+                    reason:
+                      type: string
+                      description: |
+                        Machine-readable explanation of the latest topology decision.
+                        Known values: `Standard` (defaults are in effect),
+                        `HighRedundancyESCPresent` (a HighRedundancy ESC currently
+                        demands the high-availability profile), `StickyHighWaterMark`
+                        (the recorded counts exceed what the live ESC inventory
+                        currently demands; the prior promotion is being preserved).
+                    lastPromotedAt:
+                      type: string
+                      format: date-time
+                      description: |
+                        Timestamp of the most recent count increase. Empty until the
+                        cluster first leaves the standard profile.
                 conditions:
                   type: array
                   description: |
