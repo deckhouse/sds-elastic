@@ -33,37 +33,24 @@ const (
 	LogLevelEnv                = "LOG_LEVEL"
 	ControllerNamespaceEnv     = "CONTROLLER_NAMESPACE"
 	HealthProbeBindAddressEnv  = "HEALTH_PROBE_BIND_ADDRESS"
-	OSDStorageClassNameEnv     = "OSD_STORAGE_CLASS_NAME"
 	CephImagesEnv              = "CEPH_IMAGES"
 	MaxConcurrentReconcilesEnv = "MAX_CONCURRENT_RECONCILES"
 	RequeueIntervalEnv         = "REQUEUE_INTERVAL_SECONDS"
-	ForceDeleteGracePeriodEnv  = "FORCE_DELETE_GRACE_PERIOD_SECONDS"
 
 	DefaultControllerNamespace     = "d8-sds-elastic"
 	DefaultControllerName          = "sds-elastic-controller"
 	DefaultHealthProbeBindAddress  = ":8081"
-	DefaultOSDStorageClassName     = "sds-elastic-osd-manual"
 	DefaultRequeueIntervalSeconds  = 30
 	DefaultMaxConcurrentReconciles = 1
-	// DefaultForceDeleteGracePeriodSeconds is how long the controller
-	// waits after the SdsElasticCluster CR receives a DeletionTimestamp
-	// before it is allowed to strip foreign finalizers from downstream
-	// resources. The annotation v1alpha1.ForceDeleteAnnotation must
-	// also be set for the strip to happen; the grace window is a
-	// safety net that prevents an accidentally-set annotation from
-	// skipping Rook's graceful cleanup on a healthy cluster.
-	DefaultForceDeleteGracePeriodSeconds = 300
 )
 
 type Options struct {
 	Loglevel                logger.Verbosity
 	HealthProbeBindAddress  string
 	ControllerNamespace     string
-	OSDStorageClassName     string
 	CephImages              map[string]string
 	MaxConcurrentReconciles int
 	RequeueInterval         time.Duration
-	ForceDeleteGracePeriod  time.Duration
 }
 
 func NewConfig() *Options {
@@ -91,12 +78,6 @@ func NewConfig() *Options {
 		}
 	}
 
-	if v := os.Getenv(OSDStorageClassNameEnv); v != "" {
-		opts.OSDStorageClassName = v
-	} else {
-		opts.OSDStorageClassName = DefaultOSDStorageClassName
-	}
-
 	opts.MaxConcurrentReconciles = DefaultMaxConcurrentReconciles
 	if v := os.Getenv(MaxConcurrentReconcilesEnv); v != "" {
 		if n, err := strconv.Atoi(v); err == nil && n > 0 {
@@ -108,13 +89,6 @@ func NewConfig() *Options {
 	if v := os.Getenv(RequeueIntervalEnv); v != "" {
 		if n, err := strconv.Atoi(v); err == nil && n > 0 {
 			opts.RequeueInterval = time.Duration(n) * time.Second
-		}
-	}
-
-	opts.ForceDeleteGracePeriod = time.Duration(DefaultForceDeleteGracePeriodSeconds) * time.Second
-	if v := os.Getenv(ForceDeleteGracePeriodEnv); v != "" {
-		if n, err := strconv.Atoi(v); err == nil && n >= 0 {
-			opts.ForceDeleteGracePeriod = time.Duration(n) * time.Second
 		}
 	}
 

@@ -1,0 +1,581 @@
+apiVersion: apiextensions.k8s.io/v1
+kind: CustomResourceDefinition
+metadata:
+  name: elasticclusters.storage.deckhouse.io
+  labels:
+    heritage: deckhouse
+    module: sds-elastic
+    backup.deckhouse.io/cluster-config: "true"
+spec:
+  group: storage.deckhouse.io
+  scope: Cluster
+  names:
+    plural: elasticclusters
+    singular: elasticcluster
+    kind: ElasticCluster
+    shortNames:
+      - ec
+  preserveUnknownFields: false
+  versions:
+    - name: v1alpha1
+      served: true
+      storage: true
+      schema:
+        openAPIV3Schema:
+          type: object
+          description: |
+            ElasticCluster describes the desired state of a Ceph cluster managed by the
+            sds-elastic module. The controller bootstraps a Rook CephCluster (mon/mgr/osd)
+            on top of LVM-based local storage discovered via blockDeviceSelector.
+
+            Pool configuration (RBD/CephFS, replication strategy) is defined separately in
+            ElasticStorageClass resources that reference this ElasticCluster by name.
+          required:
+            - spec
+          x-kubernetes-validations:
+            - rule: "size(self.metadata.name) <= 30"
+              message: "ElasticCluster metadata.name must not exceed 30 characters (used as a prefix in derived resource names)."
+            - rule: "self.metadata.name.matches('^[a-z0-9]([-a-z0-9]*[a-z0-9])?$')"
+              message: "ElasticCluster metadata.name must be a valid DNS-1123 label."
+          properties:
+            spec:
+              type: object
+              description: |
+                Desired state of the Ceph cluster managed by the sds-elastic module.
+              required:
+                - storage
+              x-kubernetes-validations:
+                - rule: "oldSelf == null || (has(self.network) == has(oldSelf.network) && (!has(self.network) || self.network == oldSelf.network))"
+                  message: "spec.network is immutable after creation (cannot be added, removed, or changed)."
+              properties:
+                storage:
+                  type: object
+                  description: |
+                    OSD backing storage configuration. The controller selects matching
+                    BlockDevices on matching nodes and provisions one LVMVolumeGroup
+                    per device, one LVMLogicalVolume per group, and one local
+                    PersistentVolume per LVMLogicalVolume that backs a Rook OSD.
+                  required:
+                    - nodeSelector
+                    - blockDeviceSelector
+                  properties:
+                    nodeSelector:
+                      type: object
+                      description: |
+                        Selector that matches Kubernetes Nodes considered as storage nodes.
+                        Each matching node hosts mon/mgr/mds (as needed) and OSD daemons
+                        if it has eligible BlockDevices.
+                      properties:
+                        matchLabels:
+                          type: object
+                          additionalProperties:
+                            type: string
+                          description: Map of label selectors.
+                        matchExpressions:
+                          type: array
+                          description: List of label selector requirements.
+                          items:
+                            type: object
+                            required:
+                              - key
+                              - operator
+                            properties:
+                              key:
+                                type: string
+                              operator:
+                                type: string
+                                enum:
+                                  - In
+                                  - NotIn
+                                  - Exists
+                                  - DoesNotExist
+                              values:
+                                type: array
+                                items:
+                                  type: string
+                    blockDeviceSelector:
+                      type: object
+                      description: |
+                        Selector that matches BlockDevice CRs (managed by sds-node-configurator)
+                        eligible for OSD provisioning. Selected devices must reside on nodes
+                        that match `storage.nodeSelector` and must be unused (consumable).
+                      properties:
+                        matchLabels:
+                          type: object
+                          additionalProperties:
+                            type: string
+                          description: Map of label selectors.
+                        matchExpressions:
+                          type: array
+                          description: List of label selector requirements.
+                          items:
+                            type: object
+                            required:
+                              - key
+                              - operator
+                            properties:
+                              key:
+                                type: string
+                              operator:
+                                type: string
+                                enum:
+                                  - In
+                                  - NotIn
+                                  - Exists
+                                  - DoesNotExist
+                              values:
+                                type: array
+                                items:
+                                  type: string
+                network:
+                  type: object
+                  description: |
+                    Optional network configuration. If unset, Rook listens on every host
+                    IP of storage nodes (host networking). When set, both `public` and
+                    `cluster` must be provided together (all-or-nothing pair).
+
+                    Both fields are immutable after creation.
+                  required:
+                    - public
+                    - cluster
+                  properties:
+                    public:
+                      type: string
+                      description: |
+                        CIDR of the public network used for client traffic
+                        (for example, `10.0.0.0/24`).
+                      pattern: '^([0-9]{1,3}\.){3}[0-9]{1,3}\/[0-9]{1,2}$'
+                      minLength: 9
+                      maxLength: 18
+                    cluster:
+                      type: string
+                      description: |
+                        CIDR of the cluster network used for replication and heartbeat traffic
+                        (for example, `10.0.1.0/24`).
+                      pattern: '^([0-9]{1,3}\.){3}[0-9]{1,3}\/[0-9]{1,2}$'
+                      minLength: 9
+                      maxLength: 18
+            status:
+              type: object
+              description: |
+                Current state of resources managed by ElasticCluster.
+              properties:
+                observedGeneration:
+                  type: integer
+                  format: int64
+                  description: |
+                    The last value of `metadata.generation` processed by the controller.
+                phase:
+                  type: string
+                  description: |
+                    Aggregate phase: `Pending`, `InProgress`, `Ready`, or `Error`.
+                  enum:
+                    - Pending
+                    - InProgress
+                    - Ready
+                    - Error
+                cephFSID:
+                  type: string
+                  description: |
+                    FSID/UUID of the deployed Ceph cluster, populated from the
+                    `rook-ceph-mon` Secret once Rook starts the cluster.
+                monEndpoints:
+                  type: array
+                  description: |
+                    List of `ceph-mon` endpoints in the form `<host>:<port>`,
+                    parsed from the `rook-ceph-mon-endpoints` ConfigMap.
+                  items:
+                    type: string
+                monMaxId:
+                  type: string
+                  description: |
+                    Highest mon id reached so far, copied verbatim from
+                    `data.maxMonId` of the `rook-ceph-mon-endpoints` ConfigMap.
+                    Always a non-negative integer encoded as string for parity
+                    with the raw ConfigMap value. Reserved for use by the
+                    disaster-recovery flow in a future release.
+                credentialsRef:
+                  type: object
+                  description: |
+                    Reference to the ElasticClusterCredentials resource that backs up
+                    cluster identity (FSID, mon-secret, admin-secret) outside the
+                    module namespace. Populated 1:1 with `metadata.name`.
+                  properties:
+                    name:
+                      type: string
+                      description: |
+                        Name of the ElasticClusterCredentials resource (1:1 with this
+                        ElasticCluster's `metadata.name`).
+                cephVersion:
+                  type: object
+                  description: |
+                    Ceph version state. The desired version is hardcoded in the module
+                    image; bumping the module triggers a rolling upgrade in Rook.
+                  properties:
+                    requested:
+                      type: string
+                      description: |
+                        Ceph version requested by the controller (matches the module image).
+                    running:
+                      type: string
+                      description: |
+                        Ceph version currently running across the cluster, derived from
+                        `CephCluster.status.ceph.versions`.
+                    upgradeProgress:
+                      type: object
+                      description: |
+                        Per-stage progress while a rolling upgrade is in flight.
+                      properties:
+                        phase:
+                          type: string
+                          description: |
+                            Current upgrade stage.
+                          enum:
+                            - MonUpgrading
+                            - MgrUpgrading
+                            - MdsUpgrading
+                            - OsdUpgrading
+                            - Completed
+                        completed:
+                          type: integer
+                          minimum: 0
+                          description: |
+                            Number of daemons in the current stage already running the
+                            requested version.
+                        total:
+                          type: integer
+                          minimum: 0
+                          description: |
+                            Total number of daemons in the current stage.
+                        lastTransitionTime:
+                          type: string
+                          format: date-time
+                          description: |
+                            Timestamp of the last upgrade-stage transition.
+                health:
+                  type: object
+                  description: |
+                    Latest Ceph health summary surfaced by Rook
+                    (`CephCluster.status.ceph.health` and the matching detail blocks).
+                    Drives the top-level OK / Warn / Err indicator on the UI dashboard.
+                  properties:
+                    status:
+                      type: string
+                      description: |
+                        One of `HEALTH_OK`, `HEALTH_WARN`, `HEALTH_ERR`. Empty until
+                        Rook publishes the first health probe.
+                      enum:
+                        - HEALTH_OK
+                        - HEALTH_WARN
+                        - HEALTH_ERR
+                    message:
+                      type: string
+                      description: |
+                        Short human-readable summary Rook attaches to the health probe.
+                    lastChecked:
+                      type: string
+                      format: date-time
+                      description: |
+                        Timestamp of the latest health probe Rook successfully
+                        observed against the cluster.
+                    checks:
+                      type: array
+                      description: |
+                        Active health checks (warnings/errors) reported by Ceph. Empty on
+                        `HEALTH_OK`.
+                      items:
+                        type: object
+                        required:
+                          - name
+                        properties:
+                          name:
+                            type: string
+                            description: |
+                              Ceph check identifier, for example `MON_DOWN`,
+                              `OSD_NEARFULL`, `POOL_NO_REDUNDANCY`.
+                          severity:
+                            type: string
+                            description: |
+                              Per-check severity, mirroring Rook
+                              (`HEALTH_WARN` / `HEALTH_ERR`).
+                          message:
+                            type: string
+                            description: |
+                              Human-readable description of the check.
+                capacity:
+                  type: object
+                  description: |
+                    Cluster-wide raw storage usage as observed by Rook
+                    (`CephCluster.status.ceph.capacity`). Empty until Rook publishes
+                    the first capacity probe.
+                  properties:
+                    total:
+                      type: string
+                      description: |
+                        Total raw capacity of the cluster (sum over all OSDs), as a
+                        Kubernetes Quantity (BinarySI), e.g. `500Gi` or `1.2Ti`.
+                    used:
+                      type: string
+                      description: |
+                        Consumed raw capacity (data + metadata + Ceph overhead), as a
+                        Kubernetes Quantity (BinarySI), e.g. `200Gi`.
+                    available:
+                      type: string
+                      description: |
+                        Free raw capacity, as a Kubernetes Quantity (BinarySI). Usable
+                        client capacity depends on pool-level replication
+                        (~ `available / pool.size` for replicated pools).
+                    usedPercent:
+                      type: string
+                      description: |
+                        `used / total * 100`, formatted with two decimals.
+                    lastUpdated:
+                      type: string
+                      format: date-time
+                      description: |
+                        Timestamp of the latest capacity probe Rook successfully
+                        observed against the cluster.
+                osds:
+                  type: object
+                  description: |
+                    OSD daemon count and per-version histogram. Sourced from
+                    `CephCluster.status.ceph.versions.osd` (with `desired` coming
+                    from the controller's selected BlockDevice count).
+                  properties:
+                    desired:
+                      type: integer
+                      format: int32
+                      minimum: 0
+                      description: |
+                        Number of OSDs the controller asked Rook for (== matched
+                        BlockDevices for this ElasticCluster).
+                    knownToCeph:
+                      type: integer
+                      format: int32
+                      minimum: 0
+                      description: |
+                        Sum of `CephCluster.status.ceph.versions.osd` values — OSD
+                        daemons that have reported a version to Ceph since the last
+                        heartbeat. Approximation of "alive in Ceph's eyes", not Pod
+                        readiness.
+                    byVersion:
+                      type: array
+                      description: |
+                        Per-version histogram for OSD daemons. Sorted by `count` desc,
+                        then `version` asc. Empty until at least one OSD has reported
+                        a version.
+                      items:
+                        type: object
+                        required:
+                          - version
+                          - count
+                        properties:
+                          version:
+                            type: string
+                            description: |
+                              Ceph version string Rook publishes for this bucket
+                              (verbatim — e.g. `ceph version 19.2.3 (...) squid (stable)`).
+                          count:
+                            type: integer
+                            format: int32
+                            minimum: 0
+                            description: |
+                              Number of OSD daemons reporting this version.
+                mons:
+                  type: object
+                  description: |
+                    Ceph monitor daemon count and per-version histogram, derived from
+                    `CephCluster.status.ceph.versions.mon`. UI uses `knownToCeph` to
+                    render a coarse quorum indicator
+                    (`knownToCeph >= floor(spec.mon.count/2)+1`).
+                  properties:
+                    knownToCeph:
+                      type: integer
+                      format: int32
+                      minimum: 0
+                      description: |
+                        Sum of `CephCluster.status.ceph.versions.mon` values.
+                    byVersion:
+                      type: array
+                      description: |
+                        Per-version histogram for mon daemons. Same ordering as
+                        `osds.byVersion`.
+                      items:
+                        type: object
+                        required:
+                          - version
+                          - count
+                        properties:
+                          version:
+                            type: string
+                            description: |
+                              Ceph version string Rook publishes for this bucket.
+                          count:
+                            type: integer
+                            format: int32
+                            minimum: 0
+                            description: |
+                              Number of mon daemons reporting this version.
+                mgrs:
+                  type: object
+                  description: |
+                    Ceph manager daemon count and per-version histogram, derived from
+                    `CephCluster.status.ceph.versions.mgr`. Rook deploys a single
+                    active manager by default (with optional standbys), so
+                    `knownToCeph == 1` is the typical healthy value.
+                  properties:
+                    knownToCeph:
+                      type: integer
+                      format: int32
+                      minimum: 0
+                      description: |
+                        Sum of `CephCluster.status.ceph.versions.mgr` values.
+                    byVersion:
+                      type: array
+                      description: |
+                        Per-version histogram for mgr daemons. Same ordering as
+                        `osds.byVersion`.
+                      items:
+                        type: object
+                        required:
+                          - version
+                          - count
+                        properties:
+                          version:
+                            type: string
+                            description: |
+                              Ceph version string Rook publishes for this bucket.
+                          count:
+                            type: integer
+                            format: int32
+                            minimum: 0
+                            description: |
+                              Number of mgr daemons reporting this version.
+                cephTopology:
+                  type: object
+                  description: |
+                    Effective Ceph daemon counts the controller has applied to the
+                    underlying CephCluster. Promotion is sticky (monotonic): once an
+                    `ElasticStorageClass` with `replication: HighRedundancy` raises
+                    the counts to the high-availability profile (`monCount=5`,
+                    `mgrCount=3`), the controller never lowers them back, even when
+                    the trigger ESC is removed. Operators can force a recompute by
+                    clearing this field via the status subresource.
+                  required:
+                    - monCount
+                    - mgrCount
+                  properties:
+                    monCount:
+                      type: integer
+                      format: int32
+                      minimum: 1
+                      description: |
+                        Effective `CephCluster.spec.mon.count`.
+                    mgrCount:
+                      type: integer
+                      format: int32
+                      minimum: 1
+                      description: |
+                        Effective `CephCluster.spec.mgr.count`.
+                    reason:
+                      type: string
+                      description: |
+                        Machine-readable explanation of the latest topology decision.
+                        Known values: `Standard` (defaults are in effect),
+                        `HighRedundancyESCPresent` (a HighRedundancy ESC currently
+                        demands the high-availability profile), `StickyHighWaterMark`
+                        (the recorded counts exceed what the live ESC inventory
+                        currently demands; the prior promotion is being preserved).
+                    lastPromotedAt:
+                      type: string
+                      format: date-time
+                      description: |
+                        Timestamp of the most recent count increase. Empty until the
+                        cluster first leaves the standard profile.
+                conditions:
+                  type: array
+                  description: |
+                    Per-component conditions: `StorageReady`, `CephClusterReady`,
+                    `CredentialsReady`, `CsiCephReady`, `UpgradeReady`,
+                    `UpgradeInProgress`, and the aggregate `Ready`.
+                  items:
+                    type: object
+                    required:
+                      - type
+                      - status
+                      - lastTransitionTime
+                    properties:
+                      type:
+                        type: string
+                        description: |
+                          Condition type, for example `Ready`, `StorageReady`, or
+                          `CephClusterReady`.
+                      status:
+                        type: string
+                        description: |
+                          Current status of the condition.
+                        enum:
+                          - "True"
+                          - "False"
+                          - "Unknown"
+                      observedGeneration:
+                        type: integer
+                        format: int64
+                        description: |
+                          Value of `metadata.generation` the condition was last set against.
+                      lastTransitionTime:
+                        type: string
+                        format: date-time
+                        description: |
+                          Timestamp of the last status transition for this condition.
+                      reason:
+                        type: string
+                        description: |
+                          Machine-readable reason for the current status, suitable for
+                          log filtering.
+                      message:
+                        type: string
+                        description: |
+                          Human-readable explanation of the current status.
+      subresources:
+        status: {}
+      additionalPrinterColumns:
+        - jsonPath: .status.phase
+          name: Phase
+          type: string
+        - jsonPath: .status.health.status
+          name: Health
+          type: string
+        - jsonPath: .status.capacity.usedPercent
+          name: Used%
+          type: string
+          priority: 1
+        - jsonPath: .status.capacity.used
+          name: Used
+          type: string
+          priority: 1
+        - jsonPath: .status.capacity.total
+          name: Total
+          type: string
+          priority: 1
+        - jsonPath: .status.osds.desired
+          name: OSDs
+          type: integer
+          priority: 1
+        - jsonPath: .status.cephVersion.running
+          name: Ceph
+          type: string
+        - jsonPath: .status.conditions[?(@.type=="Ready")].status
+          name: Ready
+          type: string
+        - jsonPath: .status.conditions[?(@.type=="UpgradeInProgress")].status
+          name: Upgrading
+          type: string
+          priority: 1
+        - jsonPath: .status.conditions[?(@.type=="Ready")].reason
+          name: Reason
+          type: string
+          priority: 1
+        - jsonPath: .metadata.creationTimestamp
+          name: Age
+          type: date

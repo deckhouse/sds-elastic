@@ -48,6 +48,16 @@ var (
 
 // sds-node-configurator (storage.deckhouse.io/v1alpha1).
 var (
+	BlockDeviceGVK = schema.GroupVersionKind{
+		Group:   "storage.deckhouse.io",
+		Version: "v1alpha1",
+		Kind:    "BlockDevice",
+	}
+	LVMVolumeGroupGVK = schema.GroupVersionKind{
+		Group:   "storage.deckhouse.io",
+		Version: "v1alpha1",
+		Kind:    "LVMVolumeGroup",
+	}
 	LVMLogicalVolumeGVK = schema.GroupVersionKind{
 		Group:   "storage.deckhouse.io",
 		Version: "v1alpha1",
@@ -76,16 +86,53 @@ const LVMLogicalVolumeManualFinalizer = "storage.deckhouse.io/manual-creation"
 const (
 	RookCephMonSecretName        = "rook-ceph-mon"
 	RookCephMonSecretUsernameKey = "ceph-username"
-	RookCephMonSecretKeyKey      = "ceph-secret"
 	RookCephMonSecretFSIDKey     = "fsid"
 
-	RookCephMonEndpointsConfigMap = "rook-ceph-mon-endpoints"
-	RookCephMonEndpointsDataKey   = "data"
+	// RookCephMonSecretAdminSecretKey is the post-1.13 Rook key for the
+	// cephx admin user secret. Newer Rook releases write the rotated
+	// admin key here, while older releases (and a number of forks
+	// downstream of Deckhouse) only keep RookCephMonSecretCephSecretKey
+	// populated. Both are checked in order by the ECC reconciler.
+	RookCephMonSecretAdminSecretKey = "admin-secret"
+
+	// RookCephMonSecretCephSecretKey is the legacy Rook key for the
+	// cephx admin user secret. Always present (Rook keeps writing it
+	// for backward compatibility), so the ECC reconciler treats it as
+	// the canonical fallback when admin-secret is absent.
+	RookCephMonSecretCephSecretKey = "ceph-secret"
+
+	// RookCephMonSecretMonSecretKey holds the shared mon daemon secret
+	// in the rook-ceph-mon Secret. Backed up to ECC.spec.monSecret.
+	RookCephMonSecretMonSecretKey = "mon-secret"
+
+	RookCephMonEndpointsConfigMap   = "rook-ceph-mon-endpoints"
+	RookCephMonEndpointsDataKey     = "data"
+	RookCephMonEndpointsMaxMonIDKey = "maxMonId"
 )
 
 // Labels applied to every resource managed by the controller.
 const (
 	ManagedByLabelKey   = "app.kubernetes.io/managed-by"
 	ManagedByLabelValue = "sds-elastic"
-	ClusterOwnerLabel   = "storage.deckhouse.io/sds-elastic-cluster"
+
+	// ECClusterLabel marks resources owned by a specific ElasticCluster
+	// (LVG, LLV, local PV, Rook CRs derived from it). The value is the
+	// ElasticCluster's metadata.name.
+	ECClusterLabel = "sds-elastic.deckhouse.io/cluster"
+
+	// ECStorageClassLabel marks resources owned by a specific
+	// ElasticStorageClass (Ceph pool / filesystem, csi-ceph SC).
+	ECStorageClassLabel = "sds-elastic.deckhouse.io/storage-class"
+)
+
+// Naming and host paths used by ElasticCluster reconciliation.
+const (
+	// ReservedOSDStorageClassName matches v1alpha1.ReservedOSDStorageClassName
+	// and is duplicated here so the builder layer does not import the api
+	// module just to read a string constant. Keep in sync.
+	ReservedOSDStorageClassName = "sds-elastic-osd"
+
+	// CephDataDirHostPathPrefix is the parent directory for all per-EC
+	// mon/osd hostPath data: dataDirHostPath = <prefix>/<ec-name>.
+	CephDataDirHostPathPrefix = "/opt/deckhouse/sds/elastic"
 )

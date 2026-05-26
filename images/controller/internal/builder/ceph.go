@@ -33,3 +33,11 @@ func CephImage(images map[string]string, cephVersion string) (string, error) {
 	}
 	return image, nil
 }
+
+// defaultIfEmpty returns def when v is empty.
+func defaultIfEmpty(v, def string) string {
+	if v == "" {
+		return def
+	}
+	return v
+}

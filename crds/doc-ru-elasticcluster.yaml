@@ -1,0 +1,288 @@
+spec:
+  versions:
+    - name: v1alpha1
+      schema:
+        openAPIV3Schema:
+          description: |
+            Описывает желаемое состояние Ceph-кластера, разворачиваемого модулем sds-elastic.
+            Контроллер поднимает Rook CephCluster (mon/mgr/osd) поверх локального LVM-хранилища,
+            обнаруженного через `blockDeviceSelector`.
+
+            Конфигурация пулов (RBD/CephFS, стратегия репликации) описывается отдельно — в
+            ресурсах `ElasticStorageClass`, ссылающихся на этот `ElasticCluster` по имени.
+          properties:
+            spec:
+              description: |
+                Желаемое состояние Ceph-кластера под управлением модуля sds-elastic.
+              properties:
+                storage:
+                  description: |
+                    Конфигурация хранилища под OSD. Контроллер выбирает подходящие BlockDevice
+                    на подходящих узлах и для каждого устройства создаёт по одной LVMVolumeGroup,
+                    одной LVMLogicalVolume и одному локальному PersistentVolume, который
+                    становится бэкендом одного OSD.
+                  properties:
+                    nodeSelector:
+                      description: |
+                        Селектор узлов Kubernetes, рассматриваемых как storage-узлы.
+                        Каждый матчащийся узел запускает mon/mgr/mds (по необходимости) и OSD
+                        для каждого подходящего BlockDevice.
+                      properties:
+                        matchLabels:
+                          description: Карта label-селекторов.
+                        matchExpressions:
+                          description: Список выражений label-селектора.
+                          items:
+                            properties:
+                              key:
+                                description: Имя ключа метки.
+                              operator:
+                                description: Оператор сравнения.
+                              values:
+                                description: Список значений.
+                    blockDeviceSelector:
+                      description: |
+                        Селектор ресурсов BlockDevice (управляемых модулем sds-node-configurator),
+                        пригодных для размещения OSD. Выбранные устройства должны находиться на
+                        узлах, подпадающих под `storage.nodeSelector`, и быть свободными
+                        (consumable).
+                      properties:
+                        matchLabels:
+                          description: Карта label-селекторов.
+                        matchExpressions:
+                          description: Список выражений label-селектора.
+                          items:
+                            properties:
+                              key:
+                                description: Имя ключа метки.
+                              operator:
+                                description: Оператор сравнения.
+                              values:
+                                description: Список значений.
+                network:
+                  description: |
+                    Опциональная конфигурация сети. Если не задана — Rook слушает на всех
+                    host-IP storage-узлов (host networking). При указании оба поля
+                    (`public` и `cluster`) должны задаваться одновременно. Поля иммутабельны.
+                  properties:
+                    public:
+                      description: |
+                        CIDR публичной подсети для трафика клиентов (например, `10.0.0.0/24`).
+                    cluster:
+                      description: |
+                        CIDR кластерной подсети для репликации и heartbeat-трафика (например, `10.0.1.0/24`).
+            status:
+              description: |
+                Текущее состояние ресурсов, управляемых ElasticCluster.
+              properties:
+                observedGeneration:
+                  description: |
+                    Последнее значение `metadata.generation`, обработанное контроллером.
+                phase:
+                  description: |
+                    Агрегатная фаза: `Pending`, `InProgress`, `Ready`, `Error`.
+                cephFSID:
+                  description: |
+                    FSID/UUID развёрнутого Ceph-кластера, считывается из секрета `rook-ceph-mon`
+                    после старта Rook.
+                monEndpoints:
+                  description: |
+                    Список эндпойнтов `ceph-mon` в формате `<host>:<port>`, разобранный
+                    из ConfigMap `rook-ceph-mon-endpoints`.
+                monMaxId:
+                  description: |
+                    Наибольший id mon, достигнутый на текущий момент. Зарезервирован под
+                    flow disaster recovery.
+                credentialsRef:
+                  description: |
+                    Ссылка на ресурс `ElasticClusterCredentials`, в котором хранится бэкап
+                    идентичности кластера (FSID, секреты mon/admin) за пределами namespace
+                    модуля. Заполняется 1:1 с `metadata.name`.
+                  properties:
+                    name:
+                      description: Имя ECC-ресурса.
+                cephVersion:
+                  description: |
+                    Состояние версии Ceph. Желаемая версия зашита в образ модуля; bump модуля
+                    запускает rolling-upgrade в Rook.
+                  properties:
+                    requested:
+                      description: Версия, запрошенная контроллером (соответствует образу модуля).
+                    running:
+                      description: |
+                        Версия, фактически работающая в кластере; берётся из
+                        `CephCluster.status.ceph.versions`.
+                    upgradeProgress:
+                      description: Прогресс по этапам идущего rolling-upgrade.
+                      properties:
+                        phase:
+                          description: Текущий этап обновления.
+                        completed:
+                          description: Сколько демонов на этом этапе уже на запрошенной версии.
+                        total:
+                          description: Всего демонов в этапе.
+                        lastTransitionTime:
+                          description: Время последнего перехода фазы.
+                health:
+                  description: |
+                    Сводка здоровья Ceph по данным Rook (`CephCluster.status.ceph.health`).
+                    Используется UI для индикатора OK / Warn / Err и списка предупреждений.
+                  properties:
+                    status:
+                      description: |
+                        Одно из `HEALTH_OK`, `HEALTH_WARN`, `HEALTH_ERR`. Пусто, пока Rook
+                        не опубликовал первое значение.
+                    message:
+                      description: Краткое человекочитаемое сообщение Rook о текущем состоянии.
+                    lastChecked:
+                      description: Время последней успешной проверки здоровья кластера.
+                    checks:
+                      description: |
+                        Активные проверки Ceph (предупреждения/ошибки). Пусто при `HEALTH_OK`.
+                      items:
+                        properties:
+                          name:
+                            description: |
+                              Идентификатор проверки Ceph (например, `MON_DOWN`, `OSD_NEARFULL`,
+                              `POOL_NO_REDUNDANCY`).
+                          severity:
+                            description: |
+                              Серьёзность проверки, как сообщает Rook
+                              (`HEALTH_WARN` / `HEALTH_ERR`).
+                          message:
+                            description: Человекочитаемое описание проверки.
+                capacity:
+                  description: |
+                    Текущая утилизация хранилища, как её видит Rook
+                    (`CephCluster.status.ceph.capacity`). Заполняется после первого
+                    сбора метрик Rook.
+                  properties:
+                    total:
+                      description: |
+                        Общая raw-ёмкость кластера (сумма по всем OSD), в виде Kubernetes
+                        Quantity (BinarySI), например `500Gi` или `1.2Ti`.
+                    used:
+                      description: |
+                        Использованный raw-объём (данные + метаданные + overhead Ceph) в виде
+                        Kubernetes Quantity (BinarySI), например `200Gi`.
+                    available:
+                      description: |
+                        Свободный raw-объём в виде Kubernetes Quantity (BinarySI). Полезный
+                        объём для клиентов меньше — зависит от репликации пулов
+                        (`available / pool.size` для replicated-пулов).
+                    usedPercent:
+                      description: |
+                        `used / total * 100`, форматированное с двумя знаками после запятой.
+                    lastUpdated:
+                      description: Время последней успешной выгрузки метрик ёмкости.
+                osds:
+                  description: |
+                    Количество OSD-демонов и распределение по версиям. Источник —
+                    `CephCluster.status.ceph.versions.osd` (поле `desired` берётся из числа
+                    выбранных BlockDevice).
+                  properties:
+                    desired:
+                      description: |
+                        Сколько OSD контроллер запросил у Rook (== число выбранных BlockDevice
+                        для этого ElasticCluster).
+                    knownToCeph:
+                      description: |
+                        Сумма значений `CephCluster.status.ceph.versions.osd` — OSD-демоны,
+                        которые недавно сообщали Ceph свою версию. Это аппроксимация
+                        "alive в глазах Ceph", а не Pod readiness.
+                    byVersion:
+                      description: |
+                        Гистограмма по версиям OSD-демонов. Сортируется по `count` desc,
+                        затем по `version` asc. Пусто, пока ни один OSD не отчитался
+                        о версии.
+                      items:
+                        properties:
+                          version:
+                            description: |
+                              Строка версии Ceph, которую публикует Rook (как есть, например
+                              `ceph version 19.2.3 (...) squid (stable)`).
+                          count:
+                            description: Сколько OSD-демонов сообщили эту версию.
+                mons:
+                  description: |
+                    Количество mon-демонов и распределение по версиям, по данным
+                    `CephCluster.status.ceph.versions.mon`. UI использует `knownToCeph`
+                    для индикатора кворума (`knownToCeph >= floor(spec.mon.count/2)+1`).
+                  properties:
+                    knownToCeph:
+                      description: |
+                        Сумма значений `CephCluster.status.ceph.versions.mon`.
+                    byVersion:
+                      description: |
+                        Гистограмма по версиям mon-демонов. Сортируется как `osds.byVersion`.
+                      items:
+                        properties:
+                          version:
+                            description: Строка версии Ceph для этого бакета.
+                          count:
+                            description: Сколько mon-демонов сообщили эту версию.
+                mgrs:
+                  description: |
+                    Количество mgr-демонов и распределение по версиям, по данным
+                    `CephCluster.status.ceph.versions.mgr`. По умолчанию Rook разворачивает
+                    один активный mgr (опционально с standby), типичное healthy-значение —
+                    `knownToCeph == 1`.
+                  properties:
+                    knownToCeph:
+                      description: |
+                        Сумма значений `CephCluster.status.ceph.versions.mgr`.
+                    byVersion:
+                      description: |
+                        Гистограмма по версиям mgr-демонов. Сортируется как `osds.byVersion`.
+                      items:
+                        properties:
+                          version:
+                            description: Строка версии Ceph для этого бакета.
+                          count:
+                            description: Сколько mgr-демонов сообщили эту версию.
+                cephTopology:
+                  description: |
+                    Эффективные счётчики mon/mgr, применённые контроллером к
+                    нижележащему CephCluster. Повышение монотонно (sticky): как только
+                    `ElasticStorageClass` с `replication: HighRedundancy` поднимает
+                    счётчики до high-availability-профиля (`monCount=5`, `mgrCount=3`),
+                    контроллер не понижает их обратно даже после удаления триггерного
+                    ESC. Чтобы пересчитать топологию принудительно, оператор может
+                    очистить это поле через status-subresource.
+                  properties:
+                    monCount:
+                      description: |
+                        Эффективный `CephCluster.spec.mon.count`.
+                    mgrCount:
+                      description: |
+                        Эффективный `CephCluster.spec.mgr.count`.
+                    reason:
+                      description: |
+                        Машинно-читаемая причина последнего решения по топологии.
+                        Известные значения: `Standard` (действует профиль по умолчанию),
+                        `HighRedundancyESCPresent` (живой HighRedundancy-ESC требует
+                        high-availability-профиль), `StickyHighWaterMark` (сохранённые
+                        счётчики выше того, что требует текущий набор ESC; повышение
+                        удерживается как high-water-mark).
+                    lastPromotedAt:
+                      description: |
+                        Время последнего повышения счётчиков. Пустое значение, если
+                        кластер ни разу не выходил из стандартного профиля.
+                conditions:
+                  description: |
+                    Покомпонентные condition: `StorageReady`, `CephClusterReady`, `CredentialsReady`,
+                    `CsiCephReady`, `UpgradeReady`, `UpgradeInProgress` и агрегатное `Ready`.
+                  items:
+                    properties:
+                      type:
+                        description: Тип condition.
+                      status:
+                        description: Текущий статус condition.
+                      observedGeneration:
+                        description: Значение `metadata.generation`, для которого condition был выставлен.
+                      lastTransitionTime:
+                        description: Время последнего перехода condition.
+                      reason:
+                        description: Машинно-читаемая причина текущего статуса.
+                      message:
+                        description: Человекочитаемое описание текущего статуса.

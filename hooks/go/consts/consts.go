@@ -36,11 +36,14 @@ var WebhookConfigurationsToDelete = []string{
 	"d8-sds-elastic-vendor-cr-validation",
 }
 
-// CRGVKsForFinalizerRemoval lists CRs the module creates and which carry
-// our finalizer (the controller adds `storage.deckhouse.io/sds-elastic-cluster`
-// on the SdsElasticCluster CR).
+// CRGVKsForFinalizerRemoval lists CRs the module creates and which may
+// carry a controller-managed finalizer. Finalizer-based GC is tracked
+// in backlog item B20; the entries below are kept ready so the module
+// uninstall hook is a no-op until the controllers start setting them.
 var CRGVKsForFinalizerRemoval = []CRGVK{
-	{Group: "storage.deckhouse.io", Version: "v1alpha1", Kind: "SdsElasticCluster", Namespaced: false},
+	{Group: "storage.deckhouse.io", Version: "v1alpha1", Kind: "ElasticCluster", Namespaced: false},
+	{Group: "storage.deckhouse.io", Version: "v1alpha1", Kind: "ElasticStorageClass", Namespaced: false},
+	{Group: "storage.deckhouse.io", Version: "v1alpha1", Kind: "ElasticClusterCredential", Namespaced: false},
 }
 
 type CRGVK struct {

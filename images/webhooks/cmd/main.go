@@ -25,6 +25,8 @@ import (
 	"github.com/sirupsen/logrus"
 	kwhlogrus "github.com/slok/kubewebhook/v2/pkg/log/logrus"
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
+	"k8s.io/client-go/dynamic"
+	"k8s.io/client-go/rest"
 
 	"github.com/deckhouse/sds-elastic/images/webhooks/handlers"
 )
@@ -55,6 +57,10 @@ func initFlags() (config, error) {
 const (
 	port                = ":8443"
 	VendorCRValidatorID = "VendorCRValidator"
+
+	ElasticStorageClassValidatorID      = "ElasticStorageClassValidator"
+	ElasticClusterCredentialValidatorID = "ElasticClusterCredentialValidator"
+	ElasticClusterValidatorID           = "ElasticClusterValidator"
 )
 
 func main() {
@@ -65,6 +71,24 @@ func main() {
 	cfg, err := initFlags()
 	if err != nil {
 		fmt.Printf("unable to parse config: err: %s", err.Error())
+		os.Exit(1)
+	}
+
+	// EC and ESC validators both need cluster-wide read access to
+	// ElasticCluster, BlockDevice, and Node CRs to enforce their
+	// admission contracts (orphan-guard / pre-flight conflict for EC,
+	// HighRedundancy preflight for ESC). The webhook is co-deployed
+	// with the controller and shares its ServiceAccount, so
+	// InClusterConfig is the only path supported here — fail fast at
+	// startup if it is not available.
+	restCfg, err := rest.InClusterConfig()
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "error building in-cluster config for validators: %s", err)
+		os.Exit(1)
+	}
+	dynClient, err := dynamic.NewForConfig(restCfg)
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "error building dynamic client for validators: %s", err)
 		os.Exit(1)
 	}
 
@@ -79,8 +103,44 @@ func main() {
 		os.Exit(1)
 	}
 
+	escValidatingWebhookHandler, err := handlers.GetValidatingWebhookHandler(
+		handlers.NewElasticStorageClassValidator(dynClient),
+		ElasticStorageClassValidatorID,
+		&unstructured.Unstructured{},
+		logger,
+	)
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "error creating escValidatingWebhookHandler: %s", err)
+		os.Exit(1)
+	}
+
+	eccValidatingWebhookHandler, err := handlers.GetValidatingWebhookHandler(
+		handlers.ElasticClusterCredentialValidate,
+		ElasticClusterCredentialValidatorID,
+		&unstructured.Unstructured{},
+		logger,
+	)
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "error creating eccValidatingWebhookHandler: %s", err)
+		os.Exit(1)
+	}
+
+	ecValidatingWebhookHandler, err := handlers.GetValidatingWebhookHandler(
+		handlers.NewElasticClusterValidator(dynClient),
+		ElasticClusterValidatorID,
+		&unstructured.Unstructured{},
+		logger,
+	)
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "error creating ecValidatingWebhookHandler: %s", err)
+		os.Exit(1)
+	}
+
 	mux := http.NewServeMux()
 	mux.Handle("/vendor-cr-validate", vendorCRValidatingWebhookHandler)
+	mux.Handle("/esc-validate", escValidatingWebhookHandler)
+	mux.Handle("/ecc-validate", eccValidatingWebhookHandler)
+	mux.Handle("/ec-validate", ecValidatingWebhookHandler)
 	mux.HandleFunc("/healthz", httpHandlerHealthz)
 
 	logger.Infof("Listening on %s", port)

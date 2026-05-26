@@ -28,17 +28,10 @@ properties:
         value:
           description: |
             Значение taint, под которое подходит toleration. Обязательно при `operator: Equal`.
-  osdStorageClassName:
-    description: |
-      Имя StorageClass с ручным управлением (provisioner `kubernetes.io/no-provisioner`,
-      `volumeBindingMode: WaitForFirstConsumer`), который контроллер использует для
-      локальных PV под OSD при использовании `SdsElasticCluster.spec.storage.lvm`.
-
-      StorageClass с этим именем создаётся модулем, и контроллер получает его через
-      переменную окружения `OSD_STORAGE_CLASS_NAME`.
   controller:
     description: |
-      Настройки контроллера sds-elastic (Reconciler ресурса `SdsElasticCluster`).
+      Настройки контроллера sds-elastic (reconciler для CR ElasticCluster,
+      ElasticStorageClass и ElasticClusterCredential).
     properties:
       resourcesManagement:
         description: |

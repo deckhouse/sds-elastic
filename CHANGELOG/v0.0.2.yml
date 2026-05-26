@@ -1,21 +1,40 @@
 Changes:
-- Added Custom Resource `SdsElasticCluster` (`storage.deckhouse.io/v1alpha1`) and
-  controller `sds-elastic-controller`, which reconciles the entire Rook Ceph stack
-  from one aggregate description.
-- The controller deploys the underlay for OSD (`LVMLogicalVolume` + local PVs in LVM
-  mode), CephCluster, Deployment `rook-ceph-tools`, as well as the requested `CephBlockPool`
-  / `CephFilesystem` / `CephObjectStore`.
-- Added optional integration with csi-ceph: the controller automatically fills in
-    the `CephClusterConnection` (monitors/FSID/userKey from the `rook-ceph-mon` secret)
-    and creates a `CephStorageClass` for each pool and file system.
-- Added manual StorageClass with provisioner `kubernetes.io/no-provisioner` (name
-  taken from `osdStorageClassName`, default `sds-elastic-osd-manual`), used for local
-  PVs under OSD.
-- Added hook `030-remove-finalizers-on-module-delete`, which removes the controller
-  finalizer from CR `SdsElasticCluster` when a module is deleted.
-- ? Added validating webhook protecting vendor CR from `crds/vendor` (groups `ceph.rook.io`
-    and `objectbucket.io` in namespace `d8-sds-elastic`)
-  : CREATE / UPDATE / DELETE operations are allowed only to the ServiceAccounts of
-    the Rook operator (`rook-ceph-system`) and the module controller (`controller`),
-    other users must manage the cluster through `SdsElasticCluster`. The webhook image
-    is collected in `images/webhooks`, the TLS material is prepared by the hook `020-webhook-certs`.
+- Added three Custom Resources (`storage.deckhouse.io/v1alpha1`) and a controller
+  `sds-elastic-controller`, which will reconfigure them. `ElasticCluster` (ec) lifts
+  Rook `CephCluster` on top of `BlockDevice` CRs selected by labels. `ElasticStorageClass`
+  (esc) describes one Ceph pool and the corresponding `CephStorageClass` of the csi-ceph
+  module. `ElasticClusterCredential` (ecc) - internal cluster-scoped backup of the
+  Ceph cluster identity (FSID, mon-secret, admin-secret), filled from the Secret of
+  `rook-ceph-mon`.
+- The controller for each suitable `BlockDevice` creates one `LVMVolumeGroup` and
+  `LVMLogicalVolume` (managed by the sds-node-configurator module) and binds the resulting
+  local `PersistentVolume` to the helm-managed StorageClass `sds-elastic-osd`, which
+  serves as a backing for the Rook OSD `storageClassDeviceSets`.
+- The `ElasticStorageClass.spec.replication` field (`AvailabilityWithoutConsistency`,
+  `ConsistencyAndAvailability`, `ErasureCodedCompact`) is translated into the production
+  pool settings for each backend. The controller supports matching `CephClusterConnection`
+  (1:1 with parent `ElasticCluster`) and `CephStorageClass` (1:1 with ESC) in csi-ceph.
+- Added validating webhooks. `vendor-cr-validation` prohibits direct edits of the
+  `ceph.rook.io` and `objectbucket.io` resources in the `d8-sds-elastic` namespace
+  outside the Rook controller and operator ServiceAccounts (the user must manage the
+  cluster through `ElasticCluster` / `ElasticStorageClass`). `elastic-storage-class-validation`
+  enforces `sds-elastic-osd` name reservation, `clusterRef`/`type`/`replication` immutability,
+  and `RBD + ErasureCodedCompact` prohibition. `elastic-cluster-credential-validation`
+  ensures that the FSID is immutable after the first population.
+- Added module hooks. `010-uninstall` - preparation for GC via finalizers (B20 in
+  the backlog). `020-webhook-certs` prepares TLS material for validating webhooks.
+breaking_changes: 'This release replaces the `SdsElasticCluster` aggregate API with
+  three CRs above. Operators upgrading from an early dev build need to perform a manual
+  migration:
+
+  - `storage.deckhouse.io/v1alpha1.SdsElasticCluster` has been removed. Before upgrading,
+  you must delete all `SdsElasticCluster` objects - the helm chart does not automatically
+  migrate state.
+
+  - Internal manual StorageClass `sds-elastic-osd-manual` has been removed along with
+  its template; The controller now only works with the helm-managed StorageClass `sds-elastic-osd`.
+  `helm upgrade` will remove the old SC; if it is held by someone else''s finalizer,
+  remove it manually.
+
+  - Removed config-value `sdsElastic.osdStorageClassName` and controller environment
+  variable `OSD_STORAGE_CLASS_NAME`. The OSD StorageClass name is no longer configurable.'

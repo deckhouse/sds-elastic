@@ -16,13 +16,14 @@ limitations under the License.
 
 package builder
 
-import "github.com/deckhouse/sds-elastic/images/controller/internal/external"
+import (
+	"testing"
 
-// ManagedLabels returns the common label set placed on every resource
-// owned by an SdsElasticCluster CR.
-func ManagedLabels(clusterName string) map[string]string {
-	return map[string]string{
-		external.ManagedByLabelKey: external.ManagedByLabelValue,
-		external.ClusterOwnerLabel: clusterName,
-	}
+	. "github.com/onsi/ginkgo/v2"
+	. "github.com/onsi/gomega"
+)
+
+func TestBuilder(t *testing.T) {
+	RegisterFailHandler(Fail)
+	RunSpecs(t, "Builder Suite")
 }

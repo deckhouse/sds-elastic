@@ -46,22 +46,12 @@ properties:
           type: string
           description: |
             Taint value the toleration matches. Required when `operator` is `Equal`.
-  osdStorageClassName:
-    type: string
-    default: sds-elastic-osd-manual
-    description: |
-      Name of the manual StorageClass (provisioner `kubernetes.io/no-provisioner`,
-      `volumeBindingMode: WaitForFirstConsumer`) that the controller uses for
-      OSD-backing local PVs when `SdsElasticCluster.spec.storage.lvm` is set.
-      The StorageClass with this name is rendered by the module and the
-      controller is wired to it via the `OSD_STORAGE_CLASS_NAME` env.
-    minLength: 1
   controller:
     type: object
     default: {}
     description: |
-      Settings of the sds-elastic-controller (Reconciler for
-      `SdsElasticCluster` CR).
+      Settings of the sds-elastic-controller (reconciler for ElasticCluster,
+      ElasticStorageClass and ElasticClusterCredential CRs).
     properties:
       resourcesManagement:
         description: |

@@ -65,7 +65,6 @@ func main() {
 	log.Info(fmt.Sprintf("[main] Go Version: %s", goruntime.Version()))
 	log.Info(fmt.Sprintf("[main] OS/Arch: %s/%s", goruntime.GOOS, goruntime.GOARCH))
 	log.Info(fmt.Sprintf("[main] ControllerNamespace=%s", cfgParams.ControllerNamespace))
-	log.Info(fmt.Sprintf("[main] OSDStorageClassName=%s", cfgParams.OSDStorageClassName))
 	for _, ver := range v1alpha1.SupportedCephVersions {
 		log.Info(fmt.Sprintf("[main] CephImages[%s]=%s", ver, cfgParams.CephImages[ver]))
 	}
@@ -102,8 +101,18 @@ func main() {
 	}
 	log.Info("[main] kubernetes manager created")
 
-	if err := controller.AddSdsElasticClusterReconcilerToManager(mgr, cfgParams, log); err != nil {
-		log.Error(err, "[main] unable to register SdsElasticCluster reconciler")
+	if err := controller.AddElasticClusterReconcilerToManager(mgr, cfgParams, log); err != nil {
+		log.Error(err, "[main] unable to register ElasticCluster reconciler")
+		os.Exit(1)
+	}
+
+	if err := controller.AddElasticClusterCredentialReconcilerToManager(mgr, cfgParams, log); err != nil {
+		log.Error(err, "[main] unable to register ElasticClusterCredential reconciler")
+		os.Exit(1)
+	}
+
+	if err := controller.AddElasticStorageClassReconcilerToManager(mgr, cfgParams, log); err != nil {
+		log.Error(err, "[main] unable to register ElasticStorageClass reconciler")
 		os.Exit(1)
 	}
 

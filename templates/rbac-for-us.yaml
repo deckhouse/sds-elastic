@@ -2079,7 +2079,9 @@ rules:
 - apiGroups:
   - storage.deckhouse.io
   resources:
-  - sdselasticclusters
+  - elasticclusters
+  - elasticstorageclasses
+  - elasticclustercredentials
   verbs:
   - get
   - list

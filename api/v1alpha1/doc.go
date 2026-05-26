@@ -15,7 +15,12 @@ limitations under the License.
 */
 
 // Package v1alpha1 contains API Schema definitions for the storage.deckhouse.io
-// SdsElasticCluster aggregate CR managed by the sds-elastic module.
+// resources managed by the sds-elastic module:
+//
+//   - ElasticCluster — bootstraps a Rook CephCluster from BlockDevices.
+//   - ElasticStorageClass — declares a Ceph pool plus a csi-ceph StorageClass.
+//   - ElasticClusterCredential — internal backup of cluster identity.
+//
 // +groupName=storage.deckhouse.io
 // +k8s:deepcopy-gen=package
 package v1alpha1

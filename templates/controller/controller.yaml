@@ -22,7 +22,6 @@
   "webhookEnabled" true
   "webhookCertPath" "internal.customWebhookCert"
   "additionalControllerEnvs" (list
-    (dict "name" "OSD_STORAGE_CLASS_NAME" "value" .Values.sdsElastic.osdStorageClassName)
     (dict "name" "CEPH_IMAGES" "value" ($cephImages | toJson))
   )
 }}
@@ -83,3 +82,92 @@
   )
 }}
 {{ include "helm_lib_module_validating_webhook_configuration" (list . $vendorCRWebhookConfig) }}
+
+{{- /*
+  ValidatingWebhookConfiguration for ElasticStorageClass.
+  Enforces the cross-field and immutability rules that cannot be expressed
+  in CRD-level OpenAPI/CEL: reserved-name collision with sds-elastic-osd,
+  RBD+ErasureCodedCompact rejection, and clusterRef/type immutability.
+*/ -}}
+{{- $escWebhookConfig := dict
+  "name" "elastic-storage-class-validation"
+  "webhookName" "elastic-storage-class-validation"
+  "valuesKey" "sdsElastic"
+  "path" "/esc-validate"
+  "failurePolicy" "Fail"
+  "rules" (list
+    (dict
+      "apiGroups" (list "storage.deckhouse.io")
+      "apiVersions" (list "v1alpha1")
+      "operations" (list "CREATE" "UPDATE")
+      "resources" (list "elasticstorageclasses")
+      "scope" "Cluster"
+    )
+  )
+}}
+{{ include "helm_lib_module_validating_webhook_configuration" (list . $escWebhookConfig) }}
+
+{{- /*
+  ValidatingWebhookConfiguration for ElasticClusterCredential.
+  Enforces FSID immutability after first population. The ECC CRD lives
+  in crds/internal/ (managed by the controller, not user-facing), but
+  RBAC alone does not protect the fsid field once a malicious or buggy
+  controller chart change tries to overwrite it — admission validation
+  closes that gap.
+*/ -}}
+{{- $eccWebhookConfig := dict
+  "name" "elastic-cluster-credential-validation"
+  "webhookName" "elastic-cluster-credential-validation"
+  "valuesKey" "sdsElastic"
+  "path" "/ecc-validate"
+  "failurePolicy" "Fail"
+  "rules" (list
+    (dict
+      "apiGroups" (list "storage.deckhouse.io")
+      "apiVersions" (list "v1alpha1")
+      "operations" (list "UPDATE")
+      "resources" (list "elasticclustercredentials")
+      "scope" "Cluster"
+    )
+  )
+}}
+{{ include "helm_lib_module_validating_webhook_configuration" (list . $eccWebhookConfig) }}
+
+{{- /*
+  ValidatingWebhookConfiguration for ElasticCluster.
+
+  The CRD's CEL rule freezing spec.storage was removed so operators can
+  edit nodeSelector / blockDeviceSelector after creation. This webhook
+  closes the safety gap on the admission side:
+
+    1. Mirrors the surviving spec.network immutability rule
+       (defense-in-depth for clusters running without CRD CEL ratcheting).
+    2. Rejects narrowing edits that would orphan an already-adopted
+       BlockDevice (label still points at this EC but the new selector
+       no longer matches it). Operators must follow the manual release
+       procedure documented in docs/USAGE.md instead.
+    3. Rejects widening edits that would pull in a BlockDevice already
+       owned by another ElasticCluster (pre-flight OwnershipConflict).
+
+  failurePolicy=Fail: when the webhook is unreachable the API server
+  rejects the UPDATE, preventing silent bypass of the orphan / conflict
+  guards. The webhook is co-deployed with the controller (same Pod, same
+  ServiceAccount), so its uptime equals the controller's.
+*/ -}}
+{{- $ecWebhookConfig := dict
+  "name" "elastic-cluster-validation"
+  "webhookName" "elastic-cluster-validation"
+  "valuesKey" "sdsElastic"
+  "path" "/ec-validate"
+  "failurePolicy" "Fail"
+  "rules" (list
+    (dict
+      "apiGroups" (list "storage.deckhouse.io")
+      "apiVersions" (list "v1alpha1")
+      "operations" (list "UPDATE")
+      "resources" (list "elasticclusters")
+      "scope" "Cluster"
+    )
+  )
+}}
+{{ include "helm_lib_module_validating_webhook_configuration" (list . $ecWebhookConfig) }}

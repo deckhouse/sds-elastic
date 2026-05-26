@@ -25,8 +25,6 @@ import (
 const (
 	APIGroup   = "storage.deckhouse.io"
 	APIVersion = "v1alpha1"
-
-	SdsElasticClusterKind = "SdsElasticCluster"
 )
 
 var (
@@ -40,8 +38,12 @@ var (
 
 func addKnownTypes(scheme *runtime.Scheme) error {
 	scheme.AddKnownTypes(SchemeGroupVersion,
-		&SdsElasticCluster{},
-		&SdsElasticClusterList{},
+		&ElasticCluster{},
+		&ElasticClusterList{},
+		&ElasticStorageClass{},
+		&ElasticStorageClassList{},
+		&ElasticClusterCredential{},
+		&ElasticClusterCredentialList{},
 	)
 	metav1.AddToGroupVersion(scheme, SchemeGroupVersion)
 	return nil
