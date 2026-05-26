@@ -503,7 +503,7 @@ const (
 )
 
 // DefaultCephVersion is used when spec.cephVersion is omitted.
-const DefaultCephVersion = CephVersionV1923
+const DefaultCephVersion = CephVersionV2021
 
 // SupportedCephVersions lists every allowed spec.cephVersion value.
 var SupportedCephVersions = []string{CephVersionV1923, CephVersionV2021}

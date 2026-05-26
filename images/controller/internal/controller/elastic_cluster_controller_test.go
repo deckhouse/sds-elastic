@@ -99,7 +99,7 @@ var _ = Describe("ElasticClusterReconciler.Reconcile", func() {
 				newBlockDevice("bd-a", "node-a", "100Gi", true, nil),
 				newRookMonSecret("fsid-abc", "admin-key", "mon-key"),
 				newRookMonEndpointsCM("a=10.0.0.1:6789", "a"),
-				newCephClusterUnstructured(ec, "Ready", "v19.2.3", cephImage),
+				newCephClusterUnstructured(ec, "Ready", v1alpha1.DefaultCephVersion, cephImage),
 				&v1alpha1.ElasticClusterCredential{
 					ObjectMeta: metav1.ObjectMeta{Name: testECName},
 					Spec:       v1alpha1.ElasticClusterCredentialSpec{AdminSecret: "admin-key"},
