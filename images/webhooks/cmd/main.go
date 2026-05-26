@@ -25,6 +25,8 @@ import (
 	"github.com/sirupsen/logrus"
 	kwhlogrus "github.com/slok/kubewebhook/v2/pkg/log/logrus"
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
+	"k8s.io/client-go/dynamic"
+	"k8s.io/client-go/rest"
 
 	"github.com/deckhouse/sds-elastic/images/webhooks/handlers"
 )
@@ -58,6 +60,7 @@ const (
 
 	ElasticStorageClassValidatorID      = "ElasticStorageClassValidator"
 	ElasticClusterCredentialValidatorID = "ElasticClusterCredentialValidator"
+	ElasticClusterValidatorID           = "ElasticClusterValidator"
 )
 
 func main() {
@@ -104,10 +107,38 @@ func main() {
 		os.Exit(1)
 	}
 
+	// EC validator needs cluster-wide read access to BlockDevice and
+	// Node CRs to enforce its orphan-guard and pre-flight conflict
+	// branches. The webhook is co-deployed with the controller and
+	// shares its ServiceAccount, so InClusterConfig is the only path
+	// supported here — fail fast at startup if it is not available.
+	restCfg, err := rest.InClusterConfig()
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "error building in-cluster config for ec-validator: %s", err)
+		os.Exit(1)
+	}
+	dynClient, err := dynamic.NewForConfig(restCfg)
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "error building dynamic client for ec-validator: %s", err)
+		os.Exit(1)
+	}
+
+	ecValidatingWebhookHandler, err := handlers.GetValidatingWebhookHandler(
+		handlers.NewElasticClusterValidator(dynClient),
+		ElasticClusterValidatorID,
+		&unstructured.Unstructured{},
+		logger,
+	)
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "error creating ecValidatingWebhookHandler: %s", err)
+		os.Exit(1)
+	}
+
 	mux := http.NewServeMux()
 	mux.Handle("/vendor-cr-validate", vendorCRValidatingWebhookHandler)
 	mux.Handle("/esc-validate", escValidatingWebhookHandler)
 	mux.Handle("/ecc-validate", eccValidatingWebhookHandler)
+	mux.Handle("/ec-validate", ecValidatingWebhookHandler)
 	mux.HandleFunc("/healthz", httpHandlerHealthz)
 
 	logger.Infof("Listening on %s", port)

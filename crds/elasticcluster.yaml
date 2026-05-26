@@ -45,8 +45,6 @@ spec:
               required:
                 - storage
               x-kubernetes-validations:
-                - rule: "oldSelf == null || self.storage == oldSelf.storage"
-                  message: "spec.storage is immutable after creation."
                 - rule: "oldSelf == null || (has(self.network) == has(oldSelf.network) && (!has(self.network) || self.network == oldSelf.network))"
                   message: "spec.network is immutable after creation (cannot be added, removed, or changed)."
               properties:

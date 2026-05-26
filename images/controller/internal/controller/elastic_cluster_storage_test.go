@@ -560,6 +560,84 @@ var _ = Describe("ensureStorage", func() {
 		})
 	})
 
+	Context("operator widens blockDeviceSelector after adoption", func() {
+		// Mirrors the demo flow that motivated relaxing the
+		// spec.storage immutability rule: bootstrap with a single
+		// BlockDevice matching the default selector, run the chain to
+		// Ready, then have the operator broaden the selector to
+		// include a new label group. The next reconcile must
+		//   - keep the original BD (sticky union),
+		//   - adopt the freshly-matching BD,
+		//   - and surface osdCount=2 so CephCluster.spec.storage
+		//     scales out monotonically.
+		It("adopts new BDs matching the widened selector while keeping previously-adopted ones", func() {
+			cl = newFakeClient(
+				ec,
+				newTestNode("node-a"),
+				newBlockDevice("bd-old", "node-a", "100Gi", true, nil),
+			)
+			r = newElasticClusterReconciler(cl)
+			driveStorageToReady(ctx, r, cl, ec)
+
+			// Operator pre-stages a fresh BlockDevice with a label
+			// outside the default selector. Until the selector is
+			// widened it is invisible to the controller.
+			freshBD := newBlockDevice("bd-fresh", "node-a", "100Gi", true, map[string]string{
+				"role": "expanded",
+			})
+			Expect(cl.Create(ctx, freshBD)).To(Succeed())
+
+			// Pre-flight sanity: a reconcile before the widening
+			// must keep osdCount at 1 (the new BD is not yet in
+			// scope).
+			done, osdCount, _, _, _, err := r.ensureStorage(ctx, ec)
+			Expect(err).NotTo(HaveOccurred())
+			Expect(done).To(BeTrue())
+			Expect(osdCount).To(Equal(int32(1)),
+				"the freshly-added BD must remain unselected until the operator widens the selector")
+
+			// Operator edits ec.Spec.Storage.BlockDeviceSelector via
+			// `kubectl edit ec`. The webhook (admission-side) has
+			// already cleared this update; the reconcile-side
+			// behaviour is what this test validates.
+			ec.Spec.Storage.BlockDeviceSelector = &metav1.LabelSelector{
+				MatchExpressions: []metav1.LabelSelectorRequirement{
+					{
+						Key:      "role",
+						Operator: metav1.LabelSelectorOpIn,
+						Values:   []string{testBDLabel, "expanded"},
+					},
+				},
+			}
+			Expect(cl.Update(ctx, ec)).To(Succeed())
+
+			// Next reconcile creates the new LVG for bd-fresh and
+			// gates on its phase. osdCount surfaces both BDs so
+			// the upgrade FSM (and CephCluster.spec.storage) can
+			// plan ahead.
+			done, osdCount, _, reason, _, err := r.ensureStorage(ctx, ec)
+			Expect(err).NotTo(HaveOccurred())
+			Expect(done).To(BeFalse())
+			Expect(osdCount).To(Equal(int32(2)),
+				"widening the selector must grow the working set monotonically")
+			Expect(reason).To(Equal(storageReasonWaitingForLVG),
+				"the new BD's LVG just got upserted; chain must wait for SNC")
+
+			// The original BD's plumbing must still exist (sticky
+			// path) and the fresh BD must now carry our ownership
+			// label.
+			oldLVG := &unstructured.Unstructured{}
+			oldLVG.SetGroupVersionKind(external.LVMVolumeGroupGVK)
+			Expect(cl.Get(ctx, types.NamespacedName{Name: builder.ECOSDResourceName(ec, "bd-old")}, oldLVG)).To(Succeed())
+
+			fresh := &unstructured.Unstructured{}
+			fresh.SetGroupVersionKind(external.BlockDeviceGVK)
+			Expect(cl.Get(ctx, types.NamespacedName{Name: "bd-fresh"}, fresh)).To(Succeed())
+			Expect(fresh.GetLabels()[external.ECClusterLabel]).To(Equal(testECName),
+				"adoption must run on the freshly-matching BD now that it is in scope")
+		})
+	})
+
 	Context("BD owned by another ElasticCluster", func() {
 		It("short-circuits with reason=OwnershipConflict and refuses to overwrite the foreign label", func() {
 			cl = newFakeClient(

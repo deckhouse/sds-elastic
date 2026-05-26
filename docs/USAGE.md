@@ -155,6 +155,13 @@ Once an `ElasticCluster` selects a `BlockDevice` for the first time, the control
 
   Doing this while pools still hold useful data risks losing replicas.
 
+- **Editing the selectors after creation.** `ElasticCluster.spec.storage.nodeSelector` and `spec.storage.blockDeviceSelector` are editable after creation — `kubectl edit elasticcluster <name>` and adjust the matchers. The validating webhook on UPDATE enforces two safety rails:
+
+  - **Orphan-guard.** If an edit would leave an already-adopted BD outside the new selector pair (its labels no longer match `blockDeviceSelector`, or its `status.nodeName` is no longer in the set produced by `nodeSelector`), the webhook rejects the request and lists the offending BDs. Adopted BDs cannot be released automatically — follow the manual procedure above first.
+  - **Pre-flight conflict detection.** If a widening edit would pull in a BD already labelled by another `ElasticCluster`, the webhook rejects the request and reports the contested BDs along with their current owners. Resolve the conflict (clear the label, or delete the other EC) before retrying.
+
+  `spec.network` remains immutable on UPDATE: changing the public/cluster CIDRs on a live cluster invalidates mon endpoints and host-network bindings, and there is no safe automatic remediation. To change the network configuration, delete and re-create the `ElasticCluster`.
+
 ## Declaring StorageClasses
 
 Pools and the matching csi-ceph StorageClasses are declared per [ElasticStorageClass](./cr.html#elasticstorageclass). One ESC produces one Ceph pool + one `CephStorageClass` named after the ESC.
