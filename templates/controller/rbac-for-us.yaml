@@ -8,14 +8,17 @@
   we only ever create/update/delete them in d8-sds-elastic.
 
   patch/update on nodes is required by the data-node-watcher reconciler
-  so it can add/remove `storage.deckhouse.io/sds-elastic-node` on Nodes
-  matched by `settings.dataNodes.nodeSelector`. The webhooks share the
+  so it can add/remove storage.deckhouse.io/sds-elastic-node on Nodes
+  matched by settings.dataNodes.nodeSelector. The webhooks share the
   same ServiceAccount but exercise only the read verbs.
 
-  Go templates do not tolerate `{{- /* */ -}}` comments inside the
-  argument expression of a function call (here: `(list ...)`), so any
-  rule-level commentary must live in this header block rather than
-  inline.
+  Note for future editors: do not place Helm/Go-template comments
+  inside the argument expression of a function call below (the
+  clusterRoleRules list), the template parser fails with
+  'unexpected "{" in operand'. Keep rule-level commentary in this
+  header block. Avoid quoting Go-template comment delimiters inline
+  here as well, the outer comment can close prematurely on any literal
+  comment terminator found inside the text.
 */ -}}
 {{- $rbacConfig := dict
   "roleRules" (list
