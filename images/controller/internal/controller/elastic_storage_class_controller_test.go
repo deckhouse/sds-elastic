@@ -70,7 +70,7 @@ var _ = Describe("ElasticStorageClass FSM and Reconcile", func() {
 
 	Describe("advanceESC and gateAfterESC", func() {
 		var (
-			esc    = newTestElasticStorageClass(escName, testECName, v1alpha1.StorageClassTypeRBD)
+			esc    = newTestElasticStorageClass(escName, v1alpha1.StorageClassTypeRBD)
 			status *escStatusBuilder
 			r      *ElasticStorageClassReconciler
 		)
@@ -89,7 +89,7 @@ var _ = Describe("ElasticStorageClass FSM and Reconcile", func() {
 
 	Describe("Reconcile", func() {
 		It("waits for parent EC CephClusterReady", func() {
-			esc := newTestElasticStorageClass(escName, testECName, v1alpha1.StorageClassTypeRBD)
+			esc := newTestElasticStorageClass(escName, v1alpha1.StorageClassTypeRBD)
 			ec := newTestElasticCluster()
 			cl := newFakeClient(esc, ec)
 			r := newElasticStorageClassReconciler(cl)
@@ -106,7 +106,7 @@ var _ = Describe("ElasticStorageClass FSM and Reconcile", func() {
 		})
 
 		It("reaches Ready when pool and csi-ceph SC are Created", func() {
-			esc := newTestElasticStorageClass(escName, testECName, v1alpha1.StorageClassTypeRBD)
+			esc := newTestElasticStorageClass(escName, v1alpha1.StorageClassTypeRBD)
 			ec := ecWithCephClusterReady(newTestElasticCluster())
 			cl := newFakeClient(
 				esc,

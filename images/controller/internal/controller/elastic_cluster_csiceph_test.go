@@ -52,7 +52,7 @@ var _ = Describe("ensureCsiCeph", func() {
 				AdminSecret: "admin-key",
 			},
 		}
-		conn := newCephClusterConnectionUnstructured(testECName, "Created")
+		conn := newCephClusterConnectionUnstructured()
 		cl := newFakeClient(ecc, conn)
 		r = newElasticClusterReconciler(cl)
 

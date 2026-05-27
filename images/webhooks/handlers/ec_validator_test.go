@@ -90,11 +90,17 @@ func matchLabels(kv map[string]string) map[string]interface{} {
 	return map[string]interface{}{"matchLabels": ml}
 }
 
-func newECUnstructured(name string, spec map[string]interface{}) *unstructured.Unstructured {
+// ecDemoName is the shared ElasticCluster name used by every test in
+// this file. Centralising it keeps the dynamic-client lookups in the
+// validator (which match by name) and the substring assertions on the
+// returned admission messages in sync.
+const ecDemoName = "ec-demo"
+
+func newECUnstructured(spec map[string]interface{}) *unstructured.Unstructured {
 	obj := &unstructured.Unstructured{}
 	obj.SetAPIVersion("storage.deckhouse.io/v1alpha1")
 	obj.SetKind("ElasticCluster")
-	obj.SetName(name)
+	obj.SetName(ecDemoName)
 	obj.Object["spec"] = spec
 	return obj
 }
@@ -134,7 +140,7 @@ var _ = Describe("ElasticClusterValidate", func() {
 
 	It("accepts CREATE unconditionally", func() {
 		dyn := dynClient()
-		ec := newECUnstructured("ec-demo", ecSpec(defaultBd, defaultNode, defaultNet))
+		ec := newECUnstructured(ecSpec(defaultBd, defaultNode, defaultNet))
 		valid, _, err := validate(dyn, model.OperationCreate, nil, ec)
 		Expect(err).NotTo(HaveOccurred())
 		Expect(valid).To(BeTrue())
@@ -145,9 +151,9 @@ var _ = Describe("ElasticClusterValidate", func() {
 			nodeUnstructured("node-a", map[string]string{"role": "storage"}),
 		)
 		spec := ecSpec(defaultBd, defaultNode, defaultNet)
-		old := newECUnstructured("ec-demo", spec)
-		new := newECUnstructured("ec-demo", spec)
-		valid, msg, err := validate(dyn, model.OperationUpdate, old, new)
+		oldEC := newECUnstructured(spec)
+		updated := newECUnstructured(spec)
+		valid, msg, err := validate(dyn, model.OperationUpdate, oldEC, updated)
 		Expect(err).NotTo(HaveOccurred())
 		Expect(valid).To(BeTrue(), "msg=%q", msg)
 	})
@@ -156,10 +162,10 @@ var _ = Describe("ElasticClusterValidate", func() {
 		dyn := dynClient(
 			nodeUnstructured("node-a", map[string]string{"role": "storage"}),
 		)
-		old := newECUnstructured("ec-demo", ecSpec(defaultBd, defaultNode, defaultNet))
+		oldEC := newECUnstructured(ecSpec(defaultBd, defaultNode, defaultNet))
 		newNet := map[string]interface{}{"public": "10.99.0.0/24", "cluster": "10.1.0.0/24"}
-		new := newECUnstructured("ec-demo", ecSpec(defaultBd, defaultNode, newNet))
-		valid, msg, err := validate(dyn, model.OperationUpdate, old, new)
+		updated := newECUnstructured(ecSpec(defaultBd, defaultNode, newNet))
+		valid, msg, err := validate(dyn, model.OperationUpdate, oldEC, updated)
 		Expect(err).NotTo(HaveOccurred())
 		Expect(valid).To(BeFalse())
 		Expect(msg).To(ContainSubstring("spec.network is immutable"))
@@ -169,11 +175,11 @@ var _ = Describe("ElasticClusterValidate", func() {
 		dyn := dynClient(
 			nodeUnstructured("node-a", map[string]string{"role": "storage"}),
 			// Already-adopted BD: matches both selectors.
-			bdUnstructured("bd-existing", "ec-demo", "node-a", map[string]string{"role": "elastic-osd"}),
+			bdUnstructured("bd-existing", ecDemoName, "node-a", map[string]string{"role": "elastic-osd"}),
 			// Free BD eligible to be pulled in by the widened selector.
 			bdUnstructured("bd-fresh", "", "node-a", map[string]string{"role": "expanded"}),
 		)
-		old := newECUnstructured("ec-demo", ecSpec(defaultBd, defaultNode, defaultNet))
+		oldEC := newECUnstructured(ecSpec(defaultBd, defaultNode, defaultNet))
 		widened := map[string]interface{}{
 			"matchExpressions": []interface{}{
 				map[string]interface{}{
@@ -183,8 +189,8 @@ var _ = Describe("ElasticClusterValidate", func() {
 				},
 			},
 		}
-		new := newECUnstructured("ec-demo", ecSpec(widened, defaultNode, defaultNet))
-		valid, msg, err := validate(dyn, model.OperationUpdate, old, new)
+		updated := newECUnstructured(ecSpec(widened, defaultNode, defaultNet))
+		valid, msg, err := validate(dyn, model.OperationUpdate, oldEC, updated)
 		Expect(err).NotTo(HaveOccurred())
 		Expect(valid).To(BeTrue(), "msg=%q", msg)
 	})
@@ -192,12 +198,12 @@ var _ = Describe("ElasticClusterValidate", func() {
 	It("rejects UPDATE that narrows blockDeviceSelector and orphans an adopted BD", func() {
 		dyn := dynClient(
 			nodeUnstructured("node-a", map[string]string{"role": "storage"}),
-			bdUnstructured("bd-old", "ec-demo", "node-a", map[string]string{"role": "elastic-osd"}),
+			bdUnstructured("bd-old", ecDemoName, "node-a", map[string]string{"role": "elastic-osd"}),
 		)
-		old := newECUnstructured("ec-demo", ecSpec(defaultBd, defaultNode, defaultNet))
+		oldEC := newECUnstructured(ecSpec(defaultBd, defaultNode, defaultNet))
 		narrowed := matchLabels(map[string]string{"role": "elastic-osd-future"})
-		new := newECUnstructured("ec-demo", ecSpec(narrowed, defaultNode, defaultNet))
-		valid, msg, err := validate(dyn, model.OperationUpdate, old, new)
+		updated := newECUnstructured(ecSpec(narrowed, defaultNode, defaultNet))
+		valid, msg, err := validate(dyn, model.OperationUpdate, oldEC, updated)
 		Expect(err).NotTo(HaveOccurred())
 		Expect(valid).To(BeFalse())
 		Expect(msg).To(ContainSubstring("orphan adopted BlockDevices"))
@@ -208,11 +214,11 @@ var _ = Describe("ElasticClusterValidate", func() {
 		dyn := dynClient(
 			nodeUnstructured("node-a", map[string]string{"role": "storage"}),
 			nodeUnstructured("node-b", map[string]string{"role": "compute"}),
-			bdUnstructured("bd-on-b", "ec-demo", "node-b", map[string]string{"role": "elastic-osd"}),
+			bdUnstructured("bd-on-b", ecDemoName, "node-b", map[string]string{"role": "elastic-osd"}),
 		)
-		old := newECUnstructured("ec-demo", ecSpec(defaultBd, matchLabels(map[string]string{"role": "compute"}), defaultNet))
-		new := newECUnstructured("ec-demo", ecSpec(defaultBd, defaultNode, defaultNet))
-		valid, msg, err := validate(dyn, model.OperationUpdate, old, new)
+		oldEC := newECUnstructured(ecSpec(defaultBd, matchLabels(map[string]string{"role": "compute"}), defaultNet))
+		updated := newECUnstructured(ecSpec(defaultBd, defaultNode, defaultNet))
+		valid, msg, err := validate(dyn, model.OperationUpdate, oldEC, updated)
 		Expect(err).NotTo(HaveOccurred())
 		Expect(valid).To(BeFalse())
 		Expect(msg).To(ContainSubstring("orphan adopted BlockDevices"))
@@ -222,10 +228,10 @@ var _ = Describe("ElasticClusterValidate", func() {
 	It("rejects UPDATE that widens blockDeviceSelector into a BD owned by another EC", func() {
 		dyn := dynClient(
 			nodeUnstructured("node-a", map[string]string{"role": "storage"}),
-			bdUnstructured("bd-mine", "ec-demo", "node-a", map[string]string{"role": "elastic-osd"}),
+			bdUnstructured("bd-mine", ecDemoName, "node-a", map[string]string{"role": "elastic-osd"}),
 			bdUnstructured("bd-claimed", "ec-other", "node-a", map[string]string{"role": "expanded"}),
 		)
-		old := newECUnstructured("ec-demo", ecSpec(defaultBd, defaultNode, defaultNet))
+		oldEC := newECUnstructured(ecSpec(defaultBd, defaultNode, defaultNet))
 		widened := map[string]interface{}{
 			"matchExpressions": []interface{}{
 				map[string]interface{}{
@@ -235,8 +241,8 @@ var _ = Describe("ElasticClusterValidate", func() {
 				},
 			},
 		}
-		new := newECUnstructured("ec-demo", ecSpec(widened, defaultNode, defaultNet))
-		valid, msg, err := validate(dyn, model.OperationUpdate, old, new)
+		updated := newECUnstructured(ecSpec(widened, defaultNode, defaultNet))
+		valid, msg, err := validate(dyn, model.OperationUpdate, oldEC, updated)
 		Expect(err).NotTo(HaveOccurred())
 		Expect(valid).To(BeFalse())
 		Expect(msg).To(ContainSubstring("already owned by another ElasticCluster"))
@@ -248,7 +254,7 @@ var _ = Describe("ElasticClusterValidate", func() {
 		dyn := dynClient(
 			nodeUnstructured("node-a", map[string]string{"role": "storage"}),
 		)
-		old := newECUnstructured("ec-demo", ecSpec(defaultBd, defaultNode, defaultNet))
+		oldEC := newECUnstructured(ecSpec(defaultBd, defaultNode, defaultNet))
 		bad := map[string]interface{}{
 			"matchExpressions": []interface{}{
 				map[string]interface{}{
@@ -258,8 +264,8 @@ var _ = Describe("ElasticClusterValidate", func() {
 				},
 			},
 		}
-		new := newECUnstructured("ec-demo", ecSpec(bad, defaultNode, defaultNet))
-		valid, msg, err := validate(dyn, model.OperationUpdate, old, new)
+		updated := newECUnstructured(ecSpec(bad, defaultNode, defaultNet))
+		valid, msg, err := validate(dyn, model.OperationUpdate, oldEC, updated)
 		Expect(err).NotTo(HaveOccurred())
 		Expect(valid).To(BeFalse())
 		Expect(msg).To(ContainSubstring("blockDeviceSelector"))

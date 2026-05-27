@@ -104,7 +104,7 @@ var _ = Describe("ElasticClusterReconciler.Reconcile", func() {
 					ObjectMeta: metav1.ObjectMeta{Name: testECName},
 					Spec:       v1alpha1.ElasticClusterCredentialSpec{AdminSecret: "admin-key"},
 				},
-				newCephClusterConnectionUnstructured(testECName, "Created"),
+				newCephClusterConnectionUnstructured(),
 			)
 			r := newElasticClusterReconciler(cl)
 
@@ -179,7 +179,7 @@ var _ = Describe("ElasticClusterReconciler.Reconcile", func() {
 					ObjectMeta: metav1.ObjectMeta{Name: testECName},
 					Spec:       v1alpha1.ElasticClusterCredentialSpec{AdminSecret: "admin-key"},
 				},
-				newCephClusterConnectionUnstructured(testECName, "Created"),
+				newCephClusterConnectionUnstructured(),
 			)
 			r := newElasticClusterReconciler(cl)
 
@@ -296,7 +296,7 @@ var _ = Describe("ElasticClusterReconciler.Reconcile", func() {
 					ObjectMeta: metav1.ObjectMeta{Name: testECName},
 					Spec:       v1alpha1.ElasticClusterCredentialSpec{AdminSecret: "admin-key"},
 				},
-				newCephClusterConnectionUnstructured(testECName, "Created"),
+				newCephClusterConnectionUnstructured(),
 			)
 			r := newElasticClusterReconciler(cl)
 

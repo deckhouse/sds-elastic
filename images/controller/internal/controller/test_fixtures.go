@@ -168,9 +168,10 @@ func newCephClusterUnstructured(ec *v1alpha1.ElasticCluster, phase, runningVersi
 
 // withCephClusterCephStatus mutates a CephCluster fixture's
 // status.ceph subtree (health, message, lastChecked, capacity, details,
-// versions) in-place and returns it for chaining. Each block is opt-in:
-// the capacity block is filled only when bytesTotal > 0, the versions
-// block only when versionsByKind is non-empty, etc.
+// versions) in-place. Each block is opt-in: the capacity block is filled
+// only when bytesTotal > 0, the versions block only when versionsByKind
+// is non-empty, etc. The function returns no value — every caller passes
+// the original `cc` to the fake client and never reads the return.
 //
 // versionsByKind maps kind ("osd"/"mon"/"mgr") to the version-string →
 // daemon-count map Rook publishes under
@@ -182,7 +183,7 @@ func withCephClusterCephStatus(
 	lastUpdated string,
 	checks map[string]map[string]string,
 	versionsByKind map[string]map[string]int32,
-) *unstructured.Unstructured {
+) {
 	status, _ := cc.Object["status"].(map[string]interface{})
 	if status == nil {
 		status = map[string]interface{}{}
@@ -244,15 +245,18 @@ func withCephClusterCephStatus(
 			cephObj["versions"] = versions
 		}
 	}
-	return cc
 }
 
-func newCephClusterConnectionUnstructured(name, phase string) *unstructured.Unstructured {
+// newCephClusterConnectionUnstructured builds a CephClusterConnection
+// fixture in the "Created" phase, named after the shared `testECName`
+// EC. Every test uses this 1:1 mapping; if a future test needs a
+// different phase or name, take a parameter back at that point.
+func newCephClusterConnectionUnstructured() *unstructured.Unstructured {
 	obj := &unstructured.Unstructured{}
 	obj.SetGroupVersionKind(external.CephClusterConnectionGVK)
-	obj.SetName(name)
+	obj.SetName(testECName)
 	obj.Object["status"] = map[string]interface{}{
-		"phase": phase,
+		"phase": "Created",
 	}
 	return obj
 }
@@ -290,11 +294,14 @@ func ecWithCephClusterReady(ec *v1alpha1.ElasticCluster) *v1alpha1.ElasticCluste
 	return out
 }
 
-func newTestElasticStorageClass(name, clusterRef string, scType v1alpha1.StorageClassType) *v1alpha1.ElasticStorageClass {
+// newTestElasticStorageClass builds an ESC fixture for the shared
+// testECName ElasticCluster. The clusterRef parameter is implicit in the
+// test suite because all reconciler tests target the single test EC.
+func newTestElasticStorageClass(name string, scType v1alpha1.StorageClassType) *v1alpha1.ElasticStorageClass {
 	return &v1alpha1.ElasticStorageClass{
 		ObjectMeta: metav1.ObjectMeta{Name: name},
 		Spec: v1alpha1.ElasticStorageClassSpec{
-			ClusterRef:  clusterRef,
+			ClusterRef:  testECName,
 			Type:        scType,
 			Replication: v1alpha1.ReplicationConsistencyAndAvailability,
 		},

@@ -54,8 +54,10 @@ func ESCCephFSName(esc *v1alpha1.ElasticStorageClass) string {
 
 // ESCCephFSDataPoolName is the data pool name nested inside a CephFilesystem.
 // Rook stores it as <fs-name>-<this-suffix> on the Ceph side; here we just
-// expose the suffix used in the CR.
-func ESCCephFSDataPoolName(esc *v1alpha1.ElasticStorageClass) string {
+// expose the suffix used in the CR. The parameter is kept on the
+// signature for symmetry with ESCCephFSName / ESCCephBlockPoolName even
+// though every ESC currently shares the same `data0` pool name.
+func ESCCephFSDataPoolName(_ *v1alpha1.ElasticStorageClass) string {
 	return "data0"
 }
 

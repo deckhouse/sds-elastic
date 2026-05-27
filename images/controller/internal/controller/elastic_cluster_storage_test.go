@@ -90,28 +90,29 @@ func markPVsAvailable(ctx context.Context, cl client.Client, ec *v1alpha1.Elasti
 // mark PVs Available → call done=true. Tests that only care about the
 // final state use this to keep the body compact.
 func driveStorageToReady(ctx context.Context, r *ElasticClusterReconciler, cl client.Client, ec *v1alpha1.ElasticCluster) {
-	// Phase 1 → Phase 2 transition.
-	done, _, _, reason, _, err := r.ensureStorage(ctx, ec)
-	Expect(err).NotTo(HaveOccurred())
-	Expect(done).To(BeFalse())
-	Expect(reason).To(Equal(storageReasonWaitingForLVG))
+	// ensureStorage returns six values; the test only consumes three
+	// (done, reason, err) — the others are pinned for production callers
+	// and irrelevant here. dogsled is silenced inline rather than
+	// refactored to a helper, because the helper would have to mirror
+	// the same six-tuple anyway.
+	step := func(wantReason string) {
+		GinkgoHelper()
+		done, _, _, reason, _, err := r.ensureStorage(ctx, ec) //nolint:dogsled
+		Expect(err).NotTo(HaveOccurred())
+		Expect(done).To(BeFalse())
+		Expect(reason).To(Equal(wantReason))
+	}
+
+	step(storageReasonWaitingForLVG)
 	markLVGsReady(ctx, cl, ec)
 
-	// Phase 2 → Phase 3 transition.
-	done, _, _, reason, _, err = r.ensureStorage(ctx, ec)
-	Expect(err).NotTo(HaveOccurred())
-	Expect(done).To(BeFalse())
-	Expect(reason).To(Equal(storageReasonWaitingForLLV))
+	step(storageReasonWaitingForLLV)
 	markLLVsCreated(ctx, cl, ec)
 
-	// Phase 3 → done transition.
-	done, _, _, reason, _, err = r.ensureStorage(ctx, ec)
-	Expect(err).NotTo(HaveOccurred())
-	Expect(done).To(BeFalse())
-	Expect(reason).To(Equal(storageReasonWaitingForPV))
+	step(storageReasonWaitingForPV)
 	markPVsAvailable(ctx, cl, ec)
 
-	done, _, _, reason, _, err = r.ensureStorage(ctx, ec)
+	done, _, _, reason, _, err := r.ensureStorage(ctx, ec) //nolint:dogsled
 	Expect(err).NotTo(HaveOccurred())
 	Expect(done).To(BeTrue())
 	Expect(reason).To(BeEmpty())

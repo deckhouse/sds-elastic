@@ -39,7 +39,7 @@ import (
 // CephCluster), then upserts the Rook pool CR and waits for
 // status.phase==Ready.
 func (r *ElasticStorageClassReconciler) ensurePool(ctx context.Context, esc *v1alpha1.ElasticStorageClass) (bool, string, error) {
-	_, ready, msg, err := r.getReadyEC(ctx, esc)
+	ready, msg, err := r.getReadyEC(ctx, esc)
 	if err != nil {
 		return false, "", err
 	}
@@ -57,27 +57,29 @@ func (r *ElasticStorageClassReconciler) ensurePool(ctx context.Context, esc *v1a
 	}
 }
 
-// getReadyEC fetches the parent EC and returns whether it has reached
-// CephClusterReady=True. Missing EC is surfaced as an InProgress
-// condition rather than a hard error so the operator sees "waiting for
-// EC <name>" instead of a noisy reconcile failure.
-func (r *ElasticStorageClassReconciler) getReadyEC(ctx context.Context, esc *v1alpha1.ElasticStorageClass) (*v1alpha1.ElasticCluster, bool, string, error) {
+// getReadyEC fetches the parent EC referenced by esc.Spec.ClusterRef and
+// returns whether it has reached CephClusterReady=True. Missing EC is
+// surfaced as an InProgress condition rather than a hard error so the
+// operator sees "waiting for EC <name>" instead of a noisy reconcile
+// failure. The EC value itself is not exposed — every caller only needs
+// the (ready, message, error) triple.
+func (r *ElasticStorageClassReconciler) getReadyEC(ctx context.Context, esc *v1alpha1.ElasticStorageClass) (bool, string, error) {
 	ec := &v1alpha1.ElasticCluster{}
 	err := r.Client.Get(ctx, client.ObjectKey{Name: esc.Spec.ClusterRef}, ec)
 	if apierrors.IsNotFound(err) {
-		return nil, false, fmt.Sprintf("waiting for ElasticCluster %q", esc.Spec.ClusterRef), nil
+		return false, fmt.Sprintf("waiting for ElasticCluster %q", esc.Spec.ClusterRef), nil
 	}
 	if err != nil {
-		return nil, false, "", err
+		return false, "", err
 	}
 	if ec.Status == nil {
-		return ec, false, fmt.Sprintf("ElasticCluster %q has no status yet", ec.Name), nil
+		return false, fmt.Sprintf("ElasticCluster %q has no status yet", ec.Name), nil
 	}
 	cond := apimeta.FindStatusCondition(ec.Status.Conditions, v1alpha1.ECConditionCephClusterReady)
 	if cond == nil || cond.Status != metav1.ConditionTrue {
-		return ec, false, fmt.Sprintf("waiting for ElasticCluster %q to reach CephClusterReady=True", ec.Name), nil
+		return false, fmt.Sprintf("waiting for ElasticCluster %q to reach CephClusterReady=True", ec.Name), nil
 	}
-	return ec, true, "", nil
+	return true, "", nil
 }
 
 func (r *ElasticStorageClassReconciler) ensureRBDPool(ctx context.Context, esc *v1alpha1.ElasticStorageClass) (bool, string, error) {
