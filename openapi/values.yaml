@@ -5,6 +5,9 @@ properties:
   namespace:
     type: string
     default: d8-sds-elastic
+  registry:
+    type: object
+    description: "System field, overwritten by Deckhouse. Don't use"
   internal:
     type: object
     default: {}

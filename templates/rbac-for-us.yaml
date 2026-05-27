@@ -1882,7 +1882,7 @@ metadata:
     app.kubernetes.io/component: driver-ceph
     app.kubernetes.io/name: cosi-driver-ceph
 imagePullSecrets:
-- name: {{ .Chart.Name }}-registrysecret
+- name: {{ .Chart.Name }}-module-registry
 ---
 kind: ServiceAccount
 apiVersion: v1
@@ -1897,7 +1897,7 @@ metadata:
     app.kubernetes.io/name: rook-ceph
     app.kubernetes.io/part-of: rook-ceph-operator
 imagePullSecrets:
-- name: {{ .Chart.Name }}-registrysecret
+- name: {{ .Chart.Name }}-module-registry
 ---
 kind: ServiceAccount
 apiVersion: v1
@@ -1912,7 +1912,7 @@ metadata:
     app.kubernetes.io/name: rook-ceph
     app.kubernetes.io/part-of: rook-ceph-operator
 imagePullSecrets:
-- name: {{ .Chart.Name }}-registrysecret
+- name: {{ .Chart.Name }}-module-registry
 ---
 kind: ServiceAccount
 apiVersion: v1
@@ -1927,7 +1927,7 @@ metadata:
     app.kubernetes.io/name: rook-ceph
     app.kubernetes.io/part-of: rook-ceph-operator
 imagePullSecrets:
-- name: {{ .Chart.Name }}-registrysecret
+- name: {{ .Chart.Name }}-module-registry
 ---
 kind: ServiceAccount
 apiVersion: v1
@@ -1942,7 +1942,7 @@ metadata:
     app.kubernetes.io/name: rook-ceph
     app.kubernetes.io/part-of: rook-ceph-operator
 imagePullSecrets:
-- name: {{ .Chart.Name }}-registrysecret
+- name: {{ .Chart.Name }}-module-registry
 ---
 kind: ServiceAccount
 apiVersion: v1
@@ -1957,7 +1957,7 @@ metadata:
     app.kubernetes.io/name: rook-ceph
     app.kubernetes.io/part-of: rook-ceph-operator
 imagePullSecrets:
-- name: {{ .Chart.Name }}-registrysecret
+- name: {{ .Chart.Name }}-module-registry
 ---
 kind: ServiceAccount
 apiVersion: v1
@@ -1972,7 +1972,7 @@ metadata:
     app.kubernetes.io/name: rook-ceph
     app.kubernetes.io/part-of: rook-ceph-operator
 imagePullSecrets:
-- name: {{ .Chart.Name }}-registrysecret
+- name: {{ .Chart.Name }}-module-registry
 ---
 kind: ServiceAccount
 apiVersion: v1
@@ -1987,7 +1987,7 @@ metadata:
     app.kubernetes.io/name: rook-ceph
     app.kubernetes.io/part-of: rook-ceph-operator
 imagePullSecrets:
-- name: {{ .Chart.Name }}-registrysecret
+- name: {{ .Chart.Name }}-module-registry
 ---
 kind: ServiceAccount
 apiVersion: v1
@@ -2002,7 +2002,7 @@ metadata:
     app.kubernetes.io/name: rook-ceph
     app.kubernetes.io/part-of: rook-ceph-operator
 imagePullSecrets:
-- name: {{ .Chart.Name }}-registrysecret
+- name: {{ .Chart.Name }}-module-registry
 ---
 kind: ServiceAccount
 apiVersion: v1
@@ -2017,7 +2017,7 @@ metadata:
     app.kubernetes.io/name: rook-ceph
     app.kubernetes.io/part-of: rook-ceph-operator
 imagePullSecrets:
-- name: {{ .Chart.Name }}-registrysecret
+- name: {{ .Chart.Name }}-module-registry
 ---
 kind: ServiceAccount
 apiVersion: v1
@@ -2032,7 +2032,7 @@ metadata:
     app.kubernetes.io/name: rook-ceph
     app.kubernetes.io/part-of: rook-ceph-operator
 imagePullSecrets:
-- name: {{ .Chart.Name }}-registrysecret
+- name: {{ .Chart.Name }}-module-registry
 ---
 kind: ServiceAccount
 apiVersion: v1
@@ -2047,7 +2047,7 @@ metadata:
     app.kubernetes.io/name: rook-ceph
     app.kubernetes.io/part-of: rook-ceph-operator
 imagePullSecrets:
-- name: {{ .Chart.Name }}-registrysecret
+- name: {{ .Chart.Name }}-module-registry
 ---
 kind: ServiceAccount
 apiVersion: v1
@@ -2062,7 +2062,7 @@ metadata:
     app.kubernetes.io/name: rook-ceph
     app.kubernetes.io/part-of: rook-ceph-operator
 imagePullSecrets:
-- name: {{ .Chart.Name }}-registrysecret
+- name: {{ .Chart.Name }}-module-registry
 ---
 # Direct binding for the static kubeadm cluster-admins group (the default
 # subject of the kubernetes-admin client cert produced by kubeadm-style
