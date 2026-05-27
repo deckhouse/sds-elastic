@@ -6,7 +6,7 @@ descriptions:
 requirements:
   deckhouse: ">= 1.72"
   modules:
-    sds-node-configurator: ">= 0.6.1"
+    sds-node-configurator: ">= 0.6.8"
     csi-ceph: ">= 0.5.26"
 namespace: d8-sds-elastic
 disable:
