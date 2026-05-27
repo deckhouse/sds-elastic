@@ -1,7 +1,7 @@
 Changes:
 - Initial release of the module
-- Add `settings.dataNodes.nodeSelector` module setting. The controller now
-  reconciles the `storage.deckhouse.io/sds-elastic-node=""` label on every
-  Kubernetes Node matching the selector (and removes it from Nodes that no
-  longer match), so downstream consumers (sds-node-configurator agent,
-  ElasticCluster placement) can target data-eligible nodes via nodeAffinity.
+- Added module setting `settings.dataNodes.nodeSelector`. The controller places the
+  label `storage.deckhouse.io/sds-elastic-node=""` on each Kubernetes node that matches
+  the selector and removes the label from nodes that no longer match it. Downstream
+  components (sds-node-configurator agent, ElasticCluster hosting) can use this label
+  as nodeAffinity (pod-node affinity rule) to select data nodes.
