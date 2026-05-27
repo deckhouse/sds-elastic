@@ -26,7 +26,6 @@ shell:
 ---
 image: bundle
 fromImage: builder/scratch
-fromCacheVersion: "202605251055"
 
 import:
   # Rendering .werf/images-digests.yaml is required!
@@ -34,7 +33,7 @@ import:
     add: /images_digests.json
     to: /images_digests.json
     after: setup
-  # go-hooks: compiled by images/go-hooks/werf.inc.yaml.
+  # Rendering .werf/go-hooks.yaml is required!
   - image: go-hooks-artifact
     add: /go-hooks
     to: /hooks/go-hooks
@@ -61,7 +60,11 @@ git:
       - .helmignore
       - charts
       - crds
+      - docs
       - hooks
+      - monitoring
       - templates
       - Chart.yaml
       - module.yaml
+      - hack
+      - CHANGELOG
