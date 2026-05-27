@@ -1,7 +1,7 @@
 From 3cbe76026d44173a1e0399ed656f28d693cc4dcf Mon Sep 17 00:00:00 2001
 From: sds-elastic build <sds-elastic@flant.com>
 Date: Tue, 26 May 2026 19:52:23 +0300
-Subject: [PATCH] Rename CRD API group ceph.rook.io -> internal.ceph.rook.io
+Subject: [PATCH] Rename CRD API group ceph.rook.io -> internal.sdselastic.deckhouse.io
 
 Rerouting the Rook operator's API group lets the sds-elastic-managed
 instance coexist with a user-installed upstream Rook on the same
@@ -50,8 +50,8 @@ index d722c38..2a9813e 100644
 +	// vendored Rook operator does not collide with a user-installed upstream
 +	// Rook on the same cluster. All Rook clientsets, finalizers and
 +	// SchemeGroupVersion derive from this constant, so flipping it here
-+	// reroutes every Group-aware API call to internal.ceph.rook.io.
-+	CustomResourceGroupName = "internal.ceph.rook.io"
++	// reroutes every Group-aware API call to internal.sdselastic.deckhouse.io.
++	CustomResourceGroupName = "internal.sdselastic.deckhouse.io"
  )
 diff --git a/pkg/apis/ceph.rook.io/v1/register.go b/pkg/apis/ceph.rook.io/v1/register.go
 index 488e85f..db600c0 100644
@@ -64,7 +64,7 @@ index 488e85f..db600c0 100644
 -	CustomResourceGroup = "ceph.rook.io"
 +	// CustomResourceGroup mirrors cephrookio.CustomResourceGroupName and is
 +	// kept in sync with it by the sds-elastic patch (deckhouse/sds-elastic).
-+	CustomResourceGroup = "internal.ceph.rook.io"
++	CustomResourceGroup = "internal.sdselastic.deckhouse.io"
  	Version             = "v1"
  )
  
@@ -77,13 +77,13 @@ index b339603..26cf27d 100644
  
  func deleteOwnedCSISecretsByCephCluster(context *clusterd.Context, clusterInfo *client.ClusterInfo) error {
 +	// APIVersion is kept in sync with the renamed API group used by the
-+	// sds-elastic patch (deckhouse/sds-elastic): "internal.ceph.rook.io/v1".
++	// sds-elastic patch (deckhouse/sds-elastic): "internal.sdselastic.deckhouse.io/v1".
 +	// The Kubernetes garbage collector resolves owner GVK strictly through
 +	// the discovery RESTMapper, so an outdated ceph.rook.io/v1 reference
 +	// here would leak CSI Secrets on CephCluster deletion.
  	ownerRef := metav1.OwnerReference{
 -		APIVersion: "ceph.rook.io/v1",
-+		APIVersion: "internal.ceph.rook.io/v1",
++		APIVersion: "internal.sdselastic.deckhouse.io/v1",
  		Kind:       "CephCluster",
  		Name:       clusterInfo.NamespacedName().Name,
  	}

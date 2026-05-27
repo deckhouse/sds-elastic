@@ -40,11 +40,11 @@ const (
 
 // vendorAPIGroups lists the API groups whose CRs are managed exclusively by
 // the sds-elastic controller and the vendored Rook operator. The Rook group
-// is internal.ceph.rook.io (renamed from upstream ceph.rook.io by the
-// vendored operator build, see images/operator/patches/) so that
+// is internal.sdselastic.deckhouse.io (renamed from upstream ceph.rook.io
+// by the vendored operator build, see images/operator/patches/) so that
 // sds-elastic does not collide with a user-installed upstream Rook on the
 // same cluster.
-var vendorAPIGroups = []string{"internal.ceph.rook.io", "objectbucket.io"}
+var vendorAPIGroups = []string{"internal.sdselastic.deckhouse.io", "objectbucket.io"}
 
 var allowedUsers = []string{allowedControllerUser, allowedOperatorUser}
 

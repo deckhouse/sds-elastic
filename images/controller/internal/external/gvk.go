@@ -22,31 +22,31 @@ package external
 
 import "k8s.io/apimachinery/pkg/runtime/schema"
 
-// Rook (internal.ceph.rook.io/v1).
+// Rook (internal.sdselastic.deckhouse.io/v1).
 //
 // The API group is renamed from the upstream ceph.rook.io to
-// internal.ceph.rook.io by the vendored Rook operator build
+// internal.sdselastic.deckhouse.io by the vendored Rook operator build
 // (see images/operator/patches/). All clients here address the renamed
 // group so that sds-elastic does not interfere with a user-installed
 // upstream Rook on the same cluster.
 var (
 	CephClusterGVK = schema.GroupVersionKind{
-		Group:   "internal.ceph.rook.io",
+		Group:   "internal.sdselastic.deckhouse.io",
 		Version: "v1",
 		Kind:    "CephCluster",
 	}
 	CephBlockPoolGVK = schema.GroupVersionKind{
-		Group:   "internal.ceph.rook.io",
+		Group:   "internal.sdselastic.deckhouse.io",
 		Version: "v1",
 		Kind:    "CephBlockPool",
 	}
 	CephFilesystemGVK = schema.GroupVersionKind{
-		Group:   "internal.ceph.rook.io",
+		Group:   "internal.sdselastic.deckhouse.io",
 		Version: "v1",
 		Kind:    "CephFilesystem",
 	}
 	CephObjectStoreGVK = schema.GroupVersionKind{
-		Group:   "internal.ceph.rook.io",
+		Group:   "internal.sdselastic.deckhouse.io",
 		Version: "v1",
 		Kind:    "CephObjectStore",
 	}

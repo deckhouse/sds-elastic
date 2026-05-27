@@ -59,7 +59,7 @@
   "failurePolicy" "Fail"
   "rules" (list
     (dict
-      "apiGroups" (list "internal.ceph.rook.io")
+      "apiGroups" (list "internal.sdselastic.deckhouse.io")
       "apiVersions" (list "v1")
       "operations" (list "CREATE" "UPDATE" "DELETE")
       "resources" $cephResources
