@@ -3,6 +3,7 @@ linters-settings:
     exclude-rules:
       enum:
         - spec.versions[0].schema.openAPIV3Schema.properties.spec.properties.cephVersion
+        - spec.versions[0].schema.openAPIV3Schema.properties.status.properties.health.properties.status
   container:
     exclude-rules:
       controller-security-context:
