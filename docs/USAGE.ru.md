@@ -123,7 +123,7 @@ spec:
         - { key: node-role.deckhouse.io/storage, operator: Exists }
     blockDeviceSelector:
       matchLabels:
-        status.blockdevice.storage.deckhouse.io/type: disk
+        app: elastic-osd
   network:
     public: 10.12.0.0/16
     cluster: 10.12.0.0/16
