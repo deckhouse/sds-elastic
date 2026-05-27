@@ -7,6 +7,35 @@ properties:
     description: |
       The same as in the Pods' `spec.nodeSelector` parameter in Kubernetes.
       If the parameter is omitted or `false`, `nodeSelector` will be determined [automatically](https://deckhouse.io/documentation/v1/#advanced-scheduling).
+  dataNodes:
+    type: object
+    default: {}
+    description: |
+      Settings that select Kubernetes Nodes eligible to host sds-elastic data.
+
+      sds-elastic places the `storage.deckhouse.io/sds-elastic-node=""` label
+      on every Node that matches `dataNodes.nodeSelector`, and removes the
+      label from Nodes that no longer match. Downstream components
+      (sds-node-configurator agent, ElasticCluster placement) consume this
+      label as a node-affinity term.
+    properties:
+      nodeSelector:
+        type: object
+        default: {}
+        additionalProperties:
+          type: string
+        description: |
+          Same shape as Pods' `spec.nodeSelector`: a map of node labels that
+          must all match for a Node to be considered a data node.
+
+          If the parameter is omitted, the empty selector matches every Node
+          in the cluster.
+
+          **Caution!** Changing this parameter does not redistribute data.
+          If a Node hosting data no longer matches the selector, its
+          `storage.deckhouse.io/sds-elastic-node` label is removed and the
+          data on that Node becomes unreachable until the Node is brought
+          back under the selector.
   tolerations:
     type: array
     description: |

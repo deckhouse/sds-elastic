@@ -42,6 +42,21 @@ const (
 	DefaultHealthProbeBindAddress  = ":8081"
 	DefaultRequeueIntervalSeconds  = 30
 	DefaultMaxConcurrentReconciles = 1
+
+	// ConfigSecretName is the name of the Secret rendered by
+	// templates/controller/secret.yaml that carries
+	// `.Values.sdsElastic.dataNodes.nodeSelector`. The data-node-watcher
+	// reconciler filters incoming reconcile requests by this name so the
+	// rest of the cluster's Secret traffic does not wake it up.
+	ConfigSecretName = "d8-sds-elastic-controller-config"
+
+	// DefaultRequeueSecretIntervalSeconds is the periodic requeue used by
+	// the data-node-watcher reconciler after a successful pass. The
+	// reconciler is also triggered immediately on Secret writes, so this
+	// interval is the upper bound on convergence when the cluster state
+	// drifts without a corresponding Secret event (e.g. a Node having
+	// matching labels added or removed by another operator).
+	DefaultRequeueSecretIntervalSeconds = 10
 )
 
 type Options struct {
@@ -51,6 +66,24 @@ type Options struct {
 	CephImages              map[string]string
 	MaxConcurrentReconciles int
 	RequeueInterval         time.Duration
+
+	// RequeueSecretInterval is the periodic requeue applied by the
+	// data-node-watcher controller. Defaults to
+	// DefaultRequeueSecretIntervalSeconds.
+	RequeueSecretInterval time.Duration
+
+	// ConfigSecretName is the name of the controller-config Secret in
+	// ControllerNamespace. Exposed as a field (instead of a bare const)
+	// so tests can override it.
+	ConfigSecretName string
+}
+
+// SdsElasticConfig is the on-the-wire YAML payload carried by the
+// controller-config Secret (key `config`). The Secret is rendered by
+// templates/controller/secret.yaml from
+// `.Values.sdsElastic.dataNodes.nodeSelector`.
+type SdsElasticConfig struct {
+	NodeSelector map[string]string `yaml:"nodeSelector"`
 }
 
 func NewConfig() *Options {
@@ -91,6 +124,9 @@ func NewConfig() *Options {
 			opts.RequeueInterval = time.Duration(n) * time.Second
 		}
 	}
+
+	opts.RequeueSecretInterval = time.Duration(DefaultRequeueSecretIntervalSeconds) * time.Second
+	opts.ConfigSecretName = ConfigSecretName
 
 	cephImages, err := loadCephImages()
 	if err != nil {

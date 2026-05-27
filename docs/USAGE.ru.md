@@ -58,6 +58,32 @@ EOF
 d8 k get module sds-node-configurator snapshot-controller csi-ceph sds-elastic -w
 ```
 
+## Выбор data-узлов
+
+`settings.dataNodes.nodeSelector` определяет, какие узлы Kubernetes пригодны для размещения данных sds-elastic. Контроллер проставляет лейбл `storage.deckhouse.io/sds-elastic-node=""` на каждый подходящий узел и снимает его с узлов, переставших соответствовать селектору.
+
+Этот лейбл используют как nodeAffinity (правило сродства подов с узлами) downstream-компоненты: агент модуля [`sds-node-configurator`](/modules/sds-node-configurator/) (он выполняет discovery `BlockDevice` именно на data-узлах) и ваш `ElasticCluster.spec.storage.nodeSelector`.
+
+```yaml
+apiVersion: deckhouse.io/v1alpha1
+kind: ModuleConfig
+metadata:
+  name: sds-elastic
+spec:
+  enabled: true
+  version: 1
+  settings:
+    dataNodes:
+      nodeSelector:
+        node-role.deckhouse.io/storage: ""
+```
+
+Если параметр опущен, пустой селектор соответствует всем узлам кластера — каждый узел получит лейбл `storage.deckhouse.io/sds-elastic-node=""`.
+
+{{< alert level="warning" >}}
+Сужение `dataNodes.nodeSelector` не приводит к перераспределению данных. Если узел с уже размещёнными OSD перестал соответствовать новому селектору, с него будет снят лейбл `storage.deckhouse.io/sds-elastic-node`, и данные на нём станут недоступны до возвращения узла под селектор.
+{{< /alert >}}
+
 ## Подготовка storage-узлов
 
 `ElasticCluster` отбирает `BlockDevice` CR (управляются `sds-node-configurator`) по меткам и создаёт по одному OSD на каждое подходящее устройство.

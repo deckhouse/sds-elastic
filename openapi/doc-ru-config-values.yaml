@@ -4,6 +4,31 @@ properties:
       Аналог `spec.nodeSelector` в Kubernetes Pods.
 
       Если параметр не задан или имеет значение `false`, `nodeSelector` определяется [автоматически](https://deckhouse.io/documentation/v1/#advanced-scheduling).
+  dataNodes:
+    description: |
+      Настройки выбора узлов Kubernetes, на которых может располагаться
+      data (данные) sds-elastic.
+
+      sds-elastic проставляет лейбл `storage.deckhouse.io/sds-elastic-node=""`
+      на каждый узел, подходящий под `dataNodes.nodeSelector`, и удаляет
+      этот лейбл с узлов, переставших ему соответствовать. Downstream-компоненты
+      (агент sds-node-configurator, размещение ElasticCluster) используют
+      этот лейбл как nodeAffinity (правило сродства подов с узлами).
+    properties:
+      nodeSelector:
+        description: |
+          Аналог `spec.nodeSelector` в Kubernetes Pods: набор лейблов узла,
+          одновременно совпадающих по которым узел считается data-нодой.
+
+          Если параметр не задан, пустой селектор соответствует всем узлам
+          кластера.
+
+          **Внимание!** Изменение этого параметра не приводит к
+          перераспределению данных. Если узел с данными перестал
+          соответствовать селектору, с него снимается лейбл
+          `storage.deckhouse.io/sds-elastic-node`, и данные на этом узле
+          становятся недоступными до тех пор, пока узел не вернётся под
+          селектор.
   tolerations:
     description: |
       Аналог `spec.tolerations` в Kubernetes Pods.

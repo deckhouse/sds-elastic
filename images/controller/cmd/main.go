@@ -116,6 +116,11 @@ func main() {
 		os.Exit(1)
 	}
 
+	if err := controller.AddDataNodeWatcherReconcilerToManager(mgr, cfgParams, log); err != nil {
+		log.Error(err, "[main] unable to register DataNodeWatcher reconciler")
+		os.Exit(1)
+	}
+
 	if err := mgr.AddHealthzCheck("healthz", healthz.Ping); err != nil {
 		log.Error(err, "[main] unable to AddHealthzCheck")
 		os.Exit(1)

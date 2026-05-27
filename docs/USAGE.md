@@ -58,6 +58,32 @@ Wait until every module reaches the `Ready` state:
 d8 k get module sds-node-configurator snapshot-controller csi-ceph sds-elastic -w
 ```
 
+## Selecting Data Nodes
+
+`settings.dataNodes.nodeSelector` declares which Kubernetes Nodes are eligible to host sds-elastic data. The controller places the label `storage.deckhouse.io/sds-elastic-node=""` on every matching Node and removes it from Nodes that no longer match.
+
+Downstream consumers — the [`sds-node-configurator`](/modules/sds-node-configurator/) agent (it picks up `BlockDevice` discovery on data nodes) and your `ElasticCluster.spec.storage.nodeSelector` — use this label as a `nodeAffinity` term.
+
+```yaml
+apiVersion: deckhouse.io/v1alpha1
+kind: ModuleConfig
+metadata:
+  name: sds-elastic
+spec:
+  enabled: true
+  version: 1
+  settings:
+    dataNodes:
+      nodeSelector:
+        node-role.deckhouse.io/storage: ""
+```
+
+If the field is omitted, the empty selector matches every Node — every Node in the cluster gets `storage.deckhouse.io/sds-elastic-node=""`.
+
+{{< alert level="warning" >}}
+Narrowing `dataNodes.nodeSelector` does not redistribute data. If a Node already hosts OSDs falls outside the new selector, its `storage.deckhouse.io/sds-elastic-node` label is removed and data on that Node becomes unreachable until the Node is brought back under the selector.
+{{< /alert >}}
+
 ## Preparing Storage Nodes
 
 `ElasticCluster` consumes `BlockDevice` CRs (managed by `sds-node-configurator`) selected by labels and provisions one OSD per matched device.

@@ -24,7 +24,13 @@
     (dict "apiGroups" (list "apps") "resources" (list "deployments") "verbs" (list "get" "list" "watch"))
     (dict "apiGroups" (list "") "resources" (list "secrets" "configmaps") "verbs" (list "get" "list" "watch"))
     (dict "apiGroups" (list "") "resources" (list "persistentvolumes") "verbs" (list "get" "list" "watch" "create" "update" "patch" "delete"))
-    (dict "apiGroups" (list "") "resources" (list "nodes") "verbs" (list "get" "list" "watch"))
+    {{- /*
+      patch/update on nodes is required by data-node-watcher-controller
+      so it can add/remove `storage.deckhouse.io/sds-elastic-node` on
+      Nodes matched by `settings.dataNodes.nodeSelector`. Webhooks share
+      the same ServiceAccount but use only read verbs.
+    */}}
+    (dict "apiGroups" (list "") "resources" (list "nodes") "verbs" (list "get" "list" "watch" "patch" "update"))
   )
 }}
 {{ include "helm_lib_module_controller_rbac" (list . $rbacConfig) }}
