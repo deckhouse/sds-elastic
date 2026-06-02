@@ -27,6 +27,8 @@ import (
 	sv1 "k8s.io/api/storage/v1"
 	apiruntime "k8s.io/apimachinery/pkg/runtime"
 	clientgoscheme "k8s.io/client-go/kubernetes/scheme"
+	"sigs.k8s.io/controller-runtime/pkg/cache"
+	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/healthz"
 	"sigs.k8s.io/controller-runtime/pkg/manager"
 
@@ -92,6 +94,27 @@ func main() {
 		LeaderElectionNamespace: cfgParams.ControllerNamespace,
 		LeaderElectionID:        config.DefaultControllerName,
 		Logger:                  log.GetLogger(),
+		// Scope the Secret/ConfigMap informers to the controller namespace.
+		// Every Secret/ConfigMap this controller reads (the dataNodes config,
+		// Rook's rook-ceph-mon Secret, rook-ceph-mon-endpoints ConfigMap)
+		// lives in ControllerNamespace, so a cluster-wide cache for these
+		// types would only inflate memory and API traffic. This is a
+		// per-type scope (ByObject): cluster-wide objects (Node, BlockDevice,
+		// ElasticCluster, CephCluster, PV, ...) keep their cluster-wide cache.
+		Cache: cache.Options{
+			ByObject: map[client.Object]cache.ByObject{
+				&v1.Secret{}: {
+					Namespaces: map[string]cache.Config{
+						cfgParams.ControllerNamespace: {},
+					},
+				},
+				&v1.ConfigMap{}: {
+					Namespaces: map[string]cache.Config{
+						cfgParams.ControllerNamespace: {},
+					},
+				},
+			},
+		},
 	}
 
 	mgr, err := manager.New(kConfig, managerOpts)

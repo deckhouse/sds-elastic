@@ -73,11 +73,10 @@ type DataNodeWatcherReconciler struct {
 }
 
 // AddDataNodeWatcherReconcilerToManager registers the reconciler with the
-// manager. Only one Watch is wired (Secrets cluster-wide), filtered down to
-// the single config Secret name by the reconciler itself; this is cheaper
-// than a label predicate at controller-runtime level because the cluster
-// already has very few Secrets in `d8-sds-elastic` and we avoid hot-path
-// label lookups.
+// manager. Only one Watch is wired (Secrets). The manager cache is
+// namespace-scoped to ControllerNamespace for Secrets (see cmd/main.go),
+// so this informer only ever sees Secrets in `d8-sds-elastic`; Reconcile
+// then narrows to the single config Secret by name as a semantic guard.
 func AddDataNodeWatcherReconcilerToManager(mgr manager.Manager, cfg *config.Options, log *logger.Logger) error {
 	r := &DataNodeWatcherReconciler{
 		Client: mgr.GetClient(),
@@ -157,17 +156,22 @@ func (r *DataNodeWatcherReconciler) reconcileDataNodes(ctx context.Context, secr
 }
 
 // nodeSelectorFromSecret extracts SdsElasticConfig.NodeSelector from the
-// `config` data key. A nil map (returned for a malformed or empty payload
-// with no `nodeSelector` key) is normalised to an empty map so callers can
-// compose `labels.Set(selector).AsSelector().Matches(...)` without a nil
-// check; the empty selector matches every Node.
+// `config` data key. A nil map (returned for an empty payload with no
+// `nodeSelector` key) is normalised to an empty map so callers can compose
+// `labels.Set(selector).AsSelector().Matches(...)` without a nil check; the
+// empty selector matches every Node.
+//
+// Parsing is strict (UnmarshalStrict): an unknown / misspelled key such as
+// `nodeselector` (wrong case) is a hard error rather than a silently-empty
+// selector. A silently-empty selector would label every Node in the
+// cluster, which is exactly the blast radius we want a typo to avoid.
 func nodeSelectorFromSecret(secret *corev1.Secret) (map[string]string, error) {
 	raw, ok := secret.Data["config"]
 	if !ok || len(raw) == 0 {
 		return map[string]string{}, nil
 	}
 	var sdsConfig config.SdsElasticConfig
-	if err := yaml.Unmarshal(raw, &sdsConfig); err != nil {
+	if err := yaml.UnmarshalStrict(raw, &sdsConfig); err != nil {
 		return nil, fmt.Errorf("unmarshal config: %w", err)
 	}
 	if sdsConfig.NodeSelector == nil {
@@ -198,11 +202,16 @@ func (r *DataNodeWatcherReconciler) addLabelOnMatchingNodes(ctx context.Context,
 		if _, ok := node.Labels[DataNodeSelectorLabel]; ok {
 			continue
 		}
+		// A merge patch carries only the label diff and does not depend on
+		// the Node's resourceVersion, so it does not conflict (409) with a
+		// concurrent writer touching unrelated Node labels (kubelet, other
+		// sds-* node-labelers, etc.).
+		patch := client.MergeFrom(node.DeepCopy())
 		if node.Labels == nil {
 			node.Labels = map[string]string{}
 		}
 		node.Labels[DataNodeSelectorLabel] = ""
-		if err := r.Client.Update(ctx, node); err != nil {
+		if err := r.Client.Patch(ctx, node, patch); err != nil {
 			r.Log.Error(err, fmt.Sprintf("[DataNodeWatcher] add label on Node %s", node.Name))
 			continue
 		}
@@ -221,8 +230,11 @@ func (r *DataNodeWatcherReconciler) removeLabelFromStaleNodes(ctx context.Contex
 		if sel.Matches(labels.Set(node.Labels)) {
 			continue
 		}
+		// Merge patch (see addLabelOnMatchingNodes): conflict-free against
+		// concurrent writers of unrelated Node labels.
+		patch := client.MergeFrom(node.DeepCopy())
 		delete(node.Labels, DataNodeSelectorLabel)
-		if err := r.Client.Update(ctx, node); err != nil {
+		if err := r.Client.Patch(ctx, node, patch); err != nil {
 			r.Log.Error(err, fmt.Sprintf("[DataNodeWatcher] remove label on Node %s", node.Name))
 			continue
 		}

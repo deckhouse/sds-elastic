@@ -187,6 +187,83 @@ var _ = Describe("DataNodeWatcherReconciler", func() {
 		Expect(getNode(ctx, cl, "node-x").Labels).To(HaveKeyWithValue(DataNodeSelectorLabel, ""))
 	})
 
+	It("returns an error and labels nothing when the config has an unknown key (strict)", func() {
+		// `node_selector` (snake_case) is a typo for `nodeSelector`. Under
+		// non-strict parsing it would leave the selector empty and label
+		// every Node in the cluster; strict parsing turns it into a hard
+		// error so the typo is surfaced instead of silently fanning out.
+		secret := configSecret("node_selector:\n  role: storage")
+		cl := newFakeClient(
+			secret,
+			nodeWithLabels("node-a", nil),
+			nodeWithLabels("node-b", map[string]string{"role": "storage"}),
+		)
+		r := newDataNodeWatcherReconciler(cl)
+
+		_, err := r.Reconcile(ctx, dataReq)
+		Expect(err).To(HaveOccurred())
+
+		Expect(getNode(ctx, cl, "node-a").Labels).NotTo(HaveKey(DataNodeSelectorLabel))
+		Expect(getNode(ctx, cl, "node-b").Labels).NotTo(HaveKey(DataNodeSelectorLabel))
+	})
+
+	It("labels nothing and clears stale labels when the selector matches no Node", func() {
+		secret := configSecret("nodeSelector:\n  role: storage")
+		cl := newFakeClient(
+			secret,
+			// No Node matches role=storage; node-stale still carries the
+			// label from a previous broader selector and must be cleared.
+			nodeWithLabels("node-compute", map[string]string{"role": "compute"}),
+			nodeWithLabels("node-stale", map[string]string{
+				"role":                "compute",
+				DataNodeSelectorLabel: "",
+			}),
+		)
+		r := newDataNodeWatcherReconciler(cl)
+
+		_, err := r.Reconcile(ctx, dataReq)
+		Expect(err).NotTo(HaveOccurred())
+
+		Expect(getNode(ctx, cl, "node-compute").Labels).NotTo(HaveKey(DataNodeSelectorLabel))
+		Expect(getNode(ctx, cl, "node-stale").Labels).NotTo(HaveKey(DataNodeSelectorLabel))
+	})
+
+	It("preserves labels written by a concurrent writer (merge patch)", func() {
+		// Label node-a, then simulate another controller adding an
+		// unrelated label, then rotate the selector so node-a is cleared.
+		// The merge patch must drop only DataNodeSelectorLabel and leave
+		// the concurrently-added label intact.
+		cl := newFakeClient(
+			configSecret("nodeSelector:\n  role: storage"),
+			nodeWithLabels("node-a", map[string]string{"role": "storage"}),
+		)
+		r := newDataNodeWatcherReconciler(cl)
+
+		_, err := r.Reconcile(ctx, dataReq)
+		Expect(err).NotTo(HaveOccurred())
+		Expect(getNode(ctx, cl, "node-a").Labels).To(HaveKeyWithValue(DataNodeSelectorLabel, ""))
+
+		// Concurrent writer adds an unrelated label.
+		concurrent := getNode(ctx, cl, "node-a")
+		concurrent.Labels["other-operator/managed"] = "yes"
+		Expect(cl.Update(ctx, concurrent)).To(Succeed())
+
+		// Rotate the selector so node-a no longer matches: the stale-label
+		// path removes our label via merge patch.
+		rotated := &corev1.Secret{}
+		Expect(cl.Get(ctx, types.NamespacedName{Name: config.ConfigSecretName, Namespace: "d8-sds-elastic"}, rotated)).To(Succeed())
+		rotated.Data["config"] = []byte("nodeSelector:\n  role: compute")
+		Expect(cl.Update(ctx, rotated)).To(Succeed())
+
+		_, err = r.Reconcile(ctx, dataReq)
+		Expect(err).NotTo(HaveOccurred())
+
+		n := getNode(ctx, cl, "node-a")
+		Expect(n.Labels).NotTo(HaveKey(DataNodeSelectorLabel))
+		Expect(n.Labels).To(HaveKeyWithValue("other-operator/managed", "yes"))
+		Expect(n.Labels).To(HaveKeyWithValue("role", "storage"))
+	})
+
 	It("does not error when the config Secret is missing", func() {
 		cl := newFakeClient(
 			nodeWithLabels("node-only", map[string]string{"role": "storage"}),
@@ -196,6 +273,88 @@ var _ = Describe("DataNodeWatcherReconciler", func() {
 		_, err := r.Reconcile(ctx, dataReq)
 		Expect(err).NotTo(HaveOccurred())
 		Expect(getNode(ctx, cl, "node-only").Labels).NotTo(HaveKey(DataNodeSelectorLabel))
+	})
+
+	It("is idempotent: a second reconcile with the same payload is a no-op", func() {
+		secret := configSecret("nodeSelector:\n  role: storage")
+		cl := newFakeClient(
+			secret,
+			nodeWithLabels("node-storage", map[string]string{"role": "storage"}),
+		)
+		r := newDataNodeWatcherReconciler(cl)
+
+		_, err := r.Reconcile(ctx, dataReq)
+		Expect(err).NotTo(HaveOccurred())
+
+		// resourceVersion after the first (label-applying) reconcile.
+		rvAfterFirst := getNode(ctx, cl, "node-storage").ResourceVersion
+		Expect(getNode(ctx, cl, "node-storage").Labels).To(HaveKeyWithValue(DataNodeSelectorLabel, ""))
+
+		_, err = r.Reconcile(ctx, dataReq)
+		Expect(err).NotTo(HaveOccurred())
+
+		// No write happened on the second pass: the already-labelled Node
+		// is short-circuited and the stale-label sweep skips it too, so
+		// resourceVersion is unchanged.
+		Expect(getNode(ctx, cl, "node-storage").ResourceVersion).To(Equal(rvAfterFirst))
+	})
+
+	It("recovers from external label drift on the next reconcile", func() {
+		secret := configSecret("nodeSelector:\n  role: storage")
+		cl := newFakeClient(
+			secret,
+			nodeWithLabels("node-storage", map[string]string{"role": "storage"}),
+			nodeWithLabels("node-compute", map[string]string{"role": "compute"}),
+		)
+		r := newDataNodeWatcherReconciler(cl)
+
+		_, err := r.Reconcile(ctx, dataReq)
+		Expect(err).NotTo(HaveOccurred())
+		Expect(getNode(ctx, cl, "node-storage").Labels).To(HaveKeyWithValue(DataNodeSelectorLabel, ""))
+
+		// Drift 1: an admin manually strips the label off a matching Node.
+		stripped := getNode(ctx, cl, "node-storage")
+		delete(stripped.Labels, DataNodeSelectorLabel)
+		Expect(cl.Update(ctx, stripped)).To(Succeed())
+
+		// Drift 2: an admin manually adds the label to a non-matching Node.
+		bogus := getNode(ctx, cl, "node-compute")
+		bogus.Labels[DataNodeSelectorLabel] = ""
+		Expect(cl.Update(ctx, bogus)).To(Succeed())
+
+		_, err = r.Reconcile(ctx, dataReq)
+		Expect(err).NotTo(HaveOccurred())
+
+		// Both drifts are corrected: matching Node re-labelled, the
+		// non-matching one cleared.
+		Expect(getNode(ctx, cl, "node-storage").Labels).To(HaveKeyWithValue(DataNodeSelectorLabel, ""))
+		Expect(getNode(ctx, cl, "node-compute").Labels).NotTo(HaveKey(DataNodeSelectorLabel))
+	})
+
+	It("re-balances labels when the selector changes on a Secret write", func() {
+		cl := newFakeClient(
+			configSecret("nodeSelector:\n  role: storage"),
+			nodeWithLabels("node-storage", map[string]string{"role": "storage"}),
+			nodeWithLabels("node-compute", map[string]string{"role": "compute"}),
+		)
+		r := newDataNodeWatcherReconciler(cl)
+
+		_, err := r.Reconcile(ctx, dataReq)
+		Expect(err).NotTo(HaveOccurred())
+		Expect(getNode(ctx, cl, "node-storage").Labels).To(HaveKeyWithValue(DataNodeSelectorLabel, ""))
+		Expect(getNode(ctx, cl, "node-compute").Labels).NotTo(HaveKey(DataNodeSelectorLabel))
+
+		// Operator rotates the selector to role=compute.
+		rotated := &corev1.Secret{}
+		Expect(cl.Get(ctx, types.NamespacedName{Name: config.ConfigSecretName, Namespace: "d8-sds-elastic"}, rotated)).To(Succeed())
+		rotated.Data["config"] = []byte("nodeSelector:\n  role: compute")
+		Expect(cl.Update(ctx, rotated)).To(Succeed())
+
+		_, err = r.Reconcile(ctx, dataReq)
+		Expect(err).NotTo(HaveOccurred())
+
+		Expect(getNode(ctx, cl, "node-storage").Labels).NotTo(HaveKey(DataNodeSelectorLabel))
+		Expect(getNode(ctx, cl, "node-compute").Labels).To(HaveKeyWithValue(DataNodeSelectorLabel, ""))
 	})
 
 	It("treats an empty `config` payload as an empty selector (label everyone)", func() {
@@ -234,6 +393,14 @@ var _ = Describe("nodeSelectorFromSecret", func() {
 
 	It("rejects malformed YAML", func() {
 		_, err := nodeSelectorFromSecret(configSecret("not-yaml: [unclosed"))
+		Expect(err).To(HaveOccurred())
+	})
+
+	It("rejects an unknown key (strict parsing)", func() {
+		// A misspelled `node_selector` is an unknown field: strict parsing
+		// must reject it instead of returning an empty (match-everything)
+		// selector.
+		_, err := nodeSelectorFromSecret(configSecret("node_selector:\n  role: storage"))
 		Expect(err).To(HaveOccurred())
 	})
 })
