@@ -35,7 +35,7 @@ The module deploys the Rook Ceph operator, the `rook-ceph-operator-config` Confi
   - and one for the cluster network (replication and heartbeat).
 
     The same CIDR may be used for both if network separation is not needed; `spec.network` may also be omitted, in which case Rook listens on every host IP of the storage nodes (host networking).
-- The [sds-node-configurator](/modules/sds-node-configurator/) (≥ 0.6.1) module enabled. The module owns the `BlockDevice` and `LVMVolumeGroup` CRDs that `ElasticCluster` selects from and creates LVMVolumeGroups in.
+- The [sds-node-configurator](/modules/sds-node-configurator/) (≥ 0.6.8) module enabled. The module owns the `BlockDevice` and `LVMVolumeGroup` CRDs that `ElasticCluster` selects from and creates LVMVolumeGroups in.
 - The [csi-ceph](/modules/csi-ceph/) (≥ 0.5.26) module enabled. The module owns the `CephClusterConnection` and `CephStorageClass` CRDs the controller writes into.
 - The [snapshot-controller](/modules/snapshot-controller/) module enabled for VolumeSnapshot support (optional).
 
@@ -43,7 +43,8 @@ The module deploys the Rook Ceph operator, the `rook-ceph-operator-config` Confi
 
 - One Ceph cluster per module instance. The controller always reconciles a single Rook `CephCluster` named `ceph-cluster` in the `d8-sds-elastic` namespace, regardless of how many `ElasticCluster` objects are created. Multiple `ElasticCluster` objects compete for the same backend; create only one per cluster.
 - The vendored Rook operator registers its CRs under the renamed API group `internal.sdselastic.deckhouse.io` (upstream uses `ceph.rook.io`); this isolates sds-elastic from a user-installed Rook on the same cluster.
-- Direct edits of Rook (`internal.sdselastic.deckhouse.io`) and ObjectBucket (`objectbucket.io`) resources in the `d8-sds-elastic` namespace are rejected by a validating webhook. All changes must go through `ElasticCluster` / `ElasticStorageClass`.
+- Direct edits of Rook (`internal.sdselastic.deckhouse.io`) resources in the `d8-sds-elastic` namespace are rejected by a validating webhook. All changes must go through `ElasticCluster` / `ElasticStorageClass`.
+- RGW and S3 buckets are not supported in this release. The Rook ObjectBucket (OBC) controller is disabled via `ROOK_DISABLE_OBJECT_BUCKET_CLAIM=true`, and the `objectbucket.io` CRDs are not vendored.
 - `ElasticCluster.spec.network` is immutable after creation (enforced by CEL in the CRD and mirrored by the validating webhook); changing public/cluster CIDRs on a live cluster invalidates mon endpoints and host-network bindings, so a network change requires deleting and re-creating the `ElasticCluster`.
 - `ElasticCluster.spec.storage.nodeSelector` and `spec.storage.blockDeviceSelector` are editable after creation. The validating webhook rejects narrowing edits that would orphan an already-adopted `BlockDevice` (the controller cannot safely release the LVG/LLV/PV plumbing without manual cleanup) and widening edits that would pull in a `BlockDevice` already owned by another `ElasticCluster`. See [USAGE.md](./usage.html#blockdevice-adoption-and-ownership) for the full ownership contract and the manual release procedure.
 - `ElasticStorageClass.spec.{clusterRef,type,replication}` are immutable after creation (enforced by CEL and the validating webhook). Replacing a pool requires creating a new `ElasticStorageClass` with a different name.

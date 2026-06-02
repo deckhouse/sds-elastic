@@ -30,7 +30,7 @@
 {{- /* Webhook Service */ -}}
 {{ include "helm_lib_module_webhook_service" (list . dict) }}
 
-{{- /* ValidatingWebhookConfiguration for vendor CRs (Rook / ObjectBucket) */ -}}
+{{- /* ValidatingWebhookConfiguration for vendor CRs (Rook) */ -}}
 {{- $cephResources := list
   "cephblockpoolradosnamespaces"
   "cephblockpools"
@@ -64,20 +64,6 @@
       "operations" (list "CREATE" "UPDATE" "DELETE")
       "resources" $cephResources
       "scope" "Namespaced"
-    )
-    (dict
-      "apiGroups" (list "objectbucket.io")
-      "apiVersions" (list "v1alpha1")
-      "operations" (list "CREATE" "UPDATE" "DELETE")
-      "resources" (list "objectbucketclaims")
-      "scope" "Namespaced"
-    )
-    (dict
-      "apiGroups" (list "objectbucket.io")
-      "apiVersions" (list "v1alpha1")
-      "operations" (list "CREATE" "UPDATE" "DELETE")
-      "resources" (list "objectbuckets")
-      "scope" "Cluster"
     )
   )
 }}

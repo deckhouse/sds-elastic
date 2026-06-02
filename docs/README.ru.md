@@ -35,7 +35,7 @@ weight: 1
   - другой — для кластерной сети Ceph (репликация и heartbeat).
 
   Допускается использовать один CIDR для обоих случаев, если разделение сетей не требуется. `spec.network` можно вовсе не задавать — тогда Rook слушает на всех host-IP storage-узлов (host networking).
-- Включённый модуль [sds-node-configurator](/modules/sds-node-configurator/) (≥ 0.6.1). В нём живут CRD `BlockDevice` и `LVMVolumeGroup`, на которые ссылается ElasticCluster и в которые контроллер пишет.
+- Включённый модуль [sds-node-configurator](/modules/sds-node-configurator/) (≥ 0.6.8). В нём живут CRD `BlockDevice` и `LVMVolumeGroup`, на которые ссылается ElasticCluster и в которые контроллер пишет.
 - Включённый модуль [csi-ceph](/modules/csi-ceph/) (≥ 0.5.26). В нём живут CRD `CephClusterConnection` и `CephStorageClass`, в которые пишет контроллер sds-elastic.
 - Включённый модуль [snapshot-controller](/modules/snapshot-controller/) для поддержки VolumeSnapshot (опционально).
 
@@ -43,7 +43,8 @@ weight: 1
 
 - Один Ceph-кластер на инстанс модуля. Контроллер всегда реконсайлит единственный Rook `CephCluster` с именем `ceph-cluster` в namespace `d8-sds-elastic`, сколько бы объектов `ElasticCluster` ни было создано. Несколько объектов будут конкурировать за один backend; создавайте только один на кластер.
 - Поставляемый с модулем Rook оператор регистрирует свои CR под переименованной API-группой `internal.sdselastic.deckhouse.io` (в upstream — `ceph.rook.io`); это изолирует sds-elastic от пользовательской установки Rook на том же кластере.
-- Прямые правки ресурсов Rook (`internal.sdselastic.deckhouse.io`) и ObjectBucket (`objectbucket.io`) в namespace `d8-sds-elastic` запрещены validating-вебхуком. Все изменения вносите через `ElasticCluster` / `ElasticStorageClass`.
+- Прямые правки ресурсов Rook (`internal.sdselastic.deckhouse.io`) в namespace `d8-sds-elastic` запрещены validating-вебхуком. Все изменения вносите через `ElasticCluster` / `ElasticStorageClass`.
+- RGW и S3-бакеты не поддерживаются в этом релизе. Контроллер ObjectBucket (OBC) в Rook отключён через `ROOK_DISABLE_OBJECT_BUCKET_CLAIM=true`, а CRD `objectbucket.io` не поставляются.
 - Поле `ElasticCluster.spec.network` неизменяемо после создания (CEL в CRD + дублирующая проверка в validating-вебхуке): изменение public/cluster CIDR на живом кластере инвалидирует endpoints mon-ов и host-network bindings, поэтому смена сети требует удаления и пересоздания `ElasticCluster`.
 - Поля `ElasticCluster.spec.storage.nodeSelector` и `spec.storage.blockDeviceSelector` редактируются после создания. Validating-вебхук отклоняет правки, сужающие селекторы так, что уже усыновлённые `BlockDevice` оказались бы вне области действия (контроллер не может безопасно вывести LVG/LLV/PV без ручного вмешательства), и правки, которые перетянули бы под этот EC `BlockDevice`, уже принадлежащий другому `ElasticCluster`. Полный контракт владения и процедура ручного освобождения BD — в [USAGE.md](./usage.html#blockdevice-adoption-and-ownership).
 - Поля `ElasticStorageClass.spec.{clusterRef,type,replication}` неизменяемы после создания (CEL + validating-вебхук). Чтобы заменить пул, создайте новый `ElasticStorageClass` с другим именем.

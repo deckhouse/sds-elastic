@@ -108,6 +108,8 @@ spec:
           value: "(?i)dm-[0-9]+,(?i)rbd[0-9]+,(?i)nbd[0-9]+"
         - name: ROOK_ENABLE_DISCOVERY_DAEMON
           value: "false"
+        - name: ROOK_DISABLE_OBJECT_BUCKET_CLAIM
+          value: "true"
         - name: ROOK_UNREACHABLE_NODE_TOLERATION_SECONDS
           value: "5"
         - name: NODE_NAME

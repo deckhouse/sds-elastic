@@ -44,7 +44,11 @@ const (
 // by the vendored operator build, see images/operator/patches/) so that
 // sds-elastic does not collide with a user-installed upstream Rook on the
 // same cluster.
-var vendorAPIGroups = []string{"internal.sdselastic.deckhouse.io", "objectbucket.io"}
+//
+// objectbucket.io is intentionally absent: this release ships with the Rook
+// OBC controller disabled (ROOK_DISABLE_OBJECT_BUCKET_CLAIM=true) and does
+// not vendor the objectbucket.io CRDs, so there is nothing to guard.
+var vendorAPIGroups = []string{"internal.sdselastic.deckhouse.io"}
 
 var allowedUsers = []string{allowedControllerUser, allowedOperatorUser}
 
