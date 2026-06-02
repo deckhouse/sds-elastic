@@ -81,7 +81,7 @@ spec:
 If the field is omitted, the empty selector matches every Node — every Node in the cluster gets `storage.deckhouse.io/sds-elastic-node=""`.
 
 {{< alert level="warning" >}}
-Narrowing `dataNodes.nodeSelector` does not redistribute data. If a Node already hosts OSDs falls outside the new selector, its `storage.deckhouse.io/sds-elastic-node` label is removed and data on that Node becomes unreachable until the Node is brought back under the selector.
+Narrowing `dataNodes.nodeSelector` does not redistribute data. If a Node that already hosts OSDs falls outside the new selector, its `storage.deckhouse.io/sds-elastic-node` label is removed and data on that Node becomes unreachable until the Node is brought back under the selector.
 {{< /alert >}}
 
 ## Preparing Storage Nodes
