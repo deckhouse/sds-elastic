@@ -25,6 +25,8 @@ import (
 	corev1 "k8s.io/api/core/v1"
 	storagev1 "k8s.io/api/storage/v1"
 	extv1 "k8s.io/apiextensions-apiserver/pkg/apis/apiextensions/v1"
+	apierrors "k8s.io/apimachinery/pkg/api/errors"
+	"k8s.io/apimachinery/pkg/api/meta"
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
 	"k8s.io/apimachinery/pkg/runtime/schema"
 	clientgoscheme "k8s.io/client-go/kubernetes/scheme"
@@ -128,7 +130,21 @@ func handlerRemoveFinalizersOnModuleDelete(ctx context.Context, input *pkg.HookI
 		}
 	}
 
-	for _, crgvk := range consts.CRGVKsForFinalizerRemoval {
+	resultErr = errors.Join(resultErr, removeCRFinalizers(ctx, cl, consts.CRGVKsForFinalizerRemoval, input.Logger))
+
+	input.Logger.Info(fmt.Sprintf("[%s]: Finished removing finalizers on module delete", hookName))
+	return resultErr
+}
+
+// removeCRFinalizers strips finalizers from every CR listed in gvks so the
+// API server can finish deleting them once the module (and the Rook
+// operator) is gone. A missing CRD (NoMatch / NotFound) is tolerated — the
+// kind simply is not installed — but any other List failure (RBAC, apiserver
+// timeout) is surfaced so the caller does not falsely report success while a
+// finalizer keeps the namespace wedged in Terminating.
+func removeCRFinalizers(ctx context.Context, cl client.Client, gvks []consts.CRGVK, logger pkg.Logger) error {
+	var resultErr error
+	for _, crgvk := range gvks {
 		ns := ""
 		if crgvk.Namespaced {
 			ns = consts.ModuleNamespace
@@ -140,7 +156,11 @@ func handlerRemoveFinalizersOnModuleDelete(ctx context.Context, input *pkg.HookI
 			Kind:    crgvk.Kind + "List",
 		})
 		if err := cl.List(ctx, crList, client.InNamespace(ns)); err != nil {
-			input.Logger.Info(fmt.Sprintf("[%s]: skipping CR %s (may not exist): %v", hookName, crgvk.Kind, err))
+			if meta.IsNoMatchError(err) || apierrors.IsNotFound(err) {
+				logger.Info(fmt.Sprintf("[%s]: CRD for %s not installed, skipping", hookName, crgvk.Kind))
+				continue
+			}
+			resultErr = errors.Join(resultErr, fmt.Errorf("[%s]: failed to list %s: %w", hookName, crgvk.Kind, err))
 			continue
 		}
 		for i := range crList.Items {
@@ -148,12 +168,10 @@ func handlerRemoveFinalizersOnModuleDelete(ctx context.Context, input *pkg.HookI
 			if len(cr.GetFinalizers()) == 0 {
 				continue
 			}
-			if err := removeFinalizersFromObject(ctx, cl, cr, input.Logger); err != nil {
+			if err := removeFinalizersFromObject(ctx, cl, cr, logger); err != nil {
 				resultErr = errors.Join(resultErr, err)
 			}
 		}
 	}
-
-	input.Logger.Info(fmt.Sprintf("[%s]: Finished removing finalizers on module delete", hookName))
 	return resultErr
 }
