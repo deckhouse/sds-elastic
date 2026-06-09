@@ -171,7 +171,7 @@ d8 k get elasticclustercredential ceph-prod -o yaml
 
   Побочный эффект: `sds-node-configurator` после установки VG на устройство переключает `BlockDevice.status.consumable` в `false`. Sticky-логика не даёт этому факту выкинуть BD из рабочего набора на следующей реконсиляции.
 
-- **Освобождение BlockDevice.** На текущей экспериментальной стадии автоматического «отказа от» BD не предусмотрено (запланировано в составе задачи B20 — OwnerReferences и финализаторы для каскадного удаления). Чтобы безопасно вывести устройство из кластера, либо удалите весь `ElasticCluster` (контроллер очистит подопечные объекты — см. раздел «Удаление ресурсов»), либо вручную удалите соответствующие `LVMLogicalVolume` и `LVMVolumeGroup`, и только затем снимите лейбл:
+- **Освобождение BlockDevice.** На текущей экспериментальной стадии автоматического «отказа от» BD не предусмотрено (запланировано в составе задачи B20 — OwnerReferences и финализаторы для каскадного удаления). Удаление `ElasticCluster` НЕ удаляет каскадно объекты per-device: контроллер сносит только Rook `CephCluster` и csi-ceph `CephClusterConnection`, а `LVMVolumeGroup` / `LVMLogicalVolume` / локальные `PersistentVolume` и лейбл на BD остаются — их нужно вычистить вручную по лейблу (см. раздел «Удаление ресурсов»). Чтобы вывести одно устройство из работающего кластера, вручную удалите соответствующие `LVMLogicalVolume` и `LVMVolumeGroup`, и только затем снимите лейбл:
 
   ```shell
   d8 k delete lvmlogicalvolume <имя>
@@ -292,20 +292,53 @@ d8 k get sc
 
 ## Удаление ресурсов
 
+### Удаление ElasticCluster
+
+Удаление `ElasticCluster` обратимо, пока на него не ссылается ни один `ElasticStorageClass`: контроллер удаляет только те ресурсы, которые нельзя удалить вручную, — Rook `CephCluster` и csi-ceph `CephClusterConnection` (оба защищены вебхуком vendor-cr-validation). Диски OSD и mon-хранилище остаются нетронутыми, поэтому кластер можно пересоздать на тех же устройствах.
+
+Порядок действий:
+
+1. Сначала удалите все зависимые `ElasticStorageClass` (см. ниже). Контроллер не начинает teardown кластера, пока на него ссылается хотя бы один ESC.
+2. Удалите `ElasticCluster`:
+
+   ```shell
+   d8 k delete elasticcluster ceph-prod
+   ```
+
+   Удерживая объект финализатором, контроллер удаляет `CephCluster` и `CephClusterConnection`, после чего снимает финализатор.
+3. Оставшиеся помеченные контроллером объекты вычистите вручную — они намеренно сохраняются (автоматического каскада нет):
+
+   ```shell
+   # посмотреть, что ещё помечено именем кластера
+   d8 k get pv,lvmlogicalvolume,lvmvolumegroup -l sds-elastic.deckhouse.io/cluster=ceph-prod
+
+   d8 k delete pv -l sds-elastic.deckhouse.io/cluster=ceph-prod
+   d8 k delete lvmlogicalvolume -l sds-elastic.deckhouse.io/cluster=ceph-prod
+   d8 k delete lvmvolumegroup -l sds-elastic.deckhouse.io/cluster=ceph-prod
+   # в конце снять лейбл кластера с BlockDevice
+   d8 k label blockdevice -l sds-elastic.deckhouse.io/cluster=ceph-prod sds-elastic.deckhouse.io/cluster-
+   ```
+
+   Сохраните `ElasticClusterCredential`, если планируете пересоздать кластер с той же идентичностью.
+
+Пока идёт teardown, условие `Ready` у `ElasticCluster` объясняет, что его блокирует:
+
+| Reason | Значение | Действие |
+| --- | --- | --- |
+| `StorageClassesExist` | На кластер ещё ссылается один или несколько `ElasticStorageClass`. | Сначала удалите перечисленные `ElasticStorageClass`. |
+| `VolumesExist` | В backend ещё есть привязанные (bound) `PersistentVolume`. | Удалите оставшиеся `PersistentVolume` — teardown продолжится автоматически. |
+| `Terminating` | Ресурсы backend удаляются. | Дождитесь завершения. |
+
+### Удаление ElasticStorageClass
+
 Удаление `ElasticStorageClass` уничтожает соответствующий пул и `CephStorageClass`:
 
 ```shell
 d8 k delete elasticstorageclass ceph-prod-rbd
 ```
 
-Удаление `ElasticCluster` уничтожает все ресурсы (LVMVolumeGroup / LVMLogicalVolume / локальные PV / Rook CephCluster), которыми владеет контроллер:
-
-```shell
-d8 k delete elasticcluster ceph-prod
-```
-
 {{< alert level="warning" >}}
-GC через finalizer'ы для ElasticCluster / ElasticStorageClass запланирован (B20 в backlog), но ещё не реализован. На стадии experimental удаление обнуляет ресурсы, которыми владеет контроллер, но не оркестрирует teardown Rook end-to-end — может потребоваться ручная зачистка OSD-устройств, `cephx`-учёток и оставшихся Rook-CR. Не удаляйте `ElasticCluster`, пока в пулах есть полезные данные.
+Удаление `ElasticStorageClass` — деструктивная операция: оно сносит нижележащий пул / файловую систему Ceph вместе с данными. Не удаляйте `ElasticStorageClass`, пока в его пуле есть полезные данные. Зачистка PV / LVM / BlockDevice после удаления `ElasticCluster` выполняется вручную (см. выше); сквозной GC через OwnerReferences отслеживается как задача B20 в backlog.
 {{< /alert >}}
 
 ## Отключение модуля

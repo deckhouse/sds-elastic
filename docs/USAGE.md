@@ -171,7 +171,7 @@ Once an `ElasticCluster` selects a `BlockDevice` for the first time, the control
 
   As a side effect, `sds-node-configurator` flips `BlockDevice.status.consumable` to `false` once a VG appears on the device. Sticky adoption prevents this from kicking the BD out of the working set on the very next reconcile.
 
-- **Releasing a BlockDevice.** There is no automatic disown path on this experimental stage (planned as part of B20 — OwnerReferences and finalizer-driven teardown). To safely retire a BD from a cluster, either delete the entire `ElasticCluster` (the controller-managed objects are removed, see `Deleting Resources` below) or, if you must shrink one cluster only, manually delete the corresponding `LVMLogicalVolume` and `LVMVolumeGroup`, and only then clear the label:
+- **Releasing a BlockDevice.** There is no automatic disown path on this experimental stage (planned as part of B20 — OwnerReferences and finalizer-driven teardown). Deleting the `ElasticCluster` does NOT cascade to the per-device objects: the controller only removes the Rook `CephCluster` and the csi-ceph `CephClusterConnection`, leaving the `LVMVolumeGroup` / `LVMLogicalVolume` / local `PersistentVolume` and the BD label for you to clean up by label (see `Deleting Resources` below). To retire a single BD from a live cluster, manually delete the corresponding `LVMLogicalVolume` and `LVMVolumeGroup`, and only then clear the label:
 
   ```shell
   d8 k delete lvmlogicalvolume <name>
@@ -292,20 +292,53 @@ The internal helm-managed `StorageClass` `sds-elastic-osd` (provisioner `kuberne
 
 ## Deleting Resources
 
+### Deleting an ElasticCluster
+
+Deleting an `ElasticCluster` is reversible as long as no `ElasticStorageClass` still references it: the controller removes only the resources you cannot delete by hand — the Rook `CephCluster` and the csi-ceph `CephClusterConnection`, both protected by the vendor-cr-validation webhook. The OSD disks and the mon store are left intact, so the cluster can be re-created from the same devices.
+
+Order of operations:
+
+1. Delete every dependent `ElasticStorageClass` first (see below). The controller refuses to start the cluster teardown while any ESC references it.
+2. Delete the `ElasticCluster`:
+
+   ```shell
+   d8 k delete elasticcluster ceph-prod
+   ```
+
+   Held by a finalizer, the controller deletes the `CephCluster` and `CephClusterConnection`, then releases the CR.
+3. Clean up the remaining controller-labelled objects by hand — they are intentionally preserved (no automatic cascade):
+
+   ```shell
+   # inspect what is still labelled with the cluster name
+   d8 k get pv,lvmlogicalvolume,lvmvolumegroup -l sds-elastic.deckhouse.io/cluster=ceph-prod
+
+   d8 k delete pv -l sds-elastic.deckhouse.io/cluster=ceph-prod
+   d8 k delete lvmlogicalvolume -l sds-elastic.deckhouse.io/cluster=ceph-prod
+   d8 k delete lvmvolumegroup -l sds-elastic.deckhouse.io/cluster=ceph-prod
+   # finally clear the cluster label from the BlockDevices
+   d8 k label blockdevice -l sds-elastic.deckhouse.io/cluster=ceph-prod sds-elastic.deckhouse.io/cluster-
+   ```
+
+   Keep the `ElasticClusterCredential` if you plan to re-create the cluster with the same identity.
+
+While the teardown is in progress the `ElasticCluster` `Ready` condition explains what is blocking it:
+
+| Reason | Meaning | Action |
+| --- | --- | --- |
+| `StorageClassesExist` | One or more `ElasticStorageClass` still reference this cluster. | Delete the listed `ElasticStorageClass` objects first. |
+| `VolumesExist` | The storage backend still has bound `PersistentVolume`s. | Delete the remaining `PersistentVolume`s; teardown then continues automatically. |
+| `Terminating` | Backend resources are being removed. | Wait for completion. |
+
+### Deleting an ElasticStorageClass
+
 Delete an `ElasticStorageClass` to remove the corresponding pool and `CephStorageClass`:
 
 ```shell
 d8 k delete elasticstorageclass ceph-prod-rbd
 ```
 
-Delete the `ElasticCluster` to remove all controller-managed objects (LVMVolumeGroup / LVMLogicalVolume / local PV / Rook CephCluster) bound to it:
-
-```shell
-d8 k delete elasticcluster ceph-prod
-```
-
 {{< alert level="warning" >}}
-Finalizer-based GC for ElasticCluster / ElasticStorageClass is planned (B20 in the backlog) but not yet implemented. On the experimental stage deletion clears controller-owned objects but does not orchestrate Rook teardown end-to-end; manual cleanup of OSD devices / `cephx` entries / leftover Rook CRs may be required. Do not delete the `ElasticCluster` while pools still hold useful data.
+Deleting an `ElasticStorageClass` is destructive: it tears down the underlying Ceph pool / filesystem and the data stored in it. Do not delete an `ElasticStorageClass` while its pool still holds useful data. PV / LVM / BlockDevice cleanup after deleting an `ElasticCluster` is manual (see above); end-to-end OwnerReferences-driven GC is tracked as backlog item B20.
 {{< /alert >}}
 
 ## Disabling the Module

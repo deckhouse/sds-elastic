@@ -88,6 +88,13 @@ var (
 // LVMLogicalVolume finalizer used in the instruction (manual creation).
 const LVMLogicalVolumeManualFinalizer = "storage.deckhouse.io/manual-creation"
 
+// ECFinalizer is taken on every ElasticCluster the controller reconciles.
+// It guarantees reconcileDelete runs the ordered teardown (delete the
+// CephCluster + CephClusterConnection the operator cannot delete by hand
+// because the vendor-cr-validation webhook blocks them) before the CR is
+// allowed to disappear.
+const ECFinalizer = "sds-elastic.deckhouse.io/elastic-cluster"
+
 // Rook secret/configmap names used to source CephClusterConnection data.
 const (
 	RookCephMonSecretName        = "rook-ceph-mon"
