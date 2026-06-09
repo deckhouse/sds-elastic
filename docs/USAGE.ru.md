@@ -338,8 +338,32 @@ d8 k delete elasticstorageclass ceph-prod-rbd
 ```
 
 {{< alert level="warning" >}}
-Удаление `ElasticStorageClass` — деструктивная операция: оно сносит нижележащий пул / файловую систему Ceph вместе с данными. Не удаляйте `ElasticStorageClass`, пока в его пуле есть полезные данные. Зачистка PV / LVM / BlockDevice после удаления `ElasticCluster` выполняется вручную (см. выше); сквозной GC через OwnerReferences отслеживается как задача B20 в backlog.
+Удаление `ElasticStorageClass` — деструктивная операция: оно сносит нижележащий пул / файловую систему вместе с данными. Сначала убедитесь, что данные больше никому не нужны.
 {{< /alert >}}
+
+Удерживаемый финализатором, контроллер выполняет упорядоченный teardown:
+
+1. Он не удаляет ничего, пока хотя бы один `PersistentVolume`, выданный этим StorageClass, остаётся в состоянии `Bound`. Сначала удалите потребляющие `PersistentVolumeClaim` — этот гард нельзя обойти.
+2. Когда ничего не привязано, контроллер удаляет `CephStorageClass` и сносит нижележащий пул / файловую систему.
+
+Для блочных (RBD) классов пул с данными по умолчанию сохраняется. Чтобы удалить его безвозвратно (данные в пуле будут потеряны), разрешите деструктивную очистку аннотацией force-deletion:
+
+```shell
+d8 k annotate elasticstorageclass ceph-prod-rbd sds-elastic.deckhouse.io/force-deletion=true
+```
+
+Для классов общей файловой системы (CephFS) force-режима нет: файловая система удаляется автоматически, как только становится пустой, — для этого удалите оставшиеся `PersistentVolume` этого StorageClass.
+
+Пока идёт teardown, условие `Ready` ресурса `ElasticStorageClass` объясняет, что его блокирует:
+
+| Reason | Значение | Действие |
+| --- | --- | --- |
+| `BoundVolumesExist` | `PersistentVolume`, выданные этим StorageClass, ещё привязаны. | Удалите потребляющие `PersistentVolumeClaim`. Аннотация force это не обходит. |
+| `DataPresentInPool` | Блочный пул всё ещё содержит данные (только RBD). | Установите `sds-elastic.deckhouse.io/force-deletion=true`, чтобы безвозвратно удалить пул и его данные. |
+| `FilesystemNotEmpty` | В файловой системе ещё есть тома (только CephFS). | Удалите оставшиеся `PersistentVolume` этого StorageClass. |
+| `Terminating` | Ресурсы backend удаляются. | Дождитесь завершения. |
+
+Зачистка PV / LVM / BlockDevice после удаления `ElasticCluster` выполняется вручную (см. выше); сквозной GC через OwnerReferences отслеживается как задача B20 в backlog.
 
 ## Отключение модуля
 

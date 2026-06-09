@@ -156,6 +156,27 @@ const (
 	ESCConditionReady                = "Ready"
 )
 
+// Deletion (teardown) reasons set on the aggregate Ready condition while
+// an ElasticStorageClass is being deleted. Domain-level on purpose: they
+// never name the underlying vendor (Rook/csi-ceph) resources.
+//
+//   - ESCReasonBoundVolumesExist: PersistentVolumes provisioned from this
+//     StorageClass are still bound; the operator must delete the PVCs
+//     first. Non-bypassable guard (force never lifts it).
+//   - ESCReasonDataPresentInPool: the RBD pool still holds data; deleting
+//     it is destructive, so it requires the force-deletion annotation.
+//   - ESCReasonFilesystemNotEmpty: the filesystem still has volumes; the
+//     operator must delete the remaining PersistentVolumes first (there is
+//     no force path for CephFS).
+//   - ESCReasonTerminating: teardown is in progress (backend resources are
+//     being removed).
+const (
+	ESCReasonBoundVolumesExist  = "BoundVolumesExist"
+	ESCReasonDataPresentInPool  = "DataPresentInPool"
+	ESCReasonFilesystemNotEmpty = "FilesystemNotEmpty"
+	ESCReasonTerminating        = "Terminating"
+)
+
 // ElasticStorageClassKind is the kind constant used for OwnerReferences and
 // dynamic GVK lookups.
 const ElasticStorageClassKind = "ElasticStorageClass"

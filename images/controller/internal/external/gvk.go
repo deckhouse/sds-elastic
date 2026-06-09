@@ -95,6 +95,24 @@ const LVMLogicalVolumeManualFinalizer = "storage.deckhouse.io/manual-creation"
 // allowed to disappear.
 const ECFinalizer = "sds-elastic.deckhouse.io/elastic-cluster"
 
+// ESCFinalizer is taken on every ElasticStorageClass. It guarantees the
+// destructive pool/filesystem teardown (and the bound-PV guard that
+// protects it) runs before the CR disappears.
+const ESCFinalizer = "sds-elastic.deckhouse.io/elastic-storage-class"
+
+const (
+	// ESCForceDeleteAnnotation, set to "true" on an ElasticStorageClass,
+	// authorises the destructive purge of a non-empty RBD pool (the
+	// controller propagates it to the underlying CephBlockPool as
+	// RookForceDeletionAnnotation). It never bypasses the bound-PV guard.
+	ESCForceDeleteAnnotation = "sds-elastic.deckhouse.io/force-deletion"
+
+	// RookForceDeletionAnnotation is the Rook annotation honoured on
+	// CephBlockPool/RadosNamespace/CephFilesystemSubVolumeGroup to force
+	// deletion of an object that still holds data.
+	RookForceDeletionAnnotation = "rook.io/force-deletion"
+)
+
 // Rook secret/configmap names used to source CephClusterConnection data.
 const (
 	RookCephMonSecretName        = "rook-ceph-mon"

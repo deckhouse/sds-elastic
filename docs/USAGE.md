@@ -338,8 +338,32 @@ d8 k delete elasticstorageclass ceph-prod-rbd
 ```
 
 {{< alert level="warning" >}}
-Deleting an `ElasticStorageClass` is destructive: it tears down the underlying Ceph pool / filesystem and the data stored in it. Do not delete an `ElasticStorageClass` while its pool still holds useful data. PV / LVM / BlockDevice cleanup after deleting an `ElasticCluster` is manual (see above); end-to-end OwnerReferences-driven GC is tracked as backlog item B20.
+Deleting an `ElasticStorageClass` is destructive: it tears down the underlying storage pool / filesystem and the data stored in it. Make sure no application still needs the data first.
 {{< /alert >}}
+
+Held by a finalizer, the controller runs an ordered teardown:
+
+1. It refuses to delete anything while any `PersistentVolume` provisioned from this StorageClass is still `Bound`. Delete the consuming `PersistentVolumeClaim`s first — this guard cannot be overridden.
+2. Once nothing is bound, it removes the `CephStorageClass` and tears down the backing pool / filesystem.
+
+For block (RBD) classes, a pool that still holds data is preserved by default. To permanently delete it (the data in the pool is lost), authorise the destructive purge with the force-deletion annotation:
+
+```shell
+d8 k annotate elasticstorageclass ceph-prod-rbd sds-elastic.deckhouse.io/force-deletion=true
+```
+
+For shared-filesystem (CephFS) classes there is no force override: the filesystem is removed automatically once it is empty, which you achieve by deleting the remaining `PersistentVolume`s for the StorageClass.
+
+While the teardown is in progress the `ElasticStorageClass` `Ready` condition explains what is blocking it:
+
+| Reason | Meaning | Action |
+| --- | --- | --- |
+| `BoundVolumesExist` | `PersistentVolume`s provisioned from this StorageClass are still bound. | Delete the consuming `PersistentVolumeClaim`s. The force annotation does not override this. |
+| `DataPresentInPool` | The block pool still holds data (RBD only). | Set `sds-elastic.deckhouse.io/force-deletion=true` to permanently delete the pool and its data. |
+| `FilesystemNotEmpty` | The filesystem still has volumes (CephFS only). | Delete the remaining `PersistentVolume`s for this StorageClass. |
+| `Terminating` | Backend resources are being removed. | Wait for completion. |
+
+PV / LVM / BlockDevice cleanup after deleting an `ElasticCluster` is manual (see above); end-to-end OwnerReferences-driven GC is tracked as backlog item B20.
 
 ## Disabling the Module
 

@@ -209,22 +209,7 @@ func (r *ElasticClusterReconciler) getExternalIfExists(ctx context.Context, gvk 
 // externalDeletionBlocked reports whether a Rook resource carries the
 // DeletionIsBlocked=True condition (CephCluster: bound PVs remain).
 func externalDeletionBlocked(u *unstructured.Unstructured) bool {
-	conds, found, err := unstructured.NestedSlice(u.Object, "status", "conditions")
-	if !found || err != nil {
-		return false
-	}
-	for _, raw := range conds {
-		m, ok := raw.(map[string]interface{})
-		if !ok {
-			continue
-		}
-		condType, _, _ := unstructured.NestedString(m, "type")
-		condStatus, _, _ := unstructured.NestedString(m, "status")
-		if condType == rookDeletionBlockedConditionType && condStatus == "True" {
-			return true
-		}
-	}
-	return false
+	return unstructuredConditionTrue(u, rookDeletionBlockedConditionType)
 }
 
 // patchECDeleteCondition publishes the aggregate Ready=False teardown

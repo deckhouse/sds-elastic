@@ -22,6 +22,7 @@ import (
 	"strings"
 
 	apimeta "k8s.io/apimachinery/pkg/api/meta"
+	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
 )
 
 // Domain-level sentinel errors surfaced on EC/ESC .status.conditions.
@@ -84,6 +85,31 @@ func parseMonEndpoints(data string) []string {
 	}
 	sort.Strings(out)
 	return out
+}
+
+// unstructuredConditionTrue reports whether the given vendor resource
+// carries a status condition of the requested type with status "True".
+// Used by the teardown paths to translate Rook's blocking conditions
+// (CephCluster/CephFilesystem "DeletionIsBlocked", CephBlockPool
+// "PoolDeletionIsBlocked") into domain-level reasons without taking a
+// build dependency on the Rook Go module.
+func unstructuredConditionTrue(u *unstructured.Unstructured, condType string) bool {
+	conds, found, err := unstructured.NestedSlice(u.Object, "status", "conditions")
+	if !found || err != nil {
+		return false
+	}
+	for _, raw := range conds {
+		m, ok := raw.(map[string]interface{})
+		if !ok {
+			continue
+		}
+		t, _, _ := unstructured.NestedString(m, "type")
+		s, _, _ := unstructured.NestedString(m, "status")
+		if t == condType && s == "True" {
+			return true
+		}
+	}
+	return false
 }
 
 // isNoMatchErr returns true when the apimachinery error indicates that
