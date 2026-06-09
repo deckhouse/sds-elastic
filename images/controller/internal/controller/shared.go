@@ -17,10 +17,27 @@ limitations under the License.
 package controller
 
 import (
+	"errors"
 	"sort"
 	"strings"
 
 	apimeta "k8s.io/apimachinery/pkg/api/meta"
+)
+
+// Domain-level sentinel errors surfaced on EC/ESC .status.conditions.
+//
+// Stage helpers return these instead of the raw client-go / Rook /
+// csi-ceph errors so the user-facing condition message never leaks the
+// underlying vendor resource kind/name or a raw API error. Whenever one
+// of these sentinels is returned, the original error is logged first
+// (r.Log.Error), so operators retain full debuggability.
+var (
+	errProvisionStorageBackend    = errors.New("failed to provision storage backend")
+	errConfigureStorageConnection = errors.New("failed to configure storage connection")
+	errReadCredentials            = errors.New("failed to read cluster credentials")
+	errProvisionStoragePool       = errors.New("failed to provision storage pool")
+	errProvisionStorageFS         = errors.New("failed to provision storage filesystem")
+	errCreateStorageClass         = errors.New("failed to create storage class")
 )
 
 // mergeLabels returns a new map containing every key from `existing`

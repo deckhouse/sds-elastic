@@ -64,7 +64,7 @@ var _ = Describe("ElasticStorageClass stages", func() {
 				}},
 			}
 			return ec
-		}, false, "CephClusterReady=True"),
+		}, false, "to become ready"),
 		Entry("CephClusterReady True", func() *v1alpha1.ElasticCluster {
 			return ecWithCephClusterReady(newTestElasticCluster())
 		}, true, ""),

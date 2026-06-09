@@ -98,10 +98,11 @@ func (r *ElasticClusterReconciler) ensureUpgrade(ctx context.Context, ec *v1alph
 		Name:      builder.ECCephClusterName(ec),
 	}, cc)
 	if apierrors.IsNotFound(err) {
-		return false, false, "CephCluster not yet visible", nil
+		return false, false, "storage backend not yet visible", nil
 	}
 	if err != nil {
-		return false, false, "", err
+		r.Log.Error(err, "[ensureUpgrade] failed to get CephCluster")
+		return false, false, "", errProvisionStorageBackend
 	}
 
 	probe := probeCephUpgradeState(cc, desiredImage, desiredVersion)
@@ -166,7 +167,7 @@ func probeCephUpgradeState(cc *unstructured.Unstructured, desiredImage, desiredV
 			return probe
 		}
 		probe.InProgress = true
-		probe.Msg = fmt.Sprintf("upgrade to %s queued; Rook will roll pods", desiredVersion)
+		probe.Msg = fmt.Sprintf("upgrade to %s queued; rolling update will start", desiredVersion)
 		return probe
 	}
 
@@ -176,22 +177,22 @@ func probeCephUpgradeState(cc *unstructured.Unstructured, desiredImage, desiredV
 		// has had since the first MVP, kept for bootstrap edge cases.
 		if runningFromVersionField == "" {
 			probe.InProgress = true
-			probe.Msg = "Rook reports no running ceph version yet"
+			probe.Msg = "no running version reported yet"
 			return probe
 		}
 		if !versionMatches(runningFromVersionField, desiredVersion) {
 			probe.InProgress = true
-			probe.Msg = fmt.Sprintf("Rook rolling pods: running=%s desired=%s", runningFromVersionField, desiredVersion)
+			probe.Msg = fmt.Sprintf("rolling update in progress: running=%s desired=%s", shortenCephVersion(runningFromVersionField), desiredVersion)
 			return probe
 		}
 		probe.Done = true
-		probe.Msg = fmt.Sprintf("running ceph version %s", runningFromVersionField)
+		probe.Msg = fmt.Sprintf("running version %s", shortenCephVersion(runningFromVersionField))
 		return probe
 	}
 
 	if len(overall) > 1 {
 		probe.InProgress = true
-		probe.Msg = fmt.Sprintf("Rook rolling pods: %s desired=%s", formatVersionsHistogram(overall), desiredVersion)
+		probe.Msg = fmt.Sprintf("rolling update in progress: %s desired=%s", formatVersionsHistogram(overall), desiredVersion)
 		return probe
 	}
 
@@ -203,11 +204,11 @@ func probeCephUpgradeState(cc *unstructured.Unstructured, desiredImage, desiredV
 	}
 	if !versionMatches(onlyKey, desiredVersion) {
 		probe.InProgress = true
-		probe.Msg = fmt.Sprintf("Rook rolling pods: running=%s desired=%s", onlyKey, desiredVersion)
+		probe.Msg = fmt.Sprintf("rolling update in progress: running=%s desired=%s", shortenCephVersion(onlyKey), desiredVersion)
 		return probe
 	}
 	probe.Done = true
-	probe.Msg = fmt.Sprintf("running ceph version %s", onlyKey)
+	probe.Msg = fmt.Sprintf("running version %s", shortenCephVersion(onlyKey))
 	return probe
 }
 

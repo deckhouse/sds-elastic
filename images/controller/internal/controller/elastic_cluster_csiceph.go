@@ -66,25 +66,27 @@ func (r *ElasticClusterReconciler) ensureCsiCeph(ctx context.Context, ec *v1alph
 	desired := builder.ECCephClusterConnection(ec, status.cephFSID, adminSecret, status.monEndpoints, hasCephFS)
 	if err := r.upsertECUnstructured(ctx, desired); err != nil {
 		if isNoMatchErr(err) {
-			return false, "waiting for CephClusterConnection CRD (csi-ceph)", nil
+			return false, "waiting for storage connection CRD", nil
 		}
-		return false, "", fmt.Errorf("upsert CephClusterConnection: %w", err)
+		r.Log.Error(err, "[ensureCsiCeph] failed to upsert CephClusterConnection")
+		return false, "", errConfigureStorageConnection
 	}
 
 	conn := &unstructured.Unstructured{}
 	conn.SetGroupVersionKind(external.CephClusterConnectionGVK)
 	err = r.Client.Get(ctx, types.NamespacedName{Name: desired.GetName()}, conn)
 	if apierrors.IsNotFound(err) {
-		return false, "CephClusterConnection not yet visible", nil
+		return false, "storage connection not yet visible", nil
 	}
 	if err != nil {
-		return false, "", err
+		r.Log.Error(err, "[ensureCsiCeph] failed to get CephClusterConnection")
+		return false, "", errConfigureStorageConnection
 	}
 	phase, _, _ := unstructured.NestedString(conn.Object, "status", "phase")
 	if phase != "Created" {
-		return false, fmt.Sprintf("CephClusterConnection phase=%q", phase), nil
+		return false, fmt.Sprintf("storage connection not ready (phase=%q)", phase), nil
 	}
-	return true, "CephClusterConnection ready", nil
+	return true, "storage connection ready", nil
 }
 
 // elasticClusterHasCephFS returns true if any ElasticStorageClass referencing

@@ -54,10 +54,11 @@ func (r *ElasticClusterReconciler) ensureCredentials(ctx context.Context, ec *v1
 		Name:      external.RookCephMonSecretName,
 	}, secret)
 	if apierrors.IsNotFound(err) {
-		return false, "waiting for Secret/rook-ceph-mon", nil
+		return false, "waiting for cluster credentials", nil
 	}
 	if err != nil {
-		return false, "", err
+		r.Log.Error(err, "[ensureCredentials] failed to get rook-ceph-mon secret")
+		return false, "", errReadCredentials
 	}
 
 	cm := &corev1.ConfigMap{}
@@ -66,19 +67,20 @@ func (r *ElasticClusterReconciler) ensureCredentials(ctx context.Context, ec *v1
 		Name:      external.RookCephMonEndpointsConfigMap,
 	}, cm)
 	if apierrors.IsNotFound(err) {
-		return false, "waiting for ConfigMap/rook-ceph-mon-endpoints", nil
+		return false, "waiting for cluster connection details", nil
 	}
 	if err != nil {
-		return false, "", err
+		r.Log.Error(err, "[ensureCredentials] failed to get rook-ceph-mon-endpoints configmap")
+		return false, "", errReadCredentials
 	}
 
 	fsid := strings.TrimSpace(string(secret.Data[external.RookCephMonSecretFSIDKey]))
 	if fsid == "" {
-		return false, "Secret/rook-ceph-mon does not yet contain fsid", nil
+		return false, "cluster credentials not yet populated", nil
 	}
 	monEndpoints := parseMonEndpoints(cm.Data[external.RookCephMonEndpointsDataKey])
 	if len(monEndpoints) == 0 {
-		return false, "ConfigMap/rook-ceph-mon-endpoints has no usable endpoints yet", nil
+		return false, "cluster connection details not yet available", nil
 	}
 
 	status.cephFSID = fsid
@@ -86,5 +88,5 @@ func (r *ElasticClusterReconciler) ensureCredentials(ctx context.Context, ec *v1
 	status.monMaxID = strings.TrimSpace(cm.Data[external.RookCephMonEndpointsMaxMonIDKey])
 	status.credentialsRef = &v1alpha1.ElasticClusterCredentialRef{Name: ec.Name}
 
-	return true, fmt.Sprintf("FSID and %d mon endpoints captured", len(monEndpoints)), nil
+	return true, fmt.Sprintf("captured cluster credentials (%d endpoints)", len(monEndpoints)), nil
 }

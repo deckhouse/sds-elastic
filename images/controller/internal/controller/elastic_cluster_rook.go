@@ -73,9 +73,12 @@ func (r *ElasticClusterReconciler) ensureCephCluster(ctx context.Context, ec *v1
 	desired := builder.ECCephCluster(ec, r.Cfg.ControllerNamespace, cephImage, osdCount, pvcStorageRequest, placementAll, monCount, mgrCount)
 	if err := r.upsertECUnstructured(ctx, desired); err != nil {
 		if isNoMatchErr(err) {
-			return false, "waiting for CephCluster CRD (Rook)", topology, nil, nil
+			return false, "waiting for storage backend CRD", topology, nil, nil
 		}
-		return false, "", topology, nil, fmt.Errorf("upsert CephCluster: %w", err)
+		// Keep the Rook resource detail in the logs only; the EC
+		// condition message stays domain-level (no Rook/Ceph CR names).
+		r.Log.Error(err, "[ensureCephCluster] failed to upsert CephCluster")
+		return false, "", topology, nil, errProvisionStorageBackend
 	}
 
 	cc := &unstructured.Unstructured{}
@@ -85,19 +88,20 @@ func (r *ElasticClusterReconciler) ensureCephCluster(ctx context.Context, ec *v1
 		Name:      builder.ECCephClusterName(ec),
 	}, cc)
 	if apierrors.IsNotFound(err) {
-		return false, "CephCluster CR not yet visible", topology, nil, nil
+		return false, "storage backend not yet visible", topology, nil, nil
 	}
 	if err != nil {
-		return false, "", topology, nil, err
+		r.Log.Error(err, "[ensureCephCluster] failed to get CephCluster")
+		return false, "", topology, nil, errProvisionStorageBackend
 	}
 
 	probe := probeCephUpgradeState(cc, cephImage, desiredVersion)
 
 	phase, _, _ := unstructured.NestedString(cc.Object, "status", "phase")
 	if phase != "Ready" {
-		return false, fmt.Sprintf("CephCluster phase=%q (waiting for Ready)", phase), topology, &probe, nil
+		return false, fmt.Sprintf("storage backend not ready (phase=%q)", phase), topology, &probe, nil
 	}
-	return true, fmt.Sprintf("CephCluster %s is Ready", cc.GetName()), topology, &probe, nil
+	return true, "storage backend is ready", topology, &probe, nil
 }
 
 // buildCephTopologyStatus assembles the CephTopologyStatus value the
