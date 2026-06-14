@@ -371,6 +371,8 @@ PV / LVM / BlockDevice cleanup after deleting an `ElasticCluster` is manual (see
 Disabling the module stops the controller and the Rook operator. Data stored in Ceph clusters managed by this module may become unavailable or be lost. Always delete every `ElasticCluster`, `ElasticStorageClass` and `ElasticClusterCredential` object before disabling the module.
 {{< /alert >}}
 
+A validating webhook on the `sds-elastic` `ModuleConfig` **rejects** setting `spec.enabled: false` while any `ElasticCluster` still exists. This prevents accidentally tearing down the controller and the Rook operator while a live Ceph cluster (OSD data on host disks) is still under management. Follow the ordered teardown below; the disable is accepted only once the last `ElasticCluster` is gone.
+
 1. Delete every `ElasticStorageClass` and wait until the controller has removed the pools and csi-ceph StorageClasses:
 
    ```shell
@@ -399,6 +401,20 @@ Disabling the module stops the controller and the Rook operator. Data stored in 
    d8 k label moduleconfig sds-elastic modules.deckhouse.io/allow-disabling=true --overwrite
    d8 k patch moduleconfig sds-elastic --type=merge -p '{"spec":{"enabled":false}}'
    ```
+
+### Forcing the Module Off While ElasticClusters Remain
+
+{{< alert level="danger" >}}
+This bypasses the safety guard. Use it only for disaster recovery, when you deliberately want to keep the `ElasticCluster` CRs and their on-disk data but stop the module from managing them. The Ceph cluster will be left orphaned (no operator), and the controller finalizers on the leftover CRs are stripped by the module-delete hook so the API server can garbage-collect them. OSD data on host disks and `dataDirHostPath` are **not** erased, but they are no longer managed and may become unrecoverable through normal means.
+{{< /alert >}}
+
+If you must disable the module without deleting the `ElasticCluster`s first, set the `sds-elastic.deckhouse.io/force-disable: "true"` annotation on the ModuleConfig. With this annotation present, the webhook allows `spec.enabled: false` regardless of how many `ElasticCluster`s exist:
+
+```shell
+d8 k annotate moduleconfig sds-elastic sds-elastic.deckhouse.io/force-disable=true --overwrite
+d8 k label moduleconfig sds-elastic modules.deckhouse.io/allow-disabling=true --overwrite
+d8 k patch moduleconfig sds-elastic --type=merge -p '{"spec":{"enabled":false}}'
+```
 
 ## Checking Cluster Health
 

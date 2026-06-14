@@ -371,6 +371,8 @@ d8 k annotate elasticstorageclass ceph-prod-rbd sds-elastic.deckhouse.io/force-d
 Отключение модуля останавливает контроллер и оператор Rook. Данные, хранящиеся в Ceph-кластерах под управлением модуля, могут стать недоступны или быть потеряны. Перед отключением модуля всегда удаляйте все объекты `ElasticCluster`, `ElasticStorageClass` и `ElasticClusterCredential`.
 {{< /alert >}}
 
+Валидирующий вебхук на `ModuleConfig` модуля `sds-elastic` **запрещает** установку `spec.enabled: false`, пока существует хотя бы один `ElasticCluster`. Это не даёт случайно остановить контроллер и оператор Rook, пока под управлением модуля ещё находится живой Ceph-кластер (данные OSD на дисках узлов). Выполняйте упорядоченное удаление ниже; отключение будет разрешено только после удаления последнего `ElasticCluster`.
+
 1. Удалите все `ElasticStorageClass` и дождитесь, пока контроллер уберёт пулы и csi-ceph StorageClass'ы:
 
    ```shell
@@ -399,6 +401,20 @@ d8 k annotate elasticstorageclass ceph-prod-rbd sds-elastic.deckhouse.io/force-d
    d8 k label moduleconfig sds-elastic modules.deckhouse.io/allow-disabling=true --overwrite
    d8 k patch moduleconfig sds-elastic --type=merge -p '{"spec":{"enabled":false}}'
    ```
+
+### Принудительное отключение модуля при оставшихся ElasticCluster
+
+{{< alert level="danger" >}}
+Это обходит защитную проверку. Используйте только при аварийном восстановлении, когда вы осознанно хотите сохранить объекты `ElasticCluster` и их данные на дисках, но прекратить управление ими со стороны модуля. Ceph-кластер останется без оператора (orphaned), а финализаторы контроллера на оставшихся CR будут сняты хуком удаления модуля, чтобы API-сервер мог их удалить. Данные OSD на дисках узлов и `dataDirHostPath` при этом **не** стираются, но больше не управляются и могут стать невосстановимыми штатными средствами.
+{{< /alert >}}
+
+Если необходимо отключить модуль без предварительного удаления `ElasticCluster`, установите на ModuleConfig аннотацию `sds-elastic.deckhouse.io/force-disable: "true"`. С этой аннотацией вебхук разрешает `spec.enabled: false` независимо от количества существующих `ElasticCluster`:
+
+```shell
+d8 k annotate moduleconfig sds-elastic sds-elastic.deckhouse.io/force-disable=true --overwrite
+d8 k label moduleconfig sds-elastic modules.deckhouse.io/allow-disabling=true --overwrite
+d8 k patch moduleconfig sds-elastic --type=merge -p '{"spec":{"enabled":false}}'
+```
 
 ## Проверка работоспособности кластера
 

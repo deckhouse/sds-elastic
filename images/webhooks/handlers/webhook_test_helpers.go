@@ -41,6 +41,38 @@ func newECCUnstructured(spec map[string]interface{}) *unstructured.Unstructured 
 	return obj
 }
 
+// newMCUnstructured builds a Deckhouse ModuleConfig fixture for the
+// mc-validation tests. `enabled` is omitted from spec when nil (mirrors a
+// ModuleConfig that only carries settings), set otherwise. annotations is
+// applied verbatim so tests can exercise the force-disable escape hatch.
+func newMCUnstructured(name string, enabled *bool, annotations map[string]string) *unstructured.Unstructured {
+	obj := &unstructured.Unstructured{}
+	obj.SetAPIVersion("deckhouse.io/v1alpha1")
+	obj.SetKind("ModuleConfig")
+	obj.SetName(name)
+	if len(annotations) > 0 {
+		obj.SetAnnotations(annotations)
+	}
+	spec := map[string]interface{}{}
+	if enabled != nil {
+		spec["enabled"] = *enabled
+	}
+	obj.Object["spec"] = spec
+	return obj
+}
+
+// newECObject builds a minimal ElasticCluster runtime.Object suitable for
+// seeding the fake dynamic client in mc-validation tests. The validator
+// only counts/names ElasticClusters, so spec is intentionally empty.
+func newECObject(name string) *unstructured.Unstructured {
+	obj := &unstructured.Unstructured{}
+	obj.SetAPIVersion("storage.deckhouse.io/v1alpha1")
+	obj.SetKind("ElasticCluster")
+	obj.SetName(name)
+	obj.Object["spec"] = map[string]interface{}{}
+	return obj
+}
+
 func admissionReview(op model.AdmissionReviewOp, oldObj *unstructured.Unstructured) *model.AdmissionReview {
 	ar := &model.AdmissionReview{Operation: op}
 	if oldObj != nil {

@@ -34,6 +34,13 @@ var AllowedProvisioners = []string{}
 
 var WebhookConfigurationsToDelete = []string{
 	"d8-sds-elastic-vendor-cr-validation",
+	// mc-validation hard-blocks disabling the module while ElasticClusters
+	// exist (operations CREATE/UPDATE on the sds-elastic ModuleConfig with
+	// failurePolicy=Fail). It must be removed on module delete so that, once
+	// the disable has been allowed (no ECs left, or force-disable
+	// annotation), nothing keeps intercepting ModuleConfig changes and the
+	// module can be re-enabled cleanly.
+	"d8-sds-elastic-mc-validation",
 }
 
 // CRGVKsForFinalizerRemoval lists CRs the module creates and which may
