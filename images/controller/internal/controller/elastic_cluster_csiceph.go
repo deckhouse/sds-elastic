@@ -58,12 +58,7 @@ func (r *ElasticClusterReconciler) ensureCsiCeph(ctx context.Context, ec *v1alph
 		return false, "waiting for ECC.spec.adminSecret", nil
 	}
 
-	hasCephFS, err := r.elasticClusterHasCephFS(ctx, ec)
-	if err != nil {
-		return false, "", err
-	}
-
-	desired := builder.ECCephClusterConnection(ec, status.cephFSID, adminSecret, status.monEndpoints, hasCephFS)
+	desired := builder.ECCephClusterConnection(ec, status.cephFSID, adminSecret, status.monEndpoints)
 	if err := r.upsertECUnstructured(ctx, desired); err != nil {
 		if isNoMatchErr(err) {
 			return false, "waiting for storage connection CRD", nil
@@ -87,20 +82,4 @@ func (r *ElasticClusterReconciler) ensureCsiCeph(ctx context.Context, ec *v1alph
 		return false, fmt.Sprintf("storage connection not ready (phase=%q)", phase), nil
 	}
 	return true, "storage connection ready", nil
-}
-
-// elasticClusterHasCephFS returns true if any ElasticStorageClass referencing
-// this EC has type=CephFS. The result drives the cephFS.subvolumeGroup
-// section of CephClusterConnection.
-func (r *ElasticClusterReconciler) elasticClusterHasCephFS(ctx context.Context, ec *v1alpha1.ElasticCluster) (bool, error) {
-	list := &v1alpha1.ElasticStorageClassList{}
-	if err := r.Client.List(ctx, list); err != nil {
-		return false, err
-	}
-	for _, esc := range list.Items {
-		if esc.Spec.ClusterRef == ec.Name && esc.Spec.Type == v1alpha1.StorageClassTypeCephFS {
-			return true, nil
-		}
-	}
-	return false, nil
 }

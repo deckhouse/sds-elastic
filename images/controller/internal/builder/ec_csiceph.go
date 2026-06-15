@@ -28,6 +28,11 @@ import (
 // require csi-ceph CephClient hardening (B5 follow-up).
 const MVPUserID = "admin"
 
+// CephFSSubvolumeGroup is the CephFS subvolume group csi-ceph provisions
+// CephFS volumes under. It matches Rook's default ("csi") and is pinned for
+// the MVP.
+const CephFSSubvolumeGroup = "csi"
+
 // ECCephClusterConnectionName returns the CephClusterConnection name. It is
 // 1:1 with the ElasticCluster's metadata.name so multiple clusters (future)
 // produce distinct CRs.
@@ -40,17 +45,26 @@ func ECCephClusterConnectionName(ec *v1alpha1.ElasticCluster) string {
 //   - clusterID — EC.status.cephFSID, copied verbatim from rook-ceph-mon Secret.
 //   - monitors  — EC.status.monEndpoints, parsed from rook-ceph-mon-endpoints CM.
 //   - userKey   — ECC.spec.adminSecret, copied from rook-ceph-mon Secret.
-//   - hasCephFS — true when at least one CephFS-typed ESC references this EC.
 //
-// All four inputs come from EC.status / ECC.spec, populated by the
+// All three inputs come from EC.status / ECC.spec, populated by the
 // CredentialsReady stage of the controller. Calling this builder before
 // CredentialsReady would yield an invalid CephClusterConnection (empty
 // userKey), which is why the controller gates CsiCephReady on those fields.
+//
+// spec.cephFS is ALWAYS emitted, regardless of whether a CephFS ESC currently
+// references the cluster. csi-ceph marks spec.cephFS immutable (it can neither
+// be added, removed, nor changed after creation), so gating it on the current
+// ESC inventory would wedge the connection the moment the first CephFS ESC is
+// added to an EC that started RBD-only: the controller would try to add the
+// field to an existing connection and every update would be rejected, freezing
+// CsiCephReady (and the mon-endpoint refresh that rides the same update).
+// Emitting it unconditionally keeps presence constant for the connection's
+// whole life; csi-ceph treats it as harmless for RBD-only clusters (it only
+// pins the CephFS subvolume group used once a CephFS volume is provisioned).
 func ECCephClusterConnection(
 	ec *v1alpha1.ElasticCluster,
 	clusterID, userKey string,
 	monitors []string,
-	hasCephFS bool,
 ) *unstructured.Unstructured {
 	mons := make([]interface{}, 0, len(monitors))
 	for _, m := range monitors {
@@ -61,11 +75,9 @@ func ECCephClusterConnection(
 		"monitors":  mons,
 		"userID":    MVPUserID,
 		"userKey":   userKey,
-	}
-	if hasCephFS {
-		spec["cephFS"] = map[string]interface{}{
-			"subvolumeGroup": "csi",
-		}
+		"cephFS": map[string]interface{}{
+			"subvolumeGroup": CephFSSubvolumeGroup,
+		},
 	}
 
 	obj := &unstructured.Unstructured{}
