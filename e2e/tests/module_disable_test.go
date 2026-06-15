@@ -74,7 +74,7 @@ func moduleDisableForceSpec() {
 		Expect(expectModuleConfigDenied(ctx, moduleConfigName, false)).To(Succeed())
 
 		By("Setting the force-disable annotation, then disabling the module")
-		// Deckhouse's allow-disabling label is already set by the blocked spec;
+		// Deckhouse's allow-disabling annotation is already set by the blocked spec;
 		// re-apply defensively so this spec is robust if run in isolation.
 		Expect(allowDeckhouseDisabling(ctx, moduleConfigName)).To(Succeed())
 		Expect(setForceDisableAnnotation(ctx, moduleConfigName)).To(Succeed())

@@ -389,16 +389,17 @@ d8 k annotate elasticstorageclass ceph-prod-rbd sds-elastic.deckhouse.io/force-d
 
    Дождитесь, пока команда вернёт `No resources found`.
 
-1. Убедитесь, что не осталось `ElasticClusterCredential`:
+1. При необходимости удалите `ElasticClusterCredential`. Это cluster-scoped бэкап идентичности; на запрет отключения он не влияет (отключение блокирует только живой `ElasticCluster`). Удалите его, если не планируете пересоздавать кластер с той же идентичностью:
 
    ```shell
    d8 k get elasticclustercredentials.storage.deckhouse.io
+   d8 k delete elasticclustercredential <имя>
    ```
 
-1. Отключите модуль. Для отключения требуется лейбл `modules.deckhouse.io/allow-disabling: "true"` на ModuleConfig:
+1. Отключите модуль. Для отключения требуется аннотация `modules.deckhouse.io/allow-disabling: "true"` на ModuleConfig:
 
    ```shell
-   d8 k label moduleconfig sds-elastic modules.deckhouse.io/allow-disabling=true --overwrite
+   d8 k annotate moduleconfig sds-elastic modules.deckhouse.io/allow-disabling=true --overwrite
    d8 k patch moduleconfig sds-elastic --type=merge -p '{"spec":{"enabled":false}}'
    ```
 
@@ -412,7 +413,7 @@ d8 k annotate elasticstorageclass ceph-prod-rbd sds-elastic.deckhouse.io/force-d
 
 ```shell
 d8 k annotate moduleconfig sds-elastic sds-elastic.deckhouse.io/force-disable=true --overwrite
-d8 k label moduleconfig sds-elastic modules.deckhouse.io/allow-disabling=true --overwrite
+d8 k annotate moduleconfig sds-elastic modules.deckhouse.io/allow-disabling=true --overwrite
 d8 k patch moduleconfig sds-elastic --type=merge -p '{"spec":{"enabled":false}}'
 ```
 

@@ -389,16 +389,17 @@ A validating webhook on the `sds-elastic` `ModuleConfig` **rejects** setting `sp
 
    Wait until the command returns `No resources found`.
 
-1. Verify that no `ElasticClusterCredential` remains:
+1. Optionally remove the `ElasticClusterCredential`. It is a cluster-scoped identity backup and does not gate the disable (only a live `ElasticCluster` blocks it). Delete it unless you plan to re-create the cluster with the same identity:
 
    ```shell
    d8 k get elasticclustercredentials.storage.deckhouse.io
+   d8 k delete elasticclustercredential <name>
    ```
 
-1. Disable the module. Disabling requires the `modules.deckhouse.io/allow-disabling: "true"` label on the ModuleConfig:
+1. Disable the module. Disabling requires the `modules.deckhouse.io/allow-disabling: "true"` annotation on the ModuleConfig:
 
    ```shell
-   d8 k label moduleconfig sds-elastic modules.deckhouse.io/allow-disabling=true --overwrite
+   d8 k annotate moduleconfig sds-elastic modules.deckhouse.io/allow-disabling=true --overwrite
    d8 k patch moduleconfig sds-elastic --type=merge -p '{"spec":{"enabled":false}}'
    ```
 
@@ -412,7 +413,7 @@ If you must disable the module without deleting the `ElasticCluster`s first, set
 
 ```shell
 d8 k annotate moduleconfig sds-elastic sds-elastic.deckhouse.io/force-disable=true --overwrite
-d8 k label moduleconfig sds-elastic modules.deckhouse.io/allow-disabling=true --overwrite
+d8 k annotate moduleconfig sds-elastic modules.deckhouse.io/allow-disabling=true --overwrite
 d8 k patch moduleconfig sds-elastic --type=merge -p '{"spec":{"enabled":false}}'
 ```
 
