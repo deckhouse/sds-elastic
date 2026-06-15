@@ -1,0 +1,86 @@
+From b2c3d4e5f6a7b8c9d0e1f2a3b4c5d6e7f8a9b0c1 Mon Sep 17 00:00:00 2001
+From: sds-elastic build <sds-elastic@flant.com>
+Date: Mon, 15 Jun 2026 04:45:00 +0300
+Subject: [PATCH] Mount resource-cleanup config dir at /var/lib/rook; surface
+ rbd stderr
+
+The operator's resource-cleanup job (force-deletion of CephBlockPool,
+CephBlockPoolRadosNamespace and CephFilesystemSubVolumeGroup) runs
+rbd/ceph against the live cluster. Those commands read the cluster
+config and admin keyring from context.ConfigDir, which is
+k8sutil.DataDir ("/var/lib/rook") - the same in-container path used by
+the operator (cmd/rook/ceph/operator.go) and every Ceph daemon
+(pkg/operator/ceph/controller/spec.go uses MountPath: k8sutil.DataDir).
+
+jobContainer() in pkg/operator/ceph/controller/cleanup.go instead mounts
+the host dataDirHostPath at its literal value. When dataDirHostPath
+equals the default "/var/lib/rook" the two paths coincide and the bug is
+hidden, but with a custom dataDirHostPath (e.g. the sds-elastic build
+uses /opt/deckhouse/sds/elastic/<cluster>) the config/keyring are
+mounted at the literal path while rbd still looks under /var/lib/rook.
+rbd then aborts immediately with:
+
+    global_init: unable to open config file from search list
+    /var/lib/rook/<ns>/<ns>.config
+
+so the cleanup job CrashLoopBackOffs and the CephBlockPool - and the
+owning sds-elastic ElasticStorageClass - can never be force-deleted.
+
+Mounting the host data dir at k8sutil.DataDir aligns the
+resource-cleanup container with the rest of Rook. The host-disk wipe job
+(pkg/operator/ceph/cluster/cleanup.go, "ceph clean host") keeps its
+literal dataDirHostPath mount on purpose - it physically deletes that
+host path - and is produced by a different function, so it is
+unaffected.
+
+Second change: ListImagesInRadosNamespace wrapped only the bare error
+("exit status 1") and discarded buf, which already holds the rbd stderr
+captured by the exec wrapper (pkg/util/exec/exec.go appends ExitError
+.Stderr to the output). Include buf in the wrapped error so the real
+cause is visible in the logs instead of an opaque "exit status 1".
+
+Test files are not adjusted; only ./cmd/rook is built by the sds-elastic
+image, which does not run tests.
+---
+ pkg/daemon/ceph/client/image.go            |  5 ++++-
+ pkg/operator/ceph/controller/cleanup.go    |  9 ++++++++-
+ 2 files changed, 12 insertions(+), 2 deletions(-)
+
+diff --git a/pkg/daemon/ceph/client/image.go b/pkg/daemon/ceph/client/image.go
+index 0042539b0..3a8111178 100644
+--- a/pkg/daemon/ceph/client/image.go
++++ b/pkg/daemon/ceph/client/image.go
+@@ -51,7 +51,10 @@ func ListImagesInRadosNamespace(context *clusterd.Context, clusterInfo *ClusterI
+ 	cmd.JsonOutput = true
+ 	buf, err := cmd.Run()
+ 	if err != nil {
+-		return nil, errors.Wrapf(err, "failed to list images for pool %s", poolName)
++		// buf carries the rbd stderr captured by the exec wrapper; include it so
++		// failures such as "unable to open config file" surface in the logs
++		// instead of a bare "exit status 1".
++		return nil, errors.Wrapf(err, "failed to list images for pool %s: %s", poolName, string(buf))
+ 	}
+ 
+ 	// The regex expression captures the json result at the end buf
+diff --git a/pkg/operator/ceph/controller/cleanup.go b/pkg/operator/ceph/controller/cleanup.go
+index 739cce905..b0de80bae 100644
+--- a/pkg/operator/ceph/controller/cleanup.go
++++ b/pkg/operator/ceph/controller/cleanup.go
+@@ -89,7 +89,14 @@ func (c *ResourceCleanup) jobContainer() v1.Container {
+ 	volumeMounts := []v1.VolumeMount{}
+ 	envVars := []v1.EnvVar{}
+ 	if c.cluster.Spec.DataDirHostPath != "" {
+-		hostPathVolumeMount := v1.VolumeMount{Name: volumeName, MountPath: c.cluster.Spec.DataDirHostPath}
++		// The cleanup commands (rbd/ceph) read the cluster config and admin
++		// keyring from ConfigDir, which defaults to k8sutil.DataDir
++		// (/var/lib/rook), the same in-container path used by the operator and
++		// every Ceph daemon. Mount the host dataDirHostPath there rather than at
++		// its literal host path, so the files are found even when
++		// dataDirHostPath != /var/lib/rook; otherwise rbd/ceph abort with
++		// "unable to open config file".
++		hostPathVolumeMount := v1.VolumeMount{Name: volumeName, MountPath: k8sutil.DataDir}
+ 		volumeMounts = append(volumeMounts, hostPathVolumeMount)
+ 		envVars = append(envVars, []v1.EnvVar{
+ 			{Name: dataDirHostPath, Value: c.cluster.Spec.DataDirHostPath},
+-- 
+2.43.0
