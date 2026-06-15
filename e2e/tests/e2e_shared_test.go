@@ -58,6 +58,10 @@ const (
 	envOSDDisksPerWorker = "E2E_OSD_DISKS_PER_WORKER"
 	envOSDDiskSize       = "E2E_OSD_DISK_SIZE"
 	envProbeImage        = "E2E_PROBE_IMAGE"
+
+	// envKeepClusterOnFailure, when truthy, skips nested-cluster teardown if any
+	// spec failed, leaving the cluster live for manual debugging.
+	envKeepClusterOnFailure = "E2E_KEEP_CLUSTER_ON_FAILURE"
 )
 
 const (
@@ -77,10 +81,12 @@ const (
 	// (mirrors the webhook in images/webhooks/handlers/mc_validator.go).
 	forceDisableAnnotation = "sds-elastic.deckhouse.io/force-disable"
 
-	// allowDisablingLabelKey is Deckhouse's own confirmation that a module may
-	// be disabled; set so the suite isolates the sds-elastic webhook guard
-	// rather than tripping the platform-level safeguard.
-	allowDisablingLabelKey = "modules.deckhouse.io/allow-disabling"
+	// allowDisablingAnnotationKey is Deckhouse's own confirmation that a module
+	// whose module.yaml sets disable.confirmation may be disabled. The platform
+	// ModuleConfig webhook requires it as an ANNOTATION (a label is ignored);
+	// the suite sets it so it isolates the sds-elastic webhook guard rather than
+	// tripping the platform-level safeguard.
+	allowDisablingAnnotationKey = "modules.deckhouse.io/allow-disabling"
 
 	// clusterOwnerLabelKey marks the LVMVolumeGroup / LVMLogicalVolume / PV the
 	// EC reconcile created for a given ElasticCluster.
@@ -88,6 +94,11 @@ const (
 
 	d8ElasticNamespace      = "d8-sds-elastic"
 	mcValidationWebhookName = "d8-sds-elastic-mc-validation"
+
+	// d8NodeConfiguratorNamespace hosts sds-node-configurator (agent +
+	// controller) — the component that drives LVMVolumeGroup readiness, so its
+	// pods/events are dumped on failure alongside the sds-elastic module.
+	d8NodeConfiguratorNamespace = "d8-sds-node-configurator"
 
 	probeContainerName = "probe"
 	probeMountPath     = "/data"
@@ -168,6 +179,10 @@ type e2eConfig struct {
 	// raw OSD disks (base cluster). Both come from TEST_CLUSTER_*.
 	vmNamespace      string
 	baseStorageClass string
+
+	// keepClusterOnFailure, when true, makes cleanupSuite skip nested-cluster
+	// teardown if any spec failed (E2E_KEEP_CLUSTER_ON_FAILURE).
+	keepClusterOnFailure bool
 }
 
 var (
@@ -234,7 +249,19 @@ func loadConfig() e2eConfig {
 		}
 	}
 
+	cfg.keepClusterOnFailure = envBool(os.Getenv(envKeepClusterOnFailure))
+
 	return cfg
+}
+
+// envBool parses a permissive boolean env value ("true"/"1"/"yes", any case).
+func envBool(raw string) bool {
+	switch strings.ToLower(strings.TrimSpace(raw)) {
+	case "true", "1", "yes", "y", "on":
+		return true
+	default:
+		return false
+	}
 }
 
 // parseLabel splits a "key=value" env value; "key" alone keeps defVal; empty
@@ -556,6 +583,49 @@ func deleteReleasedPV(ctx context.Context, pvName string) error {
 	return client.IgnoreNotFound(suiteK8s.Delete(ctx, &pv))
 }
 
+// reclaimReleasedPV flips a Released PV's reclaim policy back to Delete and
+// waits for it to disappear. Unlike deleteReleasedPV (which only removes the
+// PV object and leaves the on-disk volume orphaned), this makes the csi-ceph
+// external provisioner call DeleteVolume — actually destroying the backing
+// CephFS subvolume. The provisioner only removes the PV after DeleteVolume
+// succeeds, so the PV going away proves the subvolume is gone. This is the
+// only way to empty a CephFS filesystem for teardown: there is no force path,
+// and deleting a Retain PV does not reclaim its subvolume.
+func reclaimReleasedPV(ctx context.Context, pvName string, timeout time.Duration) error {
+	var pv corev1.PersistentVolume
+	if err := suiteK8s.Get(ctx, client.ObjectKey{Name: pvName}, &pv); err != nil {
+		if apierrors.IsNotFound(err) {
+			return nil
+		}
+		return fmt.Errorf("get pv %s: %w", pvName, err)
+	}
+	if pv.Spec.PersistentVolumeReclaimPolicy != corev1.PersistentVolumeReclaimDelete {
+		patch := client.MergeFrom(pv.DeepCopy())
+		pv.Spec.PersistentVolumeReclaimPolicy = corev1.PersistentVolumeReclaimDelete
+		if err := suiteK8s.Patch(ctx, &pv, patch); err != nil {
+			return fmt.Errorf("set pv %s reclaimPolicy=Delete: %w", pvName, err)
+		}
+	}
+
+	deadline := time.Now().Add(timeout)
+	for {
+		var cur corev1.PersistentVolume
+		err := suiteK8s.Get(ctx, client.ObjectKey{Name: pvName}, &cur)
+		if apierrors.IsNotFound(err) {
+			return nil
+		}
+		if time.Now().After(deadline) {
+			if err != nil {
+				return fmt.Errorf("timeout waiting for reclaimed pv %s to be gone; last get err: %w", pvName, err)
+			}
+			return fmt.Errorf("timeout waiting for reclaimed pv %s to be gone (phase=%s, reclaimPolicy=%s)", pvName, cur.Status.Phase, cur.Spec.PersistentVolumeReclaimPolicy)
+		}
+		if !sleepCtx(ctx, pollInterval) {
+			return ctx.Err()
+		}
+	}
+}
+
 func annotateForceDeletion(ctx context.Context, escName string) error {
 	return storagekube.AnnotateElasticStorageClassForceDeletion(ctx, suiteRestCfg, escName)
 }
@@ -593,10 +663,29 @@ func expectModuleConfigDenied(ctx context.Context, name string, enabled bool) er
 		return fmt.Errorf("expected admission denial patching ModuleConfig %s enabled=%t, but it succeeded", name, enabled)
 	}
 	msg := strings.ToLower(err.Error())
-	if apierrors.IsForbidden(err) || strings.Contains(msg, "elasticcluster") || strings.Contains(msg, "cannot disable") {
+
+	// Deckhouse's platform-level disable-confirmation guard (module.yaml
+	// disable.confirmation=true) also denies the patch, and its message
+	// mentions ElasticCluster too — so a loose substring match on
+	// "elasticcluster" cannot tell it apart from the sds-elastic guard. Treat a
+	// platform-confirmation denial as a FAILURE: it means allowDeckhouseDisabling
+	// did not actually grant the confirmation (e.g. the annotation is missing),
+	// so this spec never exercised the sds-elastic guard it claims to test.
+	if strings.Contains(msg, strings.ToLower(allowDisablingAnnotationKey)) {
+		return fmt.Errorf(
+			"ModuleConfig %s disable was denied by Deckhouse's platform confirmation guard, not the sds-elastic guard; "+
+				"grant it first via allowDeckhouseDisabling (annotation %s=true): %w",
+			name, allowDisablingAnnotationKey, err,
+		)
+	}
+
+	// The sds-elastic guard's denial always names its force-disable escape
+	// hatch and the distinctive "cannot disable the sds-elastic module" phrase.
+	if strings.Contains(msg, strings.ToLower(forceDisableAnnotation)) ||
+		strings.Contains(msg, "cannot disable the sds-elastic module") {
 		return nil
 	}
-	return fmt.Errorf("ModuleConfig %s patch was rejected but not by the expected disable guard: %w", name, err)
+	return fmt.Errorf("ModuleConfig %s patch was rejected but not by the expected sds-elastic disable guard: %w", name, err)
 }
 
 func setForceDisableAnnotation(ctx context.Context, name string) error {
@@ -606,7 +695,7 @@ func setForceDisableAnnotation(ctx context.Context, name string) error {
 }
 
 func allowDeckhouseDisabling(ctx context.Context, name string) error {
-	patch := []byte(fmt.Sprintf(`{"metadata":{"labels":{%q:"true"}}}`, allowDisablingLabelKey))
+	patch := []byte(fmt.Sprintf(`{"metadata":{"annotations":{%q:"true"}}}`, allowDisablingAnnotationKey))
 	_, err := suiteDyn.Resource(moduleConfigGVR).Patch(ctx, name, types.MergePatchType, patch, metav1.PatchOptions{})
 	return err
 }

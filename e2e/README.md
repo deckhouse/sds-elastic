@@ -66,14 +66,36 @@ Only the nested-cluster mode driven by `storage-e2e` is supported.
 - `YAML_CONFIG_FILENAME`:
   defaults to `cluster_config.yml`.
 - `SSH_HOST`, `SSH_USER`, `SSH_PRIVATE_KEY`
+- `SSH_PUBLIC_KEY`:
+  path to (or inline content of) the SSH public key injected as the VMs'
+  authorized key. **Required in `alwaysCreateNew` mode** — set it explicitly
+  (e.g. `~/.ssh/id_rsa.pub`); the suite errors with `SSH_PUBLIC_KEY is not set`
+  during VM creation if it is empty.
+- `SSH_VM_USER`:
+  SSH user inside the created VMs (must match the VM image, usually `cloud`).
+  **Required in `alwaysCreateNew` mode** — `storage-e2e` does not apply a
+  default, so an empty value makes the post-create SSH fail with
+  `unable to authenticate [none publickey]` and `SSH_VM_USER (current="")`.
+- `SSH_JUMP_HOST`, `SSH_JUMP_USER`, `SSH_JUMP_KEY_PATH`:
+  jump-host (bastion) SSH settings used by `alwaysUseExisting`. When the target
+  cluster master is only reachable through a bastion — e.g. a nested cluster
+  whose master sits behind the base hypervisor — set `SSH_HOST`/`SSH_USER` to
+  the **target cluster master** and these to the bastion. Ignored by
+  `alwaysCreateNew`.
+- `TEST_CLUSTER_FORCE_LOCK_RELEASE`:
+  set to `true` to steal a stale `e2e-cluster-lock` ConfigMap left in the
+  `default` namespace by a previous crashed/`Ctrl+C` run. Only use when you are
+  sure no other run is using the cluster.
 - `DKP_LICENSE_KEY`
 - `REGISTRY_DOCKER_CFG`
-- `MODULE_IMAGE_TAG`:
-  expanded into `modulePullOverride` for `sds-elastic` in
-  `tests/cluster_config.yml`. Set to `prN` on GitHub, `mrN` on GitLab, or
-  `main` for nightly. **Must include the C3 disable-guard webhook** or the
-  module_disable specs will fail. storage-e2e fails fast at config-load time if
-  the variable is unset.
+- `SDS_ELASTIC_MODULE_PULL_OVERRIDE`:
+  overrides `modulePullOverride` for `sds-elastic` from `tests/cluster_config.yml`
+  (which keeps a literal `main` default). Set to `prN` on GitHub, `mrN` on
+  GitLab, or `main` for nightly. **The image must include the C3 disable-guard
+  webhook** or the module_disable specs will fail. When unset, the static `main`
+  tag is used; when set, storage-e2e logs both the static tag and this override
+  at config-load time. (This is storage-e2e's generic per-module convention:
+  `<MODULE>_MODULE_PULL_OVERRIDE`, e.g. `CSI_CEPH_MODULE_PULL_OVERRIDE`.)
 
 ### `sds-elastic` suite knobs
 
@@ -103,6 +125,12 @@ Only the nested-cluster mode driven by `storage-e2e` is supported.
 - `E2E_PROBE_IMAGE`:
   container image (must ship `sh` + `cat`) for the PVC round-trip probe Pods,
   defaults to `busybox:1.36`.
+- `E2E_KEEP_CLUSTER_ON_FAILURE`:
+  when truthy (`true`/`1`/`yes`), and at least one spec failed, the nested
+  cluster is **not** torn down in `AfterSuite`, so you can inspect the live
+  cluster. The suite prints a banner with the namespace, EC, Rook namespace,
+  kubeconfig path and first master IP. Remember to delete the VMs manually
+  afterwards. Defaults to off.
 
 ## Quick start
 
@@ -115,11 +143,15 @@ export TEST_CLUSTER_STORAGE_CLASS=linstor-r2
 export SSH_HOST=<master-ip>
 export SSH_USER=<ssh-user>
 export SSH_PRIVATE_KEY=~/.ssh/id_rsa
+export SSH_PUBLIC_KEY=~/.ssh/id_rsa.pub   # required for alwaysCreateNew (VM authorized key)
+export SSH_VM_USER=cloud                  # required for alwaysCreateNew (SSH user inside the VMs)
 
 export DKP_LICENSE_KEY=<license>
 export REGISTRY_DOCKER_CFG=<base64-docker-config>
 
-export MODULE_IMAGE_TAG=main   # or prN / mrN to test a specific PR/MR
+# Override the sds-elastic image tag (the C3 webhook build); optional, defaults
+# to the literal "main" in cluster_config.yml.
+export SDS_ELASTIC_MODULE_PULL_OVERRIDE=main   # or prN / mrN to test a specific PR/MR
 
 cd e2e
 make deps

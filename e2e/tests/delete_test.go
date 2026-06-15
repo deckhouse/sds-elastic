@@ -141,8 +141,8 @@ func deleteSpecs() {
 		Expect(storagekube.DeleteElasticStorageClass(ctx, suiteRestCfg, escCephFSName())).To(Succeed())
 		expectESCStuck(ctx, escCephFSName(), storagekube.ElasticStorageClassReasonFilesystemNotEmpty, guardSettleTimeout)
 
-		By("There is no force path for CephFS: removing the orphaned PV lets teardown finish")
-		Expect(deleteReleasedPV(ctx, pvName)).To(Succeed())
+		By("There is no force path for CephFS: reclaiming the orphaned PV (reclaimPolicy=Delete) destroys the subvolume and lets teardown finish")
+		Expect(reclaimReleasedPV(ctx, pvName, resourceGoneTimeout)).To(Succeed())
 		Expect(storagekube.WaitForElasticStorageClassGone(ctx, suiteRestCfg, escCephFSName(), resourceGoneTimeout)).To(Succeed())
 		Expect(waitResourceGone(ctx, cephStorageClassGVR, "", escCephFSName(), resourceGoneTimeout)).To(Succeed())
 		Expect(waitResourceGone(ctx, storagekube.ElasticRookCephFilesystemGVR, suiteCfg.rookNamespace, escCephFSName(), resourceGoneTimeout)).To(Succeed())

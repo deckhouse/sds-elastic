@@ -18,6 +18,7 @@ package tests
 
 import (
 	"context"
+	"encoding/json"
 	"os"
 	"testing"
 	"time"
@@ -36,6 +37,16 @@ import (
 // distinct nodes, so 4 is the meaningful lower bound. When the suite attaches
 // the disks, it instead waits for exactly the number it attached.
 const fallbackMinOSDBlockDevices = 4
+
+// e2eStateFile is where storage-e2e persists nested-cluster state (matches
+// config.E2ETempDir, which is internal and not importable). Used only to surface
+// access info in the keep-on-failure banner.
+const e2eStateFile = "/tmp/e2e/cluster-state.json"
+
+// anySpecFailed records whether any spec failed during the run. cleanupSuite
+// consults it together with E2E_KEEP_CLUSTER_ON_FAILURE to decide whether to
+// skip nested-cluster teardown.
+var anySpecFailed bool
 
 var _ = BeforeSuite(func() {
 	prepareSuite()
@@ -66,7 +77,7 @@ func TestSdsElastic(t *testing.T) {
 // functions called in EXPLICIT dependency order (see README "Why one shared
 // ElasticCluster"): per-file top-level Describes would order alphabetically and
 // break the mcBlocked-before-teardown invariant.
-var _ = Describe("sds-elastic e2e", Ordered, func() {
+var _ = Describe("sds-elastic e2e", Ordered, ContinueOnFailure, func() {
 	BeforeAll(prepareSharedState)
 
 	// Dump EC/ESC conditions, Rook status and controller logs on any failure.
@@ -74,6 +85,7 @@ var _ = Describe("sds-elastic e2e", Ordered, func() {
 		if !CurrentSpecReport().Failed() {
 			return
 		}
+		anySpecFailed = true
 		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Minute)
 		defer cancel()
 		dumpFailedSpecDiagnostics(ctx)
@@ -149,7 +161,50 @@ func prepareSharedState() {
 }
 
 func cleanupSuite() {
-	// The nested cluster teardown is the only mandatory step; resource-level
-	// cleanup is driven by the specs themselves (and expanded in C5-C7).
+	// Keep the nested cluster alive for manual debugging when a spec failed and
+	// the operator asked for it. Otherwise tear it down (the only mandatory
+	// step; resource-level cleanup is driven by the specs themselves).
+	if suiteCfg.keepClusterOnFailure && anySpecFailed {
+		printKeepClusterBanner()
+		return
+	}
 	cleanupNestedTestCluster()
+}
+
+// printKeepClusterBanner tells the operator how to reach the preserved cluster
+// after a failure (E2E_KEEP_CLUSTER_ON_FAILURE). All lookups are best-effort.
+func printKeepClusterBanner() {
+	GinkgoWriter.Printf("\n========== E2E_KEEP_CLUSTER_ON_FAILURE: cluster preserved ==========\n")
+	GinkgoWriter.Printf("A spec failed and nested-cluster teardown was SKIPPED for debugging.\n")
+	GinkgoWriter.Printf("  namespace (PVC/Pod + base VM ns): %s\n", suiteCfg.namespace)
+	GinkgoWriter.Printf("  ElasticCluster:                   %s\n", suiteCfg.ecName)
+	GinkgoWriter.Printf("  Rook namespace:                   %s\n", suiteCfg.rookNamespace)
+	if suiteClusterResources != nil && suiteClusterResources.KubeconfigPath != "" {
+		GinkgoWriter.Printf("  kubeconfig (export KUBECONFIG):   %s\n", suiteClusterResources.KubeconfigPath)
+	}
+	if ip, vms := readClusterState(); ip != "" {
+		GinkgoWriter.Printf("  first master IP:                  %s\n", ip)
+		GinkgoWriter.Printf("  VMs:                              %v\n", vms)
+		GinkgoWriter.Printf("  SSH (via jump host):              ssh -J $SSH_USER@$SSH_HOST $SSH_VM_USER@%s\n", ip)
+	}
+	GinkgoWriter.Printf("  state file:                       %s\n", e2eStateFile)
+	GinkgoWriter.Printf("Remember to delete the VMs / nested cluster manually when finished.\n")
+	GinkgoWriter.Printf("====================================================================\n")
+}
+
+// readClusterState parses the storage-e2e nested-cluster state file for access
+// hints. Returns zero values on any error (file absent, partial run, etc.).
+func readClusterState() (firstMasterIP string, vmNames []string) {
+	data, err := os.ReadFile(e2eStateFile)
+	if err != nil {
+		return "", nil
+	}
+	var st struct {
+		FirstMasterIP string   `json:"first_master_ip"`
+		VMNames       []string `json:"vm_names"`
+	}
+	if err := json.Unmarshal(data, &st); err != nil {
+		return "", nil
+	}
+	return st.FirstMasterIP, st.VMNames
 }

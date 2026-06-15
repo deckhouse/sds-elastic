@@ -12,7 +12,7 @@ deps: ## Download dependencies
 
 .PHONY: test
 test: ## Run full nested-cluster E2E suite
-	go test -v -count=1 -timeout 180m ./tests/
+	go test -v -count=1 -timeout 180m ./tests/ -ginkgo.timeout 180m
 
 .PHONY: test-focus
 test-focus: ## Run a focused Ginkgo spec (make test-focus FOCUS="create EC")
@@ -20,7 +20,7 @@ test-focus: ## Run a focused Ginkgo spec (make test-focus FOCUS="create EC")
 		echo "Error: specify FOCUS=<Ginkgo focus string>"; \
 		exit 1; \
 	fi
-	go test -v -count=1 -timeout 180m ./tests/ -ginkgo.focus "$(FOCUS)"
+	go test -v -count=1 -timeout 180m ./tests/ -ginkgo.timeout 180m -ginkgo.focus "$(FOCUS)"
 
 .PHONY: vet
 vet: ## go vet
@@ -44,9 +44,11 @@ check-env: ## Print relevant env vars for the nested flow
 	@echo "SSH_HOST:                         $${SSH_HOST}"
 	@echo "SSH_USER:                         $${SSH_USER}"
 	@echo "SSH_PRIVATE_KEY:                  $${SSH_PRIVATE_KEY}"
+	@echo "SSH_PUBLIC_KEY:                   $${SSH_PUBLIC_KEY}  # required for alwaysCreateNew (VM authorized key)"
+	@echo "SSH_VM_USER:                      $${SSH_VM_USER}  # required for alwaysCreateNew (SSH user inside the VMs)"
 	@echo "DKP_LICENSE_KEY:                  $${DKP_LICENSE_KEY:+<set>}"
 	@echo "REGISTRY_DOCKER_CFG:              $${REGISTRY_DOCKER_CFG:+<set>}"
-	@echo "MODULE_IMAGE_TAG:                 $${MODULE_IMAGE_TAG}  # pinned into cluster_config.yml"
+	@echo "SDS_ELASTIC_MODULE_PULL_OVERRIDE: $${SDS_ELASTIC_MODULE_PULL_OVERRIDE}  # overrides modulePullOverride (default main)"
 	@echo "YAML_CONFIG_FILENAME:             $${YAML_CONFIG_FILENAME}  # default cluster_config.yml"
 	@echo ""
 	@echo "=== sds-elastic suite knobs ==="
@@ -60,6 +62,7 @@ check-env: ## Print relevant env vars for the nested flow
 	@echo "E2E_EC_READY_TIMEOUT:             $${E2E_EC_READY_TIMEOUT}"
 	@echo "E2E_ESC_READY_TIMEOUT:            $${E2E_ESC_READY_TIMEOUT}"
 	@echo "E2E_PROBE_IMAGE:                  $${E2E_PROBE_IMAGE}  # image with sh+cat for PVC round-trip pods"
+	@echo "E2E_KEEP_CLUSTER_ON_FAILURE:      $${E2E_KEEP_CLUSTER_ON_FAILURE}  # true|1|yes -> skip teardown if a spec failed"
 
 .PHONY: fix-mod-permissions
 fix-mod-permissions: ## Make storage-e2e module cache writable (PrepareBootstrapConfig writes temp/ under the module path)

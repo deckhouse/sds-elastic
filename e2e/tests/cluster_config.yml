@@ -2,7 +2,7 @@
 #
 # 1 master + 5 storage workers. Five workers are the minimum for the
 # HighRedundancy ElasticStorageClass (5-mon quorum, OSDs accepted on >=4
-# distinct nodes) and the CephFS ErasureCodedCompact replication (>=4 nodes).
+# distinct nodes).
 #
 # Raw OSD disks are NOT declared here: storage-e2e's cluster config schema has
 # no per-node "additional disks" field. Instead the suite attaches raw
@@ -21,8 +21,9 @@
 #   - sds-elastic            : the module under test; ships the vendored Rook
 #                              operator (renamed group
 #                              internal.sdselastic.deckhouse.io) and the EC/ESC
-#                              controllers. Pinned to the image under test via
-#                              modulePullOverride: "${MODULE_IMAGE_TAG}".
+#                              controllers. modulePullOverride defaults to the
+#                              literal "main"; override it for CI by exporting
+#                              SDS_ELASTIC_MODULE_PULL_OVERRIDE=pr<N>/mr<N>.
 #
 # sds-local-volume is intentionally absent: sds-elastic OSDs consume raw
 # BlockDevices directly, not a LocalStorageClass.
@@ -99,12 +100,13 @@ clusterDefinition:
       - name: "sds-elastic"
         version: 1
         enabled: true
-        # CI must set MODULE_IMAGE_TAG, e.g. "pr<N>" on GitHub, "mr<N>" on
-        # GitLab, or "main" for nightly. storage-e2e expands ${VAR} forms at
-        # config load time and fails fast if the env var is unset. The mc
-        # disable-guard webhook (commit C3) must be present in this image for
-        # the module_disable specs to pass.
-        modulePullOverride: "${MODULE_IMAGE_TAG}"
+        # Static default tag (must be literal — storage-e2e rejects ${VAR} here).
+        # CI overrides it WITHOUT editing this file by exporting
+        # SDS_ELASTIC_MODULE_PULL_OVERRIDE, e.g. "pr<N>" on GitHub, "mr<N>" on
+        # GitLab (the override and the static tag are logged at config load).
+        # The image under test MUST carry the mc disable-guard webhook (commit
+        # C3) or the module_disable specs fail.
+        modulePullOverride: "main"
         dependencies:
           - "snapshot-controller"
           - "sds-node-configurator"
