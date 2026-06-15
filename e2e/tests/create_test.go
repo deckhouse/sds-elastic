@@ -123,7 +123,7 @@ func createSpecs() {
 			To(Succeed(), "Rook CephBlockPool %s/%s should be Ready", suiteCfg.rookNamespace, escRBDName())
 	})
 
-	It("declares a CephFS ElasticStorageClass (ErasureCodedCompact) and reaches Ready", func() {
+	It("declares a CephFS ElasticStorageClass (ConsistencyAndAvailability) and reaches Ready", func() {
 		ctx, cancel := context.WithTimeout(context.Background(), suiteCfg.escReadyTimeout+5*time.Minute)
 		defer cancel()
 
@@ -131,7 +131,7 @@ func createSpecs() {
 			Name:         escCephFSName(),
 			ClusterRef:   suiteCfg.ecName,
 			Type:         testkit.ElasticStorageClassTypeCephFS,
-			Replication:  testkit.ElasticReplicationErasureCodedCompact,
+			Replication:  testkit.ElasticReplicationConsistencyAndAvailability,
 			ReadyTimeout: suiteCfg.escReadyTimeout,
 		})
 		Expect(err).NotTo(HaveOccurred(), "CephFS ElasticStorageClass %s did not reach Ready", escCephFSName())

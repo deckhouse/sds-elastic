@@ -65,9 +65,18 @@ var _ = Describe("ElasticStorageClassValidate", func() {
 
 	It("rejects RBD + ErasureCodedCompact on CREATE", func() {
 		obj := newESCUnstructured("pool", escSpec("demo", storageClassTypeRBD, replicationErasureCodedCompact))
-		valid, _, err := validate(model.OperationCreate, nil, obj)
+		valid, msg, err := validate(model.OperationCreate, nil, obj)
 		Expect(err).NotTo(HaveOccurred())
 		Expect(valid).To(BeFalse())
+		Expect(msg).To(ContainSubstring("ErasureCodedCompact"))
+	})
+
+	It("rejects CephFS + ErasureCodedCompact on CREATE", func() {
+		obj := newESCUnstructured("pool", escSpec("demo", "CephFS", replicationErasureCodedCompact))
+		valid, msg, err := validate(model.OperationCreate, nil, obj)
+		Expect(err).NotTo(HaveOccurred())
+		Expect(valid).To(BeFalse())
+		Expect(msg).To(ContainSubstring("ErasureCodedCompact"))
 	})
 
 	It("accepts valid CREATE", func() {

@@ -71,9 +71,10 @@ func ESCCephFSDataPoolName(_ *v1alpha1.ElasticStorageClass) string {
 //     recovery margin before data loss; the controller auto-promotes
 //     CephCluster.spec.mon.count to 5 when at least one HighRedundancy ESC
 //     is present, see CephTopologyStatus on ElasticClusterStatus.
-//   - ErasureCodedCompact             -> rejected by the validating webhook for type=RBD; this builder is only
-//     called after webhook acceptance, so an EC value here is a programming
-//     bug and we surface it as an error rather than a partial spec.
+//   - ErasureCodedCompact             -> temporarily disabled: the value is omitted from the
+//     ReplicationMode enum and rejected by the validating webhook, so this
+//     builder is only reached for it via a programming bug; we surface it as
+//     an error rather than a partial spec. The branch is kept for re-enable.
 //
 // min_size is not set explicitly: Ceph derives it from the cluster's
 // osd_pool_default_min_size (typically size-1).

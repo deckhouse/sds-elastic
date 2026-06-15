@@ -207,7 +207,7 @@ spec:
 EOF
 ```
 
-### CephFS-пул с erasure-кодированием (k=2, m=2)
+### CephFS-пул с дефолтной репликацией (3 реплики)
 
 ```shell
 d8 k apply -f - <<EOF
@@ -218,11 +218,11 @@ metadata:
 spec:
   clusterRef: ceph-prod
   type: CephFS
-  replication: ErasureCodedCompact
+  replication: ConsistencyAndAvailability
 EOF
 ```
 
-`ErasureCodedCompact` требует не менее 4 storage-узлов и недоступен для `type: RBD` (csi-ceph пока не provisioner-ит RBD-тома на erasure-coded пулах).
+> Режим репликации `ErasureCodedCompact` временно отключён и недоступен для выбора.
 
 ### Пул, переживающий одновременный отказ двух хостов (`HighRedundancy`)
 

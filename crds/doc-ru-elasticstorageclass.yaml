@@ -9,8 +9,7 @@ spec:
             в production-проверенный layout пула и создаёт `CephStorageClass` в csi-ceph
             с тем же именем (1:1).
 
-            Сочетание `type: RBD` + `replication: ErasureCodedCompact` отвергается:
-            csi-ceph пока не предоставляет RBD-тома на erasure-coded пулах.
+            Режим репликации `ErasureCodedCompact` временно отключён и недоступен для выбора.
           properties:
             spec:
               properties:
@@ -43,9 +42,9 @@ spec:
                       топологию CephCluster до 5 mon и 3 mgr и не возвращает её обратно
                       даже после удаления триггерного ESC. Аудит — в
                       `ElasticCluster.status.cephTopology`.
-                    - `ErasureCodedCompact` — k=2, m=2 (`jerasure`/`reed_sol_van`,
-                      `allow_ec_overwrites=true`). Эффективнее по месту (1.5x против 3x).
-                      Требует не менее 4 storage-узлов. Не поддерживается с `type: RBD`.
+
+                    Режим `ErasureCodedCompact` временно отключён и не является
+                    допустимым значением.
             status:
               description: |
                 Текущее состояние ресурсов, управляемых ElasticStorageClass.

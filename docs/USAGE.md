@@ -207,7 +207,7 @@ spec:
 EOF
 ```
 
-### CephFS pool with erasure coding (k=2, m=2)
+### CephFS pool with default replication (3 replicas)
 
 ```shell
 d8 k apply -f - <<EOF
@@ -218,11 +218,11 @@ metadata:
 spec:
   clusterRef: ceph-prod
   type: CephFS
-  replication: ErasureCodedCompact
+  replication: ConsistencyAndAvailability
 EOF
 ```
 
-`ErasureCodedCompact` requires at least 4 storage nodes and is rejected for `type: RBD` (csi-ceph does not yet provision RBD volumes on erasure-coded pools).
+> The `ErasureCodedCompact` replication mode is temporarily disabled and cannot be selected.
 
 ### Pool that survives two simultaneous host failures (`HighRedundancy`)
 
