@@ -4,7 +4,7 @@ go 1.26.0
 
 require (
 	github.com/deckhouse/sds-elastic/api v0.0.0-00010101000000-000000000000
-	github.com/deckhouse/storage-e2e v0.0.0-00010101000000-000000000000
+	github.com/deckhouse/storage-e2e v0.0.0-20260615225534-f681188c4aa9
 	github.com/onsi/ginkgo/v2 v2.23.3
 	github.com/onsi/gomega v1.37.0
 	k8s.io/api v0.34.2
@@ -75,9 +75,10 @@ require (
 	sigs.k8s.io/structured-merge-diff/v6 v6.3.0 // indirect
 )
 
-// During development the suite builds against the local storage-e2e checkout
-// that carries the new Elastic helper layer (parts A/C1-C2). After part A is
-// merged and tagged, replace this with a pinned pseudo-version require.
-replace github.com/deckhouse/storage-e2e => ../../../../../e2e/repos/storage-e2e
+// storage-e2e carries the Elastic helper layer on its add-elastic branch,
+// which is not yet merged/tagged, so it is consumed as a pinned pseudo-version
+// from origin (no local checkout needed). Re-pin to a tagged release once
+// add-elastic merges into main.
 
+// sds-elastic/api is always consumed from this repo's source via replace.
 replace github.com/deckhouse/sds-elastic/api => ../api
