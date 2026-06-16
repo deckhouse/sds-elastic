@@ -39,7 +39,7 @@ import (
 // CephCluster), then upserts the Rook pool CR and waits for
 // status.phase==Ready.
 func (r *ElasticStorageClassReconciler) ensurePool(ctx context.Context, esc *v1alpha1.ElasticStorageClass) (bool, string, error) {
-	_, ready, msg, err := r.getReadyEC(ctx, esc)
+	ready, msg, err := r.getReadyEC(ctx, esc)
 	if err != nil {
 		return false, "", err
 	}
@@ -57,27 +57,29 @@ func (r *ElasticStorageClassReconciler) ensurePool(ctx context.Context, esc *v1a
 	}
 }
 
-// getReadyEC fetches the parent EC and returns whether it has reached
-// CephClusterReady=True. Missing EC is surfaced as an InProgress
-// condition rather than a hard error so the operator sees "waiting for
-// EC <name>" instead of a noisy reconcile failure.
-func (r *ElasticStorageClassReconciler) getReadyEC(ctx context.Context, esc *v1alpha1.ElasticStorageClass) (*v1alpha1.ElasticCluster, bool, string, error) {
+// getReadyEC fetches the parent EC referenced by esc.Spec.ClusterRef and
+// returns whether it has reached CephClusterReady=True. Missing EC is
+// surfaced as an InProgress condition rather than a hard error so the
+// operator sees "waiting for EC <name>" instead of a noisy reconcile
+// failure. The EC value itself is not exposed — every caller only needs
+// the (ready, message, error) triple.
+func (r *ElasticStorageClassReconciler) getReadyEC(ctx context.Context, esc *v1alpha1.ElasticStorageClass) (bool, string, error) {
 	ec := &v1alpha1.ElasticCluster{}
 	err := r.Client.Get(ctx, client.ObjectKey{Name: esc.Spec.ClusterRef}, ec)
 	if apierrors.IsNotFound(err) {
-		return nil, false, fmt.Sprintf("waiting for ElasticCluster %q", esc.Spec.ClusterRef), nil
+		return false, fmt.Sprintf("waiting for ElasticCluster %q", esc.Spec.ClusterRef), nil
 	}
 	if err != nil {
-		return nil, false, "", err
+		return false, "", err
 	}
 	if ec.Status == nil {
-		return ec, false, fmt.Sprintf("ElasticCluster %q has no status yet", ec.Name), nil
+		return false, fmt.Sprintf("ElasticCluster %q has no status yet", ec.Name), nil
 	}
 	cond := apimeta.FindStatusCondition(ec.Status.Conditions, v1alpha1.ECConditionCephClusterReady)
 	if cond == nil || cond.Status != metav1.ConditionTrue {
-		return ec, false, fmt.Sprintf("waiting for ElasticCluster %q to reach CephClusterReady=True", ec.Name), nil
+		return false, fmt.Sprintf("waiting for ElasticCluster %q to become ready", ec.Name), nil
 	}
-	return ec, true, "", nil
+	return true, "", nil
 }
 
 func (r *ElasticStorageClassReconciler) ensureRBDPool(ctx context.Context, esc *v1alpha1.ElasticStorageClass) (bool, string, error) {
@@ -87,9 +89,10 @@ func (r *ElasticStorageClassReconciler) ensureRBDPool(ctx context.Context, esc *
 	}
 	if err := r.upsertESCUnstructured(ctx, desired); err != nil {
 		if isNoMatchErr(err) {
-			return false, "waiting for CephBlockPool CRD (Rook)", nil
+			return false, "waiting for storage pool CRD", nil
 		}
-		return false, "", fmt.Errorf("upsert CephBlockPool: %w", err)
+		r.Log.Error(err, "[ensureRBDPool] failed to upsert CephBlockPool")
+		return false, "", errProvisionStoragePool
 	}
 
 	pool := &unstructured.Unstructured{}
@@ -99,16 +102,17 @@ func (r *ElasticStorageClassReconciler) ensureRBDPool(ctx context.Context, esc *
 		Name:      builder.ESCRBDPoolName(esc),
 	}, pool)
 	if apierrors.IsNotFound(err) {
-		return false, "CephBlockPool not yet visible", nil
+		return false, "storage pool not yet visible", nil
 	}
 	if err != nil {
-		return false, "", err
+		r.Log.Error(err, "[ensureRBDPool] failed to get CephBlockPool")
+		return false, "", errProvisionStoragePool
 	}
 	phase, _, _ := unstructured.NestedString(pool.Object, "status", "phase")
 	if phase != "Ready" {
-		return false, fmt.Sprintf("CephBlockPool phase=%q (waiting for Ready)", phase), nil
+		return false, fmt.Sprintf("storage pool not ready (phase=%q)", phase), nil
 	}
-	return true, fmt.Sprintf("CephBlockPool %s is Ready", pool.GetName()), nil
+	return true, "storage pool is ready", nil
 }
 
 func (r *ElasticStorageClassReconciler) ensureCephFS(ctx context.Context, esc *v1alpha1.ElasticStorageClass) (bool, string, error) {
@@ -118,9 +122,10 @@ func (r *ElasticStorageClassReconciler) ensureCephFS(ctx context.Context, esc *v
 	}
 	if err := r.upsertESCUnstructured(ctx, desired); err != nil {
 		if isNoMatchErr(err) {
-			return false, "waiting for CephFilesystem CRD (Rook)", nil
+			return false, "waiting for storage filesystem CRD", nil
 		}
-		return false, "", fmt.Errorf("upsert CephFilesystem: %w", err)
+		r.Log.Error(err, "[ensureCephFS] failed to upsert CephFilesystem")
+		return false, "", errProvisionStorageFS
 	}
 
 	fs := &unstructured.Unstructured{}
@@ -130,16 +135,17 @@ func (r *ElasticStorageClassReconciler) ensureCephFS(ctx context.Context, esc *v
 		Name:      builder.ESCCephFSName(esc),
 	}, fs)
 	if apierrors.IsNotFound(err) {
-		return false, "CephFilesystem not yet visible", nil
+		return false, "storage filesystem not yet visible", nil
 	}
 	if err != nil {
-		return false, "", err
+		r.Log.Error(err, "[ensureCephFS] failed to get CephFilesystem")
+		return false, "", errProvisionStorageFS
 	}
 	phase, _, _ := unstructured.NestedString(fs.Object, "status", "phase")
 	if phase != "Ready" {
-		return false, fmt.Sprintf("CephFilesystem phase=%q (waiting for Ready)", phase), nil
+		return false, fmt.Sprintf("storage filesystem not ready (phase=%q)", phase), nil
 	}
-	return true, fmt.Sprintf("CephFilesystem %s is Ready", fs.GetName()), nil
+	return true, "storage filesystem is ready", nil
 }
 
 // ensureCsiStorageClass is the CsiStorageClassReady stage. Connection
@@ -152,25 +158,27 @@ func (r *ElasticStorageClassReconciler) ensureCsiStorageClass(ctx context.Contex
 	}
 	if err := r.upsertESCUnstructured(ctx, desired); err != nil {
 		if isNoMatchErr(err) {
-			return false, "waiting for CephStorageClass CRD (csi-ceph)", nil
+			return false, "waiting for storage class CRD", nil
 		}
-		return false, "", fmt.Errorf("upsert CephStorageClass: %w", err)
+		r.Log.Error(err, "[ensureCsiStorageClass] failed to upsert CephStorageClass")
+		return false, "", errCreateStorageClass
 	}
 
 	sc := &unstructured.Unstructured{}
 	sc.SetGroupVersionKind(external.CephStorageClassGVK)
 	err = r.Client.Get(ctx, types.NamespacedName{Name: desired.GetName()}, sc)
 	if apierrors.IsNotFound(err) {
-		return false, "CephStorageClass not yet visible", nil
+		return false, "storage class not yet visible", nil
 	}
 	if err != nil {
-		return false, "", err
+		r.Log.Error(err, "[ensureCsiStorageClass] failed to get CephStorageClass")
+		return false, "", errCreateStorageClass
 	}
 	phase, _, _ := unstructured.NestedString(sc.Object, "status", "phase")
 	if phase != "Created" {
-		return false, fmt.Sprintf("CephStorageClass phase=%q (waiting for Created)", phase), nil
+		return false, fmt.Sprintf("storage class not ready (phase=%q)", phase), nil
 	}
-	return true, fmt.Sprintf("CephStorageClass %s is Created", sc.GetName()), nil
+	return true, "storage class is ready", nil
 }
 
 // upsertESCUnstructured is a near-duplicate of upsertECUnstructured.

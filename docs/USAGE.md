@@ -58,6 +58,32 @@ Wait until every module reaches the `Ready` state:
 d8 k get module sds-node-configurator snapshot-controller csi-ceph sds-elastic -w
 ```
 
+## Selecting Data Nodes
+
+`settings.dataNodes.nodeSelector` declares which Kubernetes Nodes are eligible to host sds-elastic data. The controller places the label `storage.deckhouse.io/sds-elastic-node=""` on every matching Node and removes it from Nodes that no longer match.
+
+Downstream consumers — the [`sds-node-configurator`](/modules/sds-node-configurator/) agent (it picks up `BlockDevice` discovery on data nodes) and your `ElasticCluster.spec.storage.nodeSelector` — use this label as a `nodeAffinity` term.
+
+```yaml
+apiVersion: deckhouse.io/v1alpha1
+kind: ModuleConfig
+metadata:
+  name: sds-elastic
+spec:
+  enabled: true
+  version: 1
+  settings:
+    dataNodes:
+      nodeSelector:
+        node-role.deckhouse.io/storage: ""
+```
+
+If the field is omitted, the empty selector matches every Node — every Node in the cluster gets `storage.deckhouse.io/sds-elastic-node=""`.
+
+{{< alert level="warning" >}}
+Narrowing `dataNodes.nodeSelector` does not redistribute data. If a Node that already hosts OSDs falls outside the new selector, its `storage.deckhouse.io/sds-elastic-node` label is removed and data on that Node becomes unreachable until the Node is brought back under the selector.
+{{< /alert >}}
+
 ## Preparing Storage Nodes
 
 `ElasticCluster` consumes `BlockDevice` CRs (managed by `sds-node-configurator`) selected by labels and provisions one OSD per matched device.
@@ -145,7 +171,7 @@ Once an `ElasticCluster` selects a `BlockDevice` for the first time, the control
 
   As a side effect, `sds-node-configurator` flips `BlockDevice.status.consumable` to `false` once a VG appears on the device. Sticky adoption prevents this from kicking the BD out of the working set on the very next reconcile.
 
-- **Releasing a BlockDevice.** There is no automatic disown path on this experimental stage (planned as part of B20 — OwnerReferences and finalizer-driven teardown). To safely retire a BD from a cluster, either delete the entire `ElasticCluster` (the controller-managed objects are removed, see `Deleting Resources` below) or, if you must shrink one cluster only, manually delete the corresponding `LVMLogicalVolume` and `LVMVolumeGroup`, and only then clear the label:
+- **Releasing a BlockDevice.** There is no automatic disown path on this experimental stage (planned as part of B20 — OwnerReferences and finalizer-driven teardown). Deleting the `ElasticCluster` does NOT cascade to the per-device objects: the controller only removes the Rook `CephCluster` and the csi-ceph `CephClusterConnection`, leaving the `LVMVolumeGroup` / `LVMLogicalVolume` / local `PersistentVolume` and the BD label for you to clean up by label (see `Deleting Resources` below). To retire a single BD from a live cluster, manually delete the corresponding `LVMLogicalVolume` and `LVMVolumeGroup`, and only then clear the label:
 
   ```shell
   d8 k delete lvmlogicalvolume <name>
@@ -181,7 +207,7 @@ spec:
 EOF
 ```
 
-### CephFS pool with erasure coding (k=2, m=2)
+### CephFS pool with default replication (3 replicas)
 
 ```shell
 d8 k apply -f - <<EOF
@@ -192,11 +218,11 @@ metadata:
 spec:
   clusterRef: ceph-prod
   type: CephFS
-  replication: ErasureCodedCompact
+  replication: ConsistencyAndAvailability
 EOF
 ```
 
-`ErasureCodedCompact` requires at least 4 storage nodes and is rejected for `type: RBD` (csi-ceph does not yet provision RBD volumes on erasure-coded pools).
+> The `ErasureCodedCompact` replication mode is temporarily disabled and cannot be selected.
 
 ### Pool that survives two simultaneous host failures (`HighRedundancy`)
 
@@ -266,27 +292,86 @@ The internal helm-managed `StorageClass` `sds-elastic-osd` (provisioner `kuberne
 
 ## Deleting Resources
 
+### Deleting an ElasticCluster
+
+Deleting an `ElasticCluster` is reversible as long as no `ElasticStorageClass` still references it: the controller removes only the resources you cannot delete by hand — the Rook `CephCluster` and the csi-ceph `CephClusterConnection`, both protected by the vendor-cr-validation webhook. The OSD disks and the mon store are left intact, so the cluster can be re-created from the same devices.
+
+Order of operations:
+
+1. Delete every dependent `ElasticStorageClass` first (see below). The controller refuses to start the cluster teardown while any ESC references it.
+2. Delete the `ElasticCluster`:
+
+   ```shell
+   d8 k delete elasticcluster ceph-prod
+   ```
+
+   Held by a finalizer, the controller deletes the `CephCluster` and `CephClusterConnection`, then releases the CR.
+3. Clean up the remaining controller-labelled objects by hand — they are intentionally preserved (no automatic cascade):
+
+   ```shell
+   # inspect what is still labelled with the cluster name
+   d8 k get pv,lvmlogicalvolume,lvmvolumegroup -l sds-elastic.deckhouse.io/cluster=ceph-prod
+
+   d8 k delete pv -l sds-elastic.deckhouse.io/cluster=ceph-prod
+   d8 k delete lvmlogicalvolume -l sds-elastic.deckhouse.io/cluster=ceph-prod
+   d8 k delete lvmvolumegroup -l sds-elastic.deckhouse.io/cluster=ceph-prod
+   # finally clear the cluster label from the BlockDevices
+   d8 k label blockdevice -l sds-elastic.deckhouse.io/cluster=ceph-prod sds-elastic.deckhouse.io/cluster-
+   ```
+
+   Keep the `ElasticClusterCredential` if you plan to re-create the cluster with the same identity.
+
+While the teardown is in progress the `ElasticCluster` `Ready` condition explains what is blocking it:
+
+| Reason | Meaning | Action |
+| --- | --- | --- |
+| `StorageClassesExist` | One or more `ElasticStorageClass` still reference this cluster. | Delete the listed `ElasticStorageClass` objects first. |
+| `VolumesExist` | The storage backend still has bound `PersistentVolume`s. | Delete the remaining `PersistentVolume`s; teardown then continues automatically. |
+| `Terminating` | Backend resources are being removed. | Wait for completion. |
+
+### Deleting an ElasticStorageClass
+
 Delete an `ElasticStorageClass` to remove the corresponding pool and `CephStorageClass`:
 
 ```shell
 d8 k delete elasticstorageclass ceph-prod-rbd
 ```
 
-Delete the `ElasticCluster` to remove all controller-managed objects (LVMVolumeGroup / LVMLogicalVolume / local PV / Rook CephCluster) bound to it:
+{{< alert level="warning" >}}
+Deleting an `ElasticStorageClass` is destructive: it tears down the underlying storage pool / filesystem and the data stored in it. Make sure no application still needs the data first.
+{{< /alert >}}
+
+Held by a finalizer, the controller runs an ordered teardown:
+
+1. It refuses to delete anything while any `PersistentVolume` provisioned from this StorageClass is still `Bound`. Delete the consuming `PersistentVolumeClaim`s first — this guard cannot be overridden.
+2. Once nothing is bound, it removes the `CephStorageClass` and tears down the backing pool / filesystem.
+
+For block (RBD) classes, a pool that still holds data is preserved by default. To permanently delete it (the data in the pool is lost), authorise the destructive purge with the force-deletion annotation:
 
 ```shell
-d8 k delete elasticcluster ceph-prod
+d8 k annotate elasticstorageclass ceph-prod-rbd sds-elastic.deckhouse.io/force-deletion=true
 ```
 
-{{< alert level="warning" >}}
-Finalizer-based GC for ElasticCluster / ElasticStorageClass is planned (B20 in the backlog) but not yet implemented. On the experimental stage deletion clears controller-owned objects but does not orchestrate Rook teardown end-to-end; manual cleanup of OSD devices / `cephx` entries / leftover Rook CRs may be required. Do not delete the `ElasticCluster` while pools still hold useful data.
-{{< /alert >}}
+For shared-filesystem (CephFS) classes there is no force override: the filesystem is removed automatically once it is empty, which you achieve by deleting the remaining `PersistentVolume`s for the StorageClass.
+
+While the teardown is in progress the `ElasticStorageClass` `Ready` condition explains what is blocking it:
+
+| Reason | Meaning | Action |
+| --- | --- | --- |
+| `BoundVolumesExist` | `PersistentVolume`s provisioned from this StorageClass are still bound. | Delete the consuming `PersistentVolumeClaim`s. The force annotation does not override this. |
+| `DataPresentInPool` | The block pool still holds data (RBD only). | Set `sds-elastic.deckhouse.io/force-deletion=true` to permanently delete the pool and its data. |
+| `FilesystemNotEmpty` | The filesystem still has volumes (CephFS only). | Delete the remaining `PersistentVolume`s for this StorageClass. |
+| `Terminating` | Backend resources are being removed. | Wait for completion. |
+
+PV / LVM / BlockDevice cleanup after deleting an `ElasticCluster` is manual (see above); end-to-end OwnerReferences-driven GC is tracked as backlog item B20.
 
 ## Disabling the Module
 
 {{< alert level="danger" >}}
 Disabling the module stops the controller and the Rook operator. Data stored in Ceph clusters managed by this module may become unavailable or be lost. Always delete every `ElasticCluster`, `ElasticStorageClass` and `ElasticClusterCredential` object before disabling the module.
 {{< /alert >}}
+
+A validating webhook on the `sds-elastic` `ModuleConfig` **rejects** setting `spec.enabled: false` while any `ElasticCluster` still exists. This prevents accidentally tearing down the controller and the Rook operator while a live Ceph cluster (OSD data on host disks) is still under management. Follow the ordered teardown below; the disable is accepted only once the last `ElasticCluster` is gone.
 
 1. Delete every `ElasticStorageClass` and wait until the controller has removed the pools and csi-ceph StorageClasses:
 
@@ -304,18 +389,33 @@ Disabling the module stops the controller and the Rook operator. Data stored in 
 
    Wait until the command returns `No resources found`.
 
-1. Verify that no `ElasticClusterCredential` remains:
+1. Optionally remove the `ElasticClusterCredential`. It is a cluster-scoped identity backup and does not gate the disable (only a live `ElasticCluster` blocks it). Delete it unless you plan to re-create the cluster with the same identity:
 
    ```shell
    d8 k get elasticclustercredentials.storage.deckhouse.io
+   d8 k delete elasticclustercredential <name>
    ```
 
-1. Disable the module. Disabling requires the `modules.deckhouse.io/allow-disabling: "true"` label on the ModuleConfig:
+1. Disable the module. Disabling requires the `modules.deckhouse.io/allow-disabling: "true"` annotation on the ModuleConfig:
 
    ```shell
-   d8 k label moduleconfig sds-elastic modules.deckhouse.io/allow-disabling=true --overwrite
+   d8 k annotate moduleconfig sds-elastic modules.deckhouse.io/allow-disabling=true --overwrite
    d8 k patch moduleconfig sds-elastic --type=merge -p '{"spec":{"enabled":false}}'
    ```
+
+### Forcing the Module Off While ElasticClusters Remain
+
+{{< alert level="danger" >}}
+This bypasses the safety guard. Use it only for disaster recovery, when you deliberately want to keep the `ElasticCluster` CRs and their on-disk data but stop the module from managing them. The Ceph cluster will be left orphaned (no operator), and the controller finalizers on the leftover CRs are stripped by the module-delete hook so the API server can garbage-collect them. OSD data on host disks and `dataDirHostPath` are **not** erased, but they are no longer managed and may become unrecoverable through normal means.
+{{< /alert >}}
+
+If you must disable the module without deleting the `ElasticCluster`s first, set the `sds-elastic.deckhouse.io/force-disable: "true"` annotation on the ModuleConfig. With this annotation present, the webhook allows `spec.enabled: false` regardless of how many `ElasticCluster`s exist:
+
+```shell
+d8 k annotate moduleconfig sds-elastic sds-elastic.deckhouse.io/force-disable=true --overwrite
+d8 k annotate moduleconfig sds-elastic modules.deckhouse.io/allow-disabling=true --overwrite
+d8 k patch moduleconfig sds-elastic --type=merge -p '{"spec":{"enabled":false}}'
+```
 
 ## Checking Cluster Health
 

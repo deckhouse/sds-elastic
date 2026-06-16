@@ -1,0 +1,92 @@
+From 3cbe76026d44173a1e0399ed656f28d693cc4dcf Mon Sep 17 00:00:00 2001
+From: sds-elastic build <sds-elastic@flant.com>
+Date: Tue, 26 May 2026 19:52:23 +0300
+Subject: [PATCH] Rename CRD API group ceph.rook.io -> internal.sdselastic.deckhouse.io
+
+Rerouting the Rook operator's API group lets the sds-elastic-managed
+instance coexist with a user-installed upstream Rook on the same
+Kubernetes cluster: discovery, RBAC and etcd keys for the two
+deployments no longer overlap.
+
+Three minimal edits are sufficient because the literal "ceph.rook.io"
+is centralised in two constants (used by SchemeGroupVersion, every
+typed/generic client under pkg/client, all finalizer names and
+DisasterProtectionFinalizerName); only one production-code site
+hardcodes the group string outside of these constants:
+
+  * pkg/apis/ceph.rook.io/register.go        - CustomResourceGroupName
+  * pkg/apis/ceph.rook.io/v1/register.go     - CustomResourceGroup
+  * pkg/operator/ceph/csi/secrets.go         - OwnerReference APIVersion
+    for CSI secrets owned by CephCluster; required for the Kubernetes
+    garbage collector to actually reap these secrets on CR deletion
+    (GC resolves owner GVK via the discovery RESTMapper).
+
+Cosmetic literals left untouched on purpose:
+  * pkg/operator/ceph/cluster/osd/labels.go and the daemon spec.go
+    files use strings like "cephclusters.ceph.rook.io" only as label
+    keys/values on daemon pods - they do not affect API routing.
+  * pkg/operator/ceph/object/objectstore.go sets
+    bucketProvisionerName = "ceph.rook.io/bucket" which is the
+    ObjectBucketClaim provisioner identifier; objectbucket.io is
+    not part of this rename.
+  * pkg/apis/ceph.rook.io/v1/labels.go keeps
+    SkipReconcileLabelKey = "ceph.rook.io/do-not-reconcile" for
+    backward-compatible user-facing label semantics.
+
+Test files (pkg/.../*_test.go, tests/**) are not adjusted; they are
+not exercised by the sds-elastic build (only ./cmd/rook is built).
+
+diff --git a/pkg/apis/ceph.rook.io/register.go b/pkg/apis/ceph.rook.io/register.go
+index d722c38..2a9813e 100644
+--- a/pkg/apis/ceph.rook.io/register.go
++++ b/pkg/apis/ceph.rook.io/register.go
+@@ -1,5 +1,11 @@
+ package cephrookio
+ 
+ const (
+-	CustomResourceGroupName = "ceph.rook.io"
++	// CustomResourceGroupName is the API group for all Ceph CRs.
++	// Renamed by the sds-elastic build (deckhouse/sds-elastic) so that the
++	// vendored Rook operator does not collide with a user-installed upstream
++	// Rook on the same cluster. All Rook clientsets, finalizers and
++	// SchemeGroupVersion derive from this constant, so flipping it here
++	// reroutes every Group-aware API call to internal.sdselastic.deckhouse.io.
++	CustomResourceGroupName = "internal.sdselastic.deckhouse.io"
+ )
+diff --git a/pkg/apis/ceph.rook.io/v1/register.go b/pkg/apis/ceph.rook.io/v1/register.go
+index 488e85f..db600c0 100644
+--- a/pkg/apis/ceph.rook.io/v1/register.go
++++ b/pkg/apis/ceph.rook.io/v1/register.go
+@@ -26,7 +26,9 @@ import (
+ )
+ 
+ const (
+-	CustomResourceGroup = "ceph.rook.io"
++	// CustomResourceGroup mirrors cephrookio.CustomResourceGroupName and is
++	// kept in sync with it by the sds-elastic patch (deckhouse/sds-elastic).
++	CustomResourceGroup = "internal.sdselastic.deckhouse.io"
+ 	Version             = "v1"
+ )
+ 
+diff --git a/pkg/operator/ceph/csi/secrets.go b/pkg/operator/ceph/csi/secrets.go
+index b339603..26cf27d 100644
+--- a/pkg/operator/ceph/csi/secrets.go
++++ b/pkg/operator/ceph/csi/secrets.go
+@@ -461,8 +461,13 @@ func deleteCount(numKeys, keepPriorCount int) int {
+ }
+ 
+ func deleteOwnedCSISecretsByCephCluster(context *clusterd.Context, clusterInfo *client.ClusterInfo) error {
++	// APIVersion is kept in sync with the renamed API group used by the
++	// sds-elastic patch (deckhouse/sds-elastic): "internal.sdselastic.deckhouse.io/v1".
++	// The Kubernetes garbage collector resolves owner GVK strictly through
++	// the discovery RESTMapper, so an outdated ceph.rook.io/v1 reference
++	// here would leak CSI Secrets on CephCluster deletion.
+ 	ownerRef := metav1.OwnerReference{
+-		APIVersion: "ceph.rook.io/v1",
++		APIVersion: "internal.sdselastic.deckhouse.io/v1",
+ 		Kind:       "CephCluster",
+ 		Name:       clusterInfo.NamespacedName().Name,
+ 	}
+-- 
+2.43.0
+

@@ -60,7 +60,7 @@ var _ = Describe("shared helpers", func() {
 	Describe("isNoMatchErr", func() {
 		It("detects NoMatchError", func() {
 			err := &apimeta.NoResourceMatchError{
-				PartialResource: schema.GroupVersionResource{Group: "ceph.rook.io", Resource: "cephclusters"},
+				PartialResource: schema.GroupVersionResource{Group: "internal.sdselastic.deckhouse.io", Resource: "cephclusters"},
 			}
 			Expect(isNoMatchErr(err)).To(BeTrue())
 		})

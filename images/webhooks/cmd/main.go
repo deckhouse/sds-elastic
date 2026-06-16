@@ -61,6 +61,7 @@ const (
 	ElasticStorageClassValidatorID      = "ElasticStorageClassValidator"
 	ElasticClusterCredentialValidatorID = "ElasticClusterCredentialValidator"
 	ElasticClusterValidatorID           = "ElasticClusterValidator"
+	ModuleConfigValidatorID             = "ModuleConfigValidator"
 )
 
 func main() {
@@ -136,11 +137,23 @@ func main() {
 		os.Exit(1)
 	}
 
+	mcValidatingWebhookHandler, err := handlers.GetValidatingWebhookHandler(
+		handlers.NewModuleConfigValidator(dynClient),
+		ModuleConfigValidatorID,
+		&unstructured.Unstructured{},
+		logger,
+	)
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "error creating mcValidatingWebhookHandler: %s", err)
+		os.Exit(1)
+	}
+
 	mux := http.NewServeMux()
 	mux.Handle("/vendor-cr-validate", vendorCRValidatingWebhookHandler)
 	mux.Handle("/esc-validate", escValidatingWebhookHandler)
 	mux.Handle("/ecc-validate", eccValidatingWebhookHandler)
 	mux.Handle("/ec-validate", ecValidatingWebhookHandler)
+	mux.Handle("/mc-validate", mcValidatingWebhookHandler)
 	mux.HandleFunc("/healthz", httpHandlerHealthz)
 
 	logger.Infof("Listening on %s", port)

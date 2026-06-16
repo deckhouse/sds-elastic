@@ -34,16 +34,31 @@ var AllowedProvisioners = []string{}
 
 var WebhookConfigurationsToDelete = []string{
 	"d8-sds-elastic-vendor-cr-validation",
+	// mc-validation hard-blocks disabling the module while ElasticClusters
+	// exist (operations CREATE/UPDATE on the sds-elastic ModuleConfig with
+	// failurePolicy=Fail). It must be removed on module delete so that, once
+	// the disable has been allowed (no ECs left, or force-disable
+	// annotation), nothing keeps intercepting ModuleConfig changes and the
+	// module can be re-enabled cleanly.
+	"d8-sds-elastic-mc-validation",
 }
 
 // CRGVKsForFinalizerRemoval lists CRs the module creates and which may
-// carry a controller-managed finalizer. Finalizer-based GC is tracked
-// in backlog item B20; the entries below are kept ready so the module
-// uninstall hook is a no-op until the controllers start setting them.
+// carry a controller-managed finalizer. On module disable the controller
+// and the Rook operator are already stopped, so stripping the finalizers
+// here only unblocks API-server deletion — it does NOT trigger any Rook
+// cleanup, so OSD disks and dataDirHostPath are preserved (the namespace
+// is no longer wedged in Terminating).
+//
+// The Rook-vendored CRs (CephCluster/CephBlockPool/CephFilesystem) live
+// in the module-internal group and are namespaced into ModuleNamespace.
 var CRGVKsForFinalizerRemoval = []CRGVK{
 	{Group: "storage.deckhouse.io", Version: "v1alpha1", Kind: "ElasticCluster", Namespaced: false},
 	{Group: "storage.deckhouse.io", Version: "v1alpha1", Kind: "ElasticStorageClass", Namespaced: false},
 	{Group: "storage.deckhouse.io", Version: "v1alpha1", Kind: "ElasticClusterCredential", Namespaced: false},
+	{Group: "internal.sdselastic.deckhouse.io", Version: "v1", Kind: "CephCluster", Namespaced: true},
+	{Group: "internal.sdselastic.deckhouse.io", Version: "v1", Kind: "CephBlockPool", Namespaced: true},
+	{Group: "internal.sdselastic.deckhouse.io", Version: "v1", Kind: "CephFilesystem", Namespaced: true},
 }
 
 type CRGVK struct {

@@ -76,9 +76,9 @@ var elasticClusterGVR = schema.GroupVersionResource{
 //
 //   - metadata.name MUST NOT collide with the helm-managed reserved OSD
 //     StorageClass name.
-//   - type=RBD with replication=ErasureCodedCompact is rejected
-//     (csi-ceph does not yet provision RBD on erasure-coded pools —
-//     backlog B4).
+//   - replication=ErasureCodedCompact is rejected for every type
+//     (the mode is temporarily disabled; the CRD enum omits it and this
+//     webhook rejects it as defense-in-depth).
 //   - On CREATE with replication=HighRedundancy the parent
 //     ElasticCluster MUST exist and have at least
 //     hrMinNodesMatched nodes matching its spec.storage.nodeSelector
@@ -123,12 +123,11 @@ func NewElasticStorageClassValidator(
 			)), nil
 		}
 
-		scType, _, _ := unstructured.NestedString(newObj.Object, "spec", "type")
 		replication, _, _ := unstructured.NestedString(newObj.Object, "spec", "replication")
-		if scType == storageClassTypeRBD && replication == replicationErasureCodedCompact {
+		if replication == replicationErasureCodedCompact {
 			return reject(
-				"ElasticStorageClass with type=RBD does not support replication=ErasureCodedCompact " +
-					"(csi-ceph does not yet provision RBD on erasure-coded pools)",
+				"ElasticStorageClass with replication=ErasureCodedCompact is currently not supported " +
+					"(the ErasureCodedCompact mode is temporarily disabled)",
 			), nil
 		}
 

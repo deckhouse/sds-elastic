@@ -30,7 +30,7 @@
 {{- /* Webhook Service */ -}}
 {{ include "helm_lib_module_webhook_service" (list . dict) }}
 
-{{- /* ValidatingWebhookConfiguration for vendor CRs (Rook / ObjectBucket) */ -}}
+{{- /* ValidatingWebhookConfiguration for vendor CRs (Rook) */ -}}
 {{- $cephResources := list
   "cephblockpoolradosnamespaces"
   "cephblockpools"
@@ -59,25 +59,11 @@
   "failurePolicy" "Fail"
   "rules" (list
     (dict
-      "apiGroups" (list "ceph.rook.io")
+      "apiGroups" (list "internal.sdselastic.deckhouse.io")
       "apiVersions" (list "v1")
       "operations" (list "CREATE" "UPDATE" "DELETE")
       "resources" $cephResources
       "scope" "Namespaced"
-    )
-    (dict
-      "apiGroups" (list "objectbucket.io")
-      "apiVersions" (list "v1alpha1")
-      "operations" (list "CREATE" "UPDATE" "DELETE")
-      "resources" (list "objectbucketclaims")
-      "scope" "Namespaced"
-    )
-    (dict
-      "apiGroups" (list "objectbucket.io")
-      "apiVersions" (list "v1alpha1")
-      "operations" (list "CREATE" "UPDATE" "DELETE")
-      "resources" (list "objectbuckets")
-      "scope" "Cluster"
     )
   )
 }}
@@ -171,3 +157,48 @@
   )
 }}
 {{ include "helm_lib_module_validating_webhook_configuration" (list . $ecWebhookConfig) }}
+
+{{- /*
+  ValidatingWebhookConfiguration for the sds-elastic ModuleConfig.
+
+  Blocks disabling the module (spec.enabled=false) while ElasticCluster
+  CRs still exist. Disabling stops the controller and the Rook operator,
+  which would orphan the backing Ceph cluster (OSD data on host disks)
+  and leave the ElasticCluster CRs unmanaged. The handler bypasses the
+  guard when the ModuleConfig carries
+  sds-elastic.deckhouse.io/force-disable=true (advanced / disaster
+  recovery: keep the CRs and on-disk data, stop managing them).
+
+  matchConditions narrows the webhook to this module's own ModuleConfig
+  (request.name == "sds-elastic") so it never intercepts other modules'
+  config changes.
+
+  failurePolicy=Fail: when the webhook is unreachable the API server
+  denies the change, so the disable guard cannot be bypassed by scaling
+  the webhook down. No re-enable deadlock: the VWC is part of this Helm
+  release and is removed when the module uninstalls, so toggling
+  spec.enabled back to true is never intercepted.
+*/ -}}
+{{- $mcWebhookConfig := dict
+  "name" "mc-validation"
+  "webhookName" "mc-validation"
+  "valuesKey" "sdsElastic"
+  "path" "/mc-validate"
+  "failurePolicy" "Fail"
+  "rules" (list
+    (dict
+      "apiGroups" (list "deckhouse.io")
+      "apiVersions" (list "v1alpha1")
+      "operations" (list "CREATE" "UPDATE")
+      "resources" (list "moduleconfigs")
+      "scope" "Cluster"
+    )
+  )
+  "matchConditions" (list
+    (dict
+      "name" (printf "match-%s" .Chart.Name)
+      "expression" (printf "request.name == \"%s\"" .Chart.Name)
+    )
+  )
+}}
+{{ include "helm_lib_module_validating_webhook_configuration" (list . $mcWebhookConfig) }}

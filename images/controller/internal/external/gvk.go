@@ -22,25 +22,31 @@ package external
 
 import "k8s.io/apimachinery/pkg/runtime/schema"
 
-// Rook (ceph.rook.io/v1).
+// Rook (internal.sdselastic.deckhouse.io/v1).
+//
+// The API group is renamed from the upstream ceph.rook.io to
+// internal.sdselastic.deckhouse.io by the vendored Rook operator build
+// (see images/operator/patches/). All clients here address the renamed
+// group so that sds-elastic does not interfere with a user-installed
+// upstream Rook on the same cluster.
 var (
 	CephClusterGVK = schema.GroupVersionKind{
-		Group:   "ceph.rook.io",
+		Group:   "internal.sdselastic.deckhouse.io",
 		Version: "v1",
 		Kind:    "CephCluster",
 	}
 	CephBlockPoolGVK = schema.GroupVersionKind{
-		Group:   "ceph.rook.io",
+		Group:   "internal.sdselastic.deckhouse.io",
 		Version: "v1",
 		Kind:    "CephBlockPool",
 	}
 	CephFilesystemGVK = schema.GroupVersionKind{
-		Group:   "ceph.rook.io",
+		Group:   "internal.sdselastic.deckhouse.io",
 		Version: "v1",
 		Kind:    "CephFilesystem",
 	}
 	CephObjectStoreGVK = schema.GroupVersionKind{
-		Group:   "ceph.rook.io",
+		Group:   "internal.sdselastic.deckhouse.io",
 		Version: "v1",
 		Kind:    "CephObjectStore",
 	}
@@ -81,6 +87,31 @@ var (
 
 // LVMLogicalVolume finalizer used in the instruction (manual creation).
 const LVMLogicalVolumeManualFinalizer = "storage.deckhouse.io/manual-creation"
+
+// ECFinalizer is taken on every ElasticCluster the controller reconciles.
+// It guarantees reconcileDelete runs the ordered teardown (delete the
+// CephCluster + CephClusterConnection the operator cannot delete by hand
+// because the vendor-cr-validation webhook blocks them) before the CR is
+// allowed to disappear.
+const ECFinalizer = "sds-elastic.deckhouse.io/elastic-cluster"
+
+// ESCFinalizer is taken on every ElasticStorageClass. It guarantees the
+// destructive pool/filesystem teardown (and the bound-PV guard that
+// protects it) runs before the CR disappears.
+const ESCFinalizer = "sds-elastic.deckhouse.io/elastic-storage-class"
+
+const (
+	// ESCForceDeleteAnnotation, set to "true" on an ElasticStorageClass,
+	// authorises the destructive purge of a non-empty RBD pool (the
+	// controller propagates it to the underlying CephBlockPool as
+	// RookForceDeletionAnnotation). It never bypasses the bound-PV guard.
+	ESCForceDeleteAnnotation = "sds-elastic.deckhouse.io/force-deletion"
+
+	// RookForceDeletionAnnotation is the Rook annotation honoured on
+	// CephBlockPool/RadosNamespace/CephFilesystemSubVolumeGroup to force
+	// deletion of an object that still holds data.
+	RookForceDeletionAnnotation = "rook.io/force-deletion"
+)
 
 // Rook secret/configmap names used to source CephClusterConnection data.
 const (

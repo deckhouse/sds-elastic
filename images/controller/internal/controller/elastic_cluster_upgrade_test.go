@@ -50,7 +50,7 @@ var _ = Describe("probeCephUpgradeState", func() {
 		Expect(probe.Done).To(BeTrue())
 		Expect(probe.InProgress).To(BeFalse())
 		Expect(probe.Running).To(Equal(cephVerString1923))
-		Expect(probe.Msg).To(ContainSubstring("running ceph version"))
+		Expect(probe.Msg).To(ContainSubstring("running version"))
 	})
 
 	It("returns InProgress with mixed versions.overall (mid-roll)", func() {
@@ -74,7 +74,7 @@ var _ = Describe("probeCephUpgradeState", func() {
 		// Lagging version surfaced on the printcolumn so callers
 		// see the still-rolling daemons' version, not Rook's marker.
 		Expect(probe.Running).To(Equal(cephVerString1923))
-		Expect(probe.Msg).To(ContainSubstring("Rook rolling pods"))
+		Expect(probe.Msg).To(ContainSubstring("rolling update in progress"))
 		Expect(probe.Msg).To(ContainSubstring("19.2.3"))
 		Expect(probe.Msg).To(ContainSubstring("20.2.1"))
 	})
@@ -157,7 +157,7 @@ var _ = Describe("probeCephUpgradeState", func() {
 		Expect(probe.Done).To(BeFalse())
 		Expect(probe.InProgress).To(BeTrue())
 		Expect(probe.Running).To(BeEmpty())
-		Expect(probe.Msg).To(ContainSubstring("no running ceph version yet"))
+		Expect(probe.Msg).To(ContainSubstring("no running version reported yet"))
 	})
 })
 
@@ -186,7 +186,7 @@ var _ = Describe("ensureUpgrade", func() {
 		Expect(err).NotTo(HaveOccurred())
 		Expect(done).To(BeTrue())
 		Expect(inProgress).To(BeFalse())
-		Expect(msg).To(ContainSubstring("running ceph version"))
+		Expect(msg).To(ContainSubstring("running version"))
 		Expect(status.cephVersion.Running).To(Equal(cephVerString1923))
 		Expect(status.cephVersion.Requested).To(Equal(v1alpha1.DefaultCephVersion))
 	})
@@ -204,7 +204,7 @@ var _ = Describe("ensureUpgrade", func() {
 		Expect(err).NotTo(HaveOccurred())
 		Expect(done).To(BeFalse())
 		Expect(inProgress).To(BeTrue())
-		Expect(msg).To(ContainSubstring("Rook rolling pods"))
+		Expect(msg).To(ContainSubstring("rolling update in progress"))
 		Expect(status.cephVersion.Running).To(Equal(cephVerString1923))
 	})
 

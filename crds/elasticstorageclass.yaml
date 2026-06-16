@@ -29,9 +29,8 @@ spec:
             controller maps `spec.replication` to a production-tested pool layout
             and creates a 1:1-named `CephStorageClass` in csi-ceph.
 
-            The combination `type: RBD` + `replication: ErasureCodedCompact` is
-            currently rejected: csi-ceph does not yet provision RBD volumes on
-            erasure-coded pools.
+            The `ErasureCodedCompact` replication mode is temporarily disabled and
+            cannot be selected.
           required:
             - spec
           x-kubernetes-validations:
@@ -54,8 +53,8 @@ spec:
                   message: "spec.type is immutable after creation."
                 - rule: "oldSelf == null || self.replication == oldSelf.replication"
                   message: "spec.replication is immutable after creation."
-                - rule: "self.type != 'RBD' || self.replication != 'ErasureCodedCompact'"
-                  message: "ErasureCodedCompact is not supported for type=RBD; csi-ceph does not yet provision RBD on erasure-coded pools."
+                - rule: "self.replication != 'ErasureCodedCompact'"
+                  message: "ErasureCodedCompact is currently not supported."
               properties:
                 clusterRef:
                   type: string
@@ -95,15 +94,13 @@ spec:
                       topology while at least one HighRedundancy ESC exists, and
                       keeps the promotion sticky after the trigger ESC is removed.
                       See `ElasticCluster.status.cephTopology` for the audit trail.
-                    - `ErasureCodedCompact` — k=2, m=2 with `jerasure`/`reed_sol_van`
-                      and `allow_ec_overwrites=true`. Storage-efficient (1.5x overhead
-                      vs 3x for replicated). Requires at least 4 storage nodes.
-                      Not supported with `type: RBD`.
+
+                    The `ErasureCodedCompact` mode is temporarily disabled and is
+                    not an accepted value.
                   enum:
                     - AvailabilityWithoutConsistency
                     - ConsistencyAndAvailability
                     - HighRedundancy
-                    - ErasureCodedCompact
                   default: ConsistencyAndAvailability
             status:
               type: object

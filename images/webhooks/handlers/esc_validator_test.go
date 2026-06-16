@@ -65,9 +65,18 @@ var _ = Describe("ElasticStorageClassValidate", func() {
 
 	It("rejects RBD + ErasureCodedCompact on CREATE", func() {
 		obj := newESCUnstructured("pool", escSpec("demo", storageClassTypeRBD, replicationErasureCodedCompact))
-		valid, _, err := validate(model.OperationCreate, nil, obj)
+		valid, msg, err := validate(model.OperationCreate, nil, obj)
 		Expect(err).NotTo(HaveOccurred())
 		Expect(valid).To(BeFalse())
+		Expect(msg).To(ContainSubstring("ErasureCodedCompact"))
+	})
+
+	It("rejects CephFS + ErasureCodedCompact on CREATE", func() {
+		obj := newESCUnstructured("pool", escSpec("demo", "CephFS", replicationErasureCodedCompact))
+		valid, msg, err := validate(model.OperationCreate, nil, obj)
+		Expect(err).NotTo(HaveOccurred())
+		Expect(valid).To(BeFalse())
+		Expect(msg).To(ContainSubstring("ErasureCodedCompact"))
 	})
 
 	It("accepts valid CREATE", func() {
@@ -78,9 +87,9 @@ var _ = Describe("ElasticStorageClassValidate", func() {
 	})
 
 	It("rejects clusterRef mutation on UPDATE", func() {
-		old := newESCUnstructured("pool", escSpec("ec-a", storageClassTypeRBD, ""))
-		new := newESCUnstructured("pool", escSpec("ec-b", storageClassTypeRBD, ""))
-		valid, msg, err := validate(model.OperationUpdate, old, new)
+		oldESC := newESCUnstructured("pool", escSpec("ec-a", storageClassTypeRBD, ""))
+		updated := newESCUnstructured("pool", escSpec("ec-b", storageClassTypeRBD, ""))
+		valid, msg, err := validate(model.OperationUpdate, oldESC, updated)
 		Expect(err).NotTo(HaveOccurred())
 		Expect(valid).To(BeFalse())
 		Expect(msg).To(ContainSubstring("clusterRef"))
@@ -88,25 +97,25 @@ var _ = Describe("ElasticStorageClassValidate", func() {
 
 	It("accepts unchanged clusterRef on UPDATE", func() {
 		spec := escSpec("demo", storageClassTypeRBD, "")
-		old := newESCUnstructured("pool", spec)
-		new := newESCUnstructured("pool", spec)
-		valid, _, err := validate(model.OperationUpdate, old, new)
+		oldESC := newESCUnstructured("pool", spec)
+		updated := newESCUnstructured("pool", spec)
+		valid, _, err := validate(model.OperationUpdate, oldESC, updated)
 		Expect(err).NotTo(HaveOccurred())
 		Expect(valid).To(BeTrue())
 	})
 
 	It("rejects type mutation on UPDATE", func() {
-		old := newESCUnstructured("pool", escSpec("demo", storageClassTypeRBD, ""))
-		new := newESCUnstructured("pool", escSpec("demo", "CephFS", ""))
-		valid, _, err := validate(model.OperationUpdate, old, new)
+		oldESC := newESCUnstructured("pool", escSpec("demo", storageClassTypeRBD, ""))
+		updated := newESCUnstructured("pool", escSpec("demo", "CephFS", ""))
+		valid, _, err := validate(model.OperationUpdate, oldESC, updated)
 		Expect(err).NotTo(HaveOccurred())
 		Expect(valid).To(BeFalse())
 	})
 
 	It("rejects replication mutation on UPDATE", func() {
-		old := newESCUnstructured("pool", escSpec("demo", storageClassTypeRBD, "ConsistencyAndAvailability"))
-		new := newESCUnstructured("pool", escSpec("demo", storageClassTypeRBD, "AvailabilityWithoutConsistency"))
-		valid, msg, err := validate(model.OperationUpdate, old, new)
+		oldESC := newESCUnstructured("pool", escSpec("demo", storageClassTypeRBD, "ConsistencyAndAvailability"))
+		updated := newESCUnstructured("pool", escSpec("demo", storageClassTypeRBD, "AvailabilityWithoutConsistency"))
+		valid, msg, err := validate(model.OperationUpdate, oldESC, updated)
 		Expect(err).NotTo(HaveOccurred())
 		Expect(valid).To(BeFalse())
 		Expect(msg).To(ContainSubstring("replication"))

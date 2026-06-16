@@ -34,6 +34,7 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/builder"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/controller"
+	"sigs.k8s.io/controller-runtime/pkg/event"
 	"sigs.k8s.io/controller-runtime/pkg/handler"
 	"sigs.k8s.io/controller-runtime/pkg/manager"
 	"sigs.k8s.io/controller-runtime/pkg/predicate"
@@ -112,9 +113,23 @@ func AddElasticClusterReconcilerToManager(mgr manager.Manager, cfg *config.Optio
 	enqueueAll := handler.EnqueueRequestsFromMapFunc(r.enqueueAllElasticClusters)
 	enqueueByESC := handler.EnqueueRequestsFromMapFunc(r.enqueueECByESC)
 
+	// GenerationChangedPredicate alone would drop the Update event that
+	// sets metadata.deletionTimestamp (deletion does not bump
+	// generation), so a finalizer-held ElasticCluster would never reach
+	// reconcileDelete. OR it with a predicate that always passes a
+	// terminating object through.
+	ecPredicate := predicate.Or(
+		predicate.GenerationChangedPredicate{},
+		predicate.Funcs{
+			UpdateFunc: func(e event.UpdateEvent) bool {
+				return e.ObjectNew != nil && !e.ObjectNew.GetDeletionTimestamp().IsZero()
+			},
+		},
+	)
+
 	b := ctrl.NewControllerManagedBy(mgr).
 		Named("elastic-cluster").
-		For(&v1alpha1.ElasticCluster{}, builder.WithPredicates(predicate.GenerationChangedPredicate{})).
+		For(&v1alpha1.ElasticCluster{}, builder.WithPredicates(ecPredicate)).
 		Watches(&corev1.Secret{}, enqueueAll, builder.WithPredicates(rookSecretPredicate)).
 		Watches(&corev1.ConfigMap{}, enqueueAll, builder.WithPredicates(monCMPredicate)).
 		Watches(&v1alpha1.ElasticClusterCredential{}, enqueueAll).
@@ -222,17 +237,19 @@ func (r *ElasticClusterReconciler) Reconcile(ctx context.Context, req ctrl.Reque
 		return ctrl.Result{}, err
 	}
 
-	// MVP intentionally leaks downstream resources on EC deletion: no
-	// OwnerReferences are wired and no finalizer is taken on the EC.
-	// Backlog item B20 ("OwnerReferences and two-step deletion safety")
-	// is the canonical place to introduce graceful teardown — labelled
-	// LVG/LLV/PV/CephClusterConnection, the two-step confirm-delete
-	// annotation, finalizer stripping, and the force-delete grace
-	// window. Until B20 lands, deletion of the EC CR is a no-op for
-	// downstream resources and operators clean them up manually.
+	// Teardown path: reconcileDelete owns the ordered removal of the
+	// Rook/csi-ceph resources the operator cannot delete by hand. PV /
+	// LLV / LVG and the BlockDevice cluster label are left for manual
+	// cleanup by label (documented procedure); OwnerReferences-driven
+	// garbage collection of those remains backlog B20.
 	if ec.DeletionTimestamp != nil {
-		r.Log.Info(fmt.Sprintf("[Reconcile] ElasticCluster %q is being deleted; downstream resources are NOT garbage-collected (B20)", ec.Name))
-		return ctrl.Result{}, nil
+		return r.reconcileDelete(ctx, ec)
+	}
+
+	// Ensure the teardown finalizer before reconciling the spec so a
+	// delete issued mid-provisioning still runs reconcileDelete.
+	if err := r.ensureECFinalizer(ctx, ec); err != nil {
+		return ctrl.Result{}, err
 	}
 
 	return r.reconcileNormal(ctx, ec)

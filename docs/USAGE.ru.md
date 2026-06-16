@@ -58,6 +58,32 @@ EOF
 d8 k get module sds-node-configurator snapshot-controller csi-ceph sds-elastic -w
 ```
 
+## Выбор data-узлов
+
+`settings.dataNodes.nodeSelector` определяет, какие узлы Kubernetes пригодны для размещения данных sds-elastic. Контроллер проставляет лейбл `storage.deckhouse.io/sds-elastic-node=""` на каждый подходящий узел и снимает его с узлов, переставших соответствовать селектору.
+
+Этот лейбл используют как nodeAffinity (правило сродства подов с узлами) downstream-компоненты: агент модуля [`sds-node-configurator`](/modules/sds-node-configurator/) (он выполняет discovery `BlockDevice` именно на data-узлах) и ваш `ElasticCluster.spec.storage.nodeSelector`.
+
+```yaml
+apiVersion: deckhouse.io/v1alpha1
+kind: ModuleConfig
+metadata:
+  name: sds-elastic
+spec:
+  enabled: true
+  version: 1
+  settings:
+    dataNodes:
+      nodeSelector:
+        node-role.deckhouse.io/storage: ""
+```
+
+Если параметр опущен, пустой селектор соответствует всем узлам кластера — каждый узел получит лейбл `storage.deckhouse.io/sds-elastic-node=""`.
+
+{{< alert level="warning" >}}
+Сужение `dataNodes.nodeSelector` не приводит к перераспределению данных. Если узел с уже размещёнными OSD перестал соответствовать новому селектору, с него будет снят лейбл `storage.deckhouse.io/sds-elastic-node`, и данные на нём станут недоступны до возвращения узла под селектор.
+{{< /alert >}}
+
 ## Подготовка storage-узлов
 
 `ElasticCluster` отбирает `BlockDevice` CR (управляются `sds-node-configurator`) по меткам и создаёт по одному OSD на каждое подходящее устройство.
@@ -145,7 +171,7 @@ d8 k get elasticclustercredential ceph-prod -o yaml
 
   Побочный эффект: `sds-node-configurator` после установки VG на устройство переключает `BlockDevice.status.consumable` в `false`. Sticky-логика не даёт этому факту выкинуть BD из рабочего набора на следующей реконсиляции.
 
-- **Освобождение BlockDevice.** На текущей экспериментальной стадии автоматического «отказа от» BD не предусмотрено (запланировано в составе задачи B20 — OwnerReferences и финализаторы для каскадного удаления). Чтобы безопасно вывести устройство из кластера, либо удалите весь `ElasticCluster` (контроллер очистит подопечные объекты — см. раздел «Удаление ресурсов»), либо вручную удалите соответствующие `LVMLogicalVolume` и `LVMVolumeGroup`, и только затем снимите лейбл:
+- **Освобождение BlockDevice.** На текущей экспериментальной стадии автоматического «отказа от» BD не предусмотрено (запланировано в составе задачи B20 — OwnerReferences и финализаторы для каскадного удаления). Удаление `ElasticCluster` НЕ удаляет каскадно объекты per-device: контроллер сносит только Rook `CephCluster` и csi-ceph `CephClusterConnection`, а `LVMVolumeGroup` / `LVMLogicalVolume` / локальные `PersistentVolume` и лейбл на BD остаются — их нужно вычистить вручную по лейблу (см. раздел «Удаление ресурсов»). Чтобы вывести одно устройство из работающего кластера, вручную удалите соответствующие `LVMLogicalVolume` и `LVMVolumeGroup`, и только затем снимите лейбл:
 
   ```shell
   d8 k delete lvmlogicalvolume <имя>
@@ -181,7 +207,7 @@ spec:
 EOF
 ```
 
-### CephFS-пул с erasure-кодированием (k=2, m=2)
+### CephFS-пул с дефолтной репликацией (3 реплики)
 
 ```shell
 d8 k apply -f - <<EOF
@@ -192,11 +218,11 @@ metadata:
 spec:
   clusterRef: ceph-prod
   type: CephFS
-  replication: ErasureCodedCompact
+  replication: ConsistencyAndAvailability
 EOF
 ```
 
-`ErasureCodedCompact` требует не менее 4 storage-узлов и недоступен для `type: RBD` (csi-ceph пока не provisioner-ит RBD-тома на erasure-coded пулах).
+> Режим репликации `ErasureCodedCompact` временно отключён и недоступен для выбора.
 
 ### Пул, переживающий одновременный отказ двух хостов (`HighRedundancy`)
 
@@ -266,27 +292,86 @@ d8 k get sc
 
 ## Удаление ресурсов
 
+### Удаление ElasticCluster
+
+Удаление `ElasticCluster` обратимо, пока на него не ссылается ни один `ElasticStorageClass`: контроллер удаляет только те ресурсы, которые нельзя удалить вручную, — Rook `CephCluster` и csi-ceph `CephClusterConnection` (оба защищены вебхуком vendor-cr-validation). Диски OSD и mon-хранилище остаются нетронутыми, поэтому кластер можно пересоздать на тех же устройствах.
+
+Порядок действий:
+
+1. Сначала удалите все зависимые `ElasticStorageClass` (см. ниже). Контроллер не начинает teardown кластера, пока на него ссылается хотя бы один ESC.
+2. Удалите `ElasticCluster`:
+
+   ```shell
+   d8 k delete elasticcluster ceph-prod
+   ```
+
+   Удерживая объект финализатором, контроллер удаляет `CephCluster` и `CephClusterConnection`, после чего снимает финализатор.
+3. Оставшиеся помеченные контроллером объекты вычистите вручную — они намеренно сохраняются (автоматического каскада нет):
+
+   ```shell
+   # посмотреть, что ещё помечено именем кластера
+   d8 k get pv,lvmlogicalvolume,lvmvolumegroup -l sds-elastic.deckhouse.io/cluster=ceph-prod
+
+   d8 k delete pv -l sds-elastic.deckhouse.io/cluster=ceph-prod
+   d8 k delete lvmlogicalvolume -l sds-elastic.deckhouse.io/cluster=ceph-prod
+   d8 k delete lvmvolumegroup -l sds-elastic.deckhouse.io/cluster=ceph-prod
+   # в конце снять лейбл кластера с BlockDevice
+   d8 k label blockdevice -l sds-elastic.deckhouse.io/cluster=ceph-prod sds-elastic.deckhouse.io/cluster-
+   ```
+
+   Сохраните `ElasticClusterCredential`, если планируете пересоздать кластер с той же идентичностью.
+
+Пока идёт teardown, условие `Ready` у `ElasticCluster` объясняет, что его блокирует:
+
+| Reason | Значение | Действие |
+| --- | --- | --- |
+| `StorageClassesExist` | На кластер ещё ссылается один или несколько `ElasticStorageClass`. | Сначала удалите перечисленные `ElasticStorageClass`. |
+| `VolumesExist` | В backend ещё есть привязанные (bound) `PersistentVolume`. | Удалите оставшиеся `PersistentVolume` — teardown продолжится автоматически. |
+| `Terminating` | Ресурсы backend удаляются. | Дождитесь завершения. |
+
+### Удаление ElasticStorageClass
+
 Удаление `ElasticStorageClass` уничтожает соответствующий пул и `CephStorageClass`:
 
 ```shell
 d8 k delete elasticstorageclass ceph-prod-rbd
 ```
 
-Удаление `ElasticCluster` уничтожает все ресурсы (LVMVolumeGroup / LVMLogicalVolume / локальные PV / Rook CephCluster), которыми владеет контроллер:
+{{< alert level="warning" >}}
+Удаление `ElasticStorageClass` — деструктивная операция: оно сносит нижележащий пул / файловую систему вместе с данными. Сначала убедитесь, что данные больше никому не нужны.
+{{< /alert >}}
+
+Удерживаемый финализатором, контроллер выполняет упорядоченный teardown:
+
+1. Он не удаляет ничего, пока хотя бы один `PersistentVolume`, выданный этим StorageClass, остаётся в состоянии `Bound`. Сначала удалите потребляющие `PersistentVolumeClaim` — этот гард нельзя обойти.
+2. Когда ничего не привязано, контроллер удаляет `CephStorageClass` и сносит нижележащий пул / файловую систему.
+
+Для блочных (RBD) классов пул с данными по умолчанию сохраняется. Чтобы удалить его безвозвратно (данные в пуле будут потеряны), разрешите деструктивную очистку аннотацией force-deletion:
 
 ```shell
-d8 k delete elasticcluster ceph-prod
+d8 k annotate elasticstorageclass ceph-prod-rbd sds-elastic.deckhouse.io/force-deletion=true
 ```
 
-{{< alert level="warning" >}}
-GC через finalizer'ы для ElasticCluster / ElasticStorageClass запланирован (B20 в backlog), но ещё не реализован. На стадии experimental удаление обнуляет ресурсы, которыми владеет контроллер, но не оркестрирует teardown Rook end-to-end — может потребоваться ручная зачистка OSD-устройств, `cephx`-учёток и оставшихся Rook-CR. Не удаляйте `ElasticCluster`, пока в пулах есть полезные данные.
-{{< /alert >}}
+Для классов общей файловой системы (CephFS) force-режима нет: файловая система удаляется автоматически, как только становится пустой, — для этого удалите оставшиеся `PersistentVolume` этого StorageClass.
+
+Пока идёт teardown, условие `Ready` ресурса `ElasticStorageClass` объясняет, что его блокирует:
+
+| Reason | Значение | Действие |
+| --- | --- | --- |
+| `BoundVolumesExist` | `PersistentVolume`, выданные этим StorageClass, ещё привязаны. | Удалите потребляющие `PersistentVolumeClaim`. Аннотация force это не обходит. |
+| `DataPresentInPool` | Блочный пул всё ещё содержит данные (только RBD). | Установите `sds-elastic.deckhouse.io/force-deletion=true`, чтобы безвозвратно удалить пул и его данные. |
+| `FilesystemNotEmpty` | В файловой системе ещё есть тома (только CephFS). | Удалите оставшиеся `PersistentVolume` этого StorageClass. |
+| `Terminating` | Ресурсы backend удаляются. | Дождитесь завершения. |
+
+Зачистка PV / LVM / BlockDevice после удаления `ElasticCluster` выполняется вручную (см. выше); сквозной GC через OwnerReferences отслеживается как задача B20 в backlog.
 
 ## Отключение модуля
 
 {{< alert level="danger" >}}
 Отключение модуля останавливает контроллер и оператор Rook. Данные, хранящиеся в Ceph-кластерах под управлением модуля, могут стать недоступны или быть потеряны. Перед отключением модуля всегда удаляйте все объекты `ElasticCluster`, `ElasticStorageClass` и `ElasticClusterCredential`.
 {{< /alert >}}
+
+Валидирующий вебхук на `ModuleConfig` модуля `sds-elastic` **запрещает** установку `spec.enabled: false`, пока существует хотя бы один `ElasticCluster`. Это не даёт случайно остановить контроллер и оператор Rook, пока под управлением модуля ещё находится живой Ceph-кластер (данные OSD на дисках узлов). Выполняйте упорядоченное удаление ниже; отключение будет разрешено только после удаления последнего `ElasticCluster`.
 
 1. Удалите все `ElasticStorageClass` и дождитесь, пока контроллер уберёт пулы и csi-ceph StorageClass'ы:
 
@@ -304,18 +389,33 @@ GC через finalizer'ы для ElasticCluster / ElasticStorageClass запл�
 
    Дождитесь, пока команда вернёт `No resources found`.
 
-1. Убедитесь, что не осталось `ElasticClusterCredential`:
+1. При необходимости удалите `ElasticClusterCredential`. Это cluster-scoped бэкап идентичности; на запрет отключения он не влияет (отключение блокирует только живой `ElasticCluster`). Удалите его, если не планируете пересоздавать кластер с той же идентичностью:
 
    ```shell
    d8 k get elasticclustercredentials.storage.deckhouse.io
+   d8 k delete elasticclustercredential <имя>
    ```
 
-1. Отключите модуль. Для отключения требуется лейбл `modules.deckhouse.io/allow-disabling: "true"` на ModuleConfig:
+1. Отключите модуль. Для отключения требуется аннотация `modules.deckhouse.io/allow-disabling: "true"` на ModuleConfig:
 
    ```shell
-   d8 k label moduleconfig sds-elastic modules.deckhouse.io/allow-disabling=true --overwrite
+   d8 k annotate moduleconfig sds-elastic modules.deckhouse.io/allow-disabling=true --overwrite
    d8 k patch moduleconfig sds-elastic --type=merge -p '{"spec":{"enabled":false}}'
    ```
+
+### Принудительное отключение модуля при оставшихся ElasticCluster
+
+{{< alert level="danger" >}}
+Это обходит защитную проверку. Используйте только при аварийном восстановлении, когда вы осознанно хотите сохранить объекты `ElasticCluster` и их данные на дисках, но прекратить управление ими со стороны модуля. Ceph-кластер останется без оператора (orphaned), а финализаторы контроллера на оставшихся CR будут сняты хуком удаления модуля, чтобы API-сервер мог их удалить. Данные OSD на дисках узлов и `dataDirHostPath` при этом **не** стираются, но больше не управляются и могут стать невосстановимыми штатными средствами.
+{{< /alert >}}
+
+Если необходимо отключить модуль без предварительного удаления `ElasticCluster`, установите на ModuleConfig аннотацию `sds-elastic.deckhouse.io/force-disable: "true"`. С этой аннотацией вебхук разрешает `spec.enabled: false` независимо от количества существующих `ElasticCluster`:
+
+```shell
+d8 k annotate moduleconfig sds-elastic sds-elastic.deckhouse.io/force-disable=true --overwrite
+d8 k annotate moduleconfig sds-elastic modules.deckhouse.io/allow-disabling=true --overwrite
+d8 k patch moduleconfig sds-elastic --type=merge -p '{"spec":{"enabled":false}}'
+```
 
 ## Проверка работоспособности кластера
 

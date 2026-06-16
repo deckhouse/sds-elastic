@@ -45,34 +45,34 @@ var _ = Describe("ElasticClusterCredentialValidate", func() {
 	})
 
 	It("accepts UPDATE from empty fsid to populated", func() {
-		old := newECCUnstructured(eccSpec("", "", ""))
-		new := newECCUnstructured(eccSpec("fsid-1", "mon", "admin"))
-		valid, _, err := validate(model.OperationUpdate, old, new)
+		oldECC := newECCUnstructured(eccSpec("", "", ""))
+		updated := newECCUnstructured(eccSpec("fsid-1", "mon", "admin"))
+		valid, _, err := validate(model.OperationUpdate, oldECC, updated)
 		Expect(err).NotTo(HaveOccurred())
 		Expect(valid).To(BeTrue())
 	})
 
 	It("accepts UPDATE when fsid unchanged", func() {
-		old := newECCUnstructured(eccSpec("fsid-1", "mon", "admin"))
-		new := newECCUnstructured(eccSpec("fsid-1", "mon-rotated", "admin-rotated"))
-		valid, _, err := validate(model.OperationUpdate, old, new)
+		oldECC := newECCUnstructured(eccSpec("fsid-1", "mon", "admin"))
+		updated := newECCUnstructured(eccSpec("fsid-1", "mon-rotated", "admin-rotated"))
+		valid, _, err := validate(model.OperationUpdate, oldECC, updated)
 		Expect(err).NotTo(HaveOccurred())
 		Expect(valid).To(BeTrue())
 	})
 
 	It("rejects UPDATE when fsid changes", func() {
-		old := newECCUnstructured(eccSpec("fsid-1", "mon", "admin"))
-		new := newECCUnstructured(eccSpec("fsid-2", "mon", "admin"))
-		valid, msg, err := validate(model.OperationUpdate, old, new)
+		oldECC := newECCUnstructured(eccSpec("fsid-1", "mon", "admin"))
+		updated := newECCUnstructured(eccSpec("fsid-2", "mon", "admin"))
+		valid, msg, err := validate(model.OperationUpdate, oldECC, updated)
 		Expect(err).NotTo(HaveOccurred())
 		Expect(valid).To(BeFalse())
 		Expect(msg).To(ContainSubstring("immutable"))
 	})
 
 	It("rejects UPDATE when fsid is cleared", func() {
-		old := newECCUnstructured(eccSpec("fsid-1", "mon", "admin"))
-		new := newECCUnstructured(eccSpec("", "mon", "admin"))
-		valid, _, err := validate(model.OperationUpdate, old, new)
+		oldECC := newECCUnstructured(eccSpec("fsid-1", "mon", "admin"))
+		updated := newECCUnstructured(eccSpec("", "mon", "admin"))
+		valid, _, err := validate(model.OperationUpdate, oldECC, updated)
 		Expect(err).NotTo(HaveOccurred())
 		Expect(valid).To(BeFalse())
 	})

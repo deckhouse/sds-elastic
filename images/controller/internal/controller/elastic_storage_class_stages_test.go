@@ -33,7 +33,7 @@ var _ = Describe("ElasticStorageClass stages", func() {
 	var (
 		ctx     = context.Background()
 		escName = "pool-stages"
-		esc     = newTestElasticStorageClass(escName, testECName, v1alpha1.StorageClassTypeRBD)
+		esc     = newTestElasticStorageClass(escName, v1alpha1.StorageClassTypeRBD)
 		r       *ElasticStorageClassReconciler
 	)
 
@@ -46,7 +46,7 @@ var _ = Describe("ElasticStorageClass stages", func() {
 			}
 			r = newElasticStorageClassReconciler(cl)
 
-			_, gotReady, gotMsg, err := r.getReadyEC(ctx, esc)
+			gotReady, gotMsg, err := r.getReadyEC(ctx, esc)
 			Expect(err).NotTo(HaveOccurred())
 			Expect(gotReady).To(Equal(wantReady))
 			if wantMsgSubstr != "" {
@@ -54,7 +54,7 @@ var _ = Describe("ElasticStorageClass stages", func() {
 			}
 		},
 		Entry("missing EC", func() *v1alpha1.ElasticCluster { return nil }, false, "waiting for ElasticCluster"),
-		Entry("no status", func() *v1alpha1.ElasticCluster { return newTestElasticCluster() }, false, "no status yet"),
+		Entry("no status", newTestElasticCluster, false, "no status yet"),
 		Entry("CephClusterReady False", func() *v1alpha1.ElasticCluster {
 			ec := newTestElasticCluster()
 			ec.Status = &v1alpha1.ElasticClusterStatus{
@@ -64,7 +64,7 @@ var _ = Describe("ElasticStorageClass stages", func() {
 				}},
 			}
 			return ec
-		}, false, "CephClusterReady=True"),
+		}, false, "to become ready"),
 		Entry("CephClusterReady True", func() *v1alpha1.ElasticCluster {
 			return ecWithCephClusterReady(newTestElasticCluster())
 		}, true, ""),
@@ -92,7 +92,7 @@ var _ = Describe("ElasticStorageClass stages", func() {
 	})
 
 	It("ensurePool returns error for unsupported type", func() {
-		bad := newTestElasticStorageClass("bad", testECName, v1alpha1.StorageClassType("Unknown"))
+		bad := newTestElasticStorageClass("bad", v1alpha1.StorageClassType("Unknown"))
 		ec := ecWithCephClusterReady(newTestElasticCluster())
 		cl := newFakeClient(bad, ec)
 		r = newElasticStorageClassReconciler(cl)

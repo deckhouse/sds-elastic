@@ -1,8 +1,86 @@
 linters-settings:
   openapi:
     exclude-rules:
+      # Vendor Rook CRDs (crds/vendor/*) now live under the
+      # internal.sdselastic.deckhouse.io API group, so the dmt
+      # `deckhouse-crds` rule treats them as Deckhouse-owned and demands a
+      # `module = sds-elastic` label. We don't ship those manifests by hand:
+      # they are generated upstream by Rook and only API-renamed via a
+      # build-time patch (see images/operator/patches/001-Rename-CRD-API-group-*).
+      # Suppress the rule for these vendor CRDs; the label is irrelevant
+      # because the operator picks them up by the API group, not by the
+      # `module` selector.
+      crd-names:
+        - cephblockpoolradosnamespaces.internal.sdselastic.deckhouse.io
+        - cephblockpools.internal.sdselastic.deckhouse.io
+        - cephbucketnotifications.internal.sdselastic.deckhouse.io
+        - cephbuckettopics.internal.sdselastic.deckhouse.io
+        - cephclients.internal.sdselastic.deckhouse.io
+        - cephclusters.internal.sdselastic.deckhouse.io
+        - cephcosidrivers.internal.sdselastic.deckhouse.io
+        - cephfilesystemmirrors.internal.sdselastic.deckhouse.io
+        - cephfilesystems.internal.sdselastic.deckhouse.io
+        - cephfilesystemsubvolumegroups.internal.sdselastic.deckhouse.io
+        - cephnfses.internal.sdselastic.deckhouse.io
+        - cephnvmeofgateways.internal.sdselastic.deckhouse.io
+        - cephobjectrealms.internal.sdselastic.deckhouse.io
+        - cephobjectstores.internal.sdselastic.deckhouse.io
+        - cephobjectstoreusers.internal.sdselastic.deckhouse.io
+        - cephobjectzonegroups.internal.sdselastic.deckhouse.io
+        - cephobjectzones.internal.sdselastic.deckhouse.io
+        - cephrbdmirrors.internal.sdselastic.deckhouse.io
+      # Enum CamelCase rule scans all CRDs under crds/ regardless of API
+      # group. Rook upstream uses non-CamelCase enum values (s3 event names,
+      # ceph algorithm/compression names, pool name reserved literals,
+      # capability tokens, etc.) which we can't change without forking the
+      # vendor CRDs. The paths below cover every offending enum location in
+      # crds/vendor/*; keep this list in sync with upstream Rook CRDs when
+      # they change.
       enum:
+        - spec.versions[0].schema.openAPIV3Schema.properties.spec.properties.capabilities.properties.amz-cache
+        - spec.versions[0].schema.openAPIV3Schema.properties.spec.properties.capabilities.properties.bilog
+        - spec.versions[0].schema.openAPIV3Schema.properties.spec.properties.capabilities.properties.bucket
+        - spec.versions[0].schema.openAPIV3Schema.properties.spec.properties.capabilities.properties.buckets
+        - spec.versions[0].schema.openAPIV3Schema.properties.spec.properties.capabilities.properties.datalog
+        - spec.versions[0].schema.openAPIV3Schema.properties.spec.properties.capabilities.properties.info
+        - spec.versions[0].schema.openAPIV3Schema.properties.spec.properties.capabilities.properties.mdlog
+        - spec.versions[0].schema.openAPIV3Schema.properties.spec.properties.capabilities.properties.metadata
+        - spec.versions[0].schema.openAPIV3Schema.properties.spec.properties.capabilities.properties.oidc-provider
+        - spec.versions[0].schema.openAPIV3Schema.properties.spec.properties.capabilities.properties.ratelimit
+        - spec.versions[0].schema.openAPIV3Schema.properties.spec.properties.capabilities.properties.roles
+        - spec.versions[0].schema.openAPIV3Schema.properties.spec.properties.capabilities.properties.usage
+        - spec.versions[0].schema.openAPIV3Schema.properties.spec.properties.capabilities.properties.user
+        - spec.versions[0].schema.openAPIV3Schema.properties.spec.properties.capabilities.properties.user-policy
+        - spec.versions[0].schema.openAPIV3Schema.properties.spec.properties.capabilities.properties.users
+        - spec.versions[0].schema.openAPIV3Schema.properties.spec.properties.capabilities.properties.zone
         - spec.versions[0].schema.openAPIV3Schema.properties.spec.properties.cephVersion
+        - spec.versions[0].schema.openAPIV3Schema.properties.spec.properties.cleanupPolicy.properties.sanitizeDisks.properties.dataSource
+        - spec.versions[0].schema.openAPIV3Schema.properties.spec.properties.cleanupPolicy.properties.sanitizeDisks.properties.method
+        - spec.versions[0].schema.openAPIV3Schema.properties.spec.properties.compressionMode
+        - spec.versions[0].schema.openAPIV3Schema.properties.spec.properties.dataPool.properties.compressionMode
+        - spec.versions[0].schema.openAPIV3Schema.properties.spec.properties.dataPool.properties.erasureCoded.properties.algorithm
+        - spec.versions[0].schema.openAPIV3Schema.properties.spec.properties.dataPool.properties.mirroring.properties.mode
+        - spec.versions[0].schema.openAPIV3Schema.properties.spec.properties.dataPools.items.properties.compressionMode
+        - spec.versions[0].schema.openAPIV3Schema.properties.spec.properties.dataPools.items.properties.erasureCoded.properties.algorithm
+        - spec.versions[0].schema.openAPIV3Schema.properties.spec.properties.dataPools.items.properties.mirroring.properties.mode
+        - spec.versions[0].schema.openAPIV3Schema.properties.spec.properties.endpoint.properties.amqp.properties.ackLevel
+        - spec.versions[0].schema.openAPIV3Schema.properties.spec.properties.endpoint.properties.kafka.properties.ackLevel
+        - spec.versions[0].schema.openAPIV3Schema.properties.spec.properties.endpoint.properties.kafka.properties.mechanism
+        - spec.versions[0].schema.openAPIV3Schema.properties.spec.properties.erasureCoded.properties.algorithm
+        - spec.versions[0].schema.openAPIV3Schema.properties.spec.properties.events.items
+        - spec.versions[0].schema.openAPIV3Schema.properties.spec.properties.filter.properties.keyFilters.items.properties.name
+        - spec.versions[0].schema.openAPIV3Schema.properties.spec.properties.gateway.properties.readAffinity.properties.type
+        - spec.versions[0].schema.openAPIV3Schema.properties.spec.properties.metadataPool.properties.compressionMode
+        - spec.versions[0].schema.openAPIV3Schema.properties.spec.properties.metadataPool.properties.erasureCoded.properties.algorithm
+        - spec.versions[0].schema.openAPIV3Schema.properties.spec.properties.metadataPool.properties.mirroring.properties.mode
+        - spec.versions[0].schema.openAPIV3Schema.properties.spec.properties.mgr.properties.modules.items.properties.settings.properties.balancerMode
+        - spec.versions[0].schema.openAPIV3Schema.properties.spec.properties.mirroring.properties.mode
+        - spec.versions[0].schema.openAPIV3Schema.properties.spec.properties.name
+        - spec.versions[0].schema.openAPIV3Schema.properties.spec.properties.network.properties.provider
+        - spec.versions[0].schema.openAPIV3Schema.properties.spec.properties.opMask.items
+        - spec.versions[0].schema.openAPIV3Schema.properties.spec.properties.protocols.properties.enableAPIs.items
+        - spec.versions[0].schema.openAPIV3Schema.properties.spec.properties.storage.properties.store.properties.type
+        - spec.versions[0].schema.openAPIV3Schema.properties.status.properties.health.properties.status
   container:
     exclude-rules:
       controller-security-context:

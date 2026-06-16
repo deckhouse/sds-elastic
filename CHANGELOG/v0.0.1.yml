@@ -1,2 +1,7 @@
 Changes:
-  - Initial release of the module wrapping the Rook Ceph operator.
+- Initial release of the module
+- Added module setting `settings.dataNodes.nodeSelector`. The controller places the
+  label `storage.deckhouse.io/sds-elastic-node=""` on each Kubernetes node that matches
+  the selector and removes the label from nodes that no longer match it. Downstream
+  components (sds-node-configurator agent, ElasticCluster hosting) can use this label
+  as nodeAffinity (pod-node affinity rule) to select data nodes.

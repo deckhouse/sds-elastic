@@ -103,7 +103,7 @@ type selectedBD struct {
 // LLV CRs are NOT created until every LVG is Ready; PV CRs are NOT
 // created until every LLV is Created. The original implementation
 // upserted the whole chain in one pass and relied on sds-node-configurator
-// (SNC) to retry LLV reconcilation once its parent LVG flipped to Ready.
+// (SNC) to retry LLV reconciliation once its parent LVG flipped to Ready.
 // SNC currently has a watch race in this path — an LLV created before
 // its LVG sometimes never gets re-reconciled — so we sequence the
 // upserts ourselves to keep the contract independent of upstream bugs.
@@ -542,9 +542,9 @@ func assessPhases(expected []string, observed map[string]string, targets ...stri
 // useful in `kubectl describe` output. The full list is still observable
 // via the per-resource CR phase if the operator wants the long form.
 func formatPending(pending []string) string {
-	const cap = 5
-	if len(pending) <= cap {
+	const maxItems = 5
+	if len(pending) <= maxItems {
 		return fmt.Sprintf("%v", pending)
 	}
-	return fmt.Sprintf("%v (+%d more)", pending[:cap], len(pending)-cap)
+	return fmt.Sprintf("%v (+%d more)", pending[:maxItems], len(pending)-maxItems)
 }

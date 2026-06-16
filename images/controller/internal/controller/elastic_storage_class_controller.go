@@ -22,6 +22,7 @@ import (
 	"reflect"
 	"time"
 
+	corev1 "k8s.io/api/core/v1"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	apimeta "k8s.io/apimachinery/pkg/api/meta"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
@@ -115,10 +116,25 @@ func AddElasticStorageClassReconcilerToManager(mgr manager.Manager, cfg *config.
 		},
 	}
 
+	// GenerationChangedPredicate alone would miss two teardown signals:
+	// setting deletionTimestamp does not bump generation, and the
+	// force-deletion annotation is a metadata-only edit. OR-in a predicate
+	// that passes any update to an object already terminating so deletion
+	// and the force annotation both re-enqueue.
+	escPredicate := predicate.Or(
+		predicate.GenerationChangedPredicate{},
+		predicate.Funcs{
+			UpdateFunc: func(e event.UpdateEvent) bool {
+				return e.ObjectNew != nil && !e.ObjectNew.GetDeletionTimestamp().IsZero()
+			},
+		},
+	)
+
 	b := ctrl.NewControllerManagedBy(mgr).
 		Named("elastic-storage-class").
-		For(&v1alpha1.ElasticStorageClass{}, builder.WithPredicates(predicate.GenerationChangedPredicate{})).
+		For(&v1alpha1.ElasticStorageClass{}, builder.WithPredicates(escPredicate)).
 		Watches(&v1alpha1.ElasticCluster{}, enqueueByEC, builder.WithPredicates(ecCephClusterReadyPredicate)).
+		Watches(&corev1.PersistentVolume{}, handler.EnqueueRequestsFromMapFunc(r.enqueueDeletingESCByPV)).
 		WithOptions(controller.Options{
 			MaxConcurrentReconciles: cfg.MaxConcurrentReconciles,
 		})
@@ -196,9 +212,27 @@ func (r *ElasticStorageClassReconciler) enqueueESCByCluster(ctx context.Context,
 	return out
 }
 
-// Reconcile dispatches the ESC FSM. Deletion is a no-op in the MVP
-// (B20 owns finalizer/garbage-collection of the downstream
-// CephBlockPool / CephFilesystem / CephStorageClass).
+// enqueueDeletingESCByPV maps a PersistentVolume event to the single ESC
+// whose StorageClass provisioned it, but only while that ESC is being
+// deleted. This keeps the bound-PV teardown guard responsive (a PVC
+// released its PV) without enqueuing every ESC on cluster-wide PV churn.
+func (r *ElasticStorageClassReconciler) enqueueDeletingESCByPV(ctx context.Context, o client.Object) []reconcile.Request {
+	pv, ok := o.(*corev1.PersistentVolume)
+	if !ok || pv.Spec.StorageClassName == "" {
+		return nil
+	}
+	esc := &v1alpha1.ElasticStorageClass{}
+	if err := r.Client.Get(ctx, client.ObjectKey{Name: pv.Spec.StorageClassName}, esc); err != nil {
+		return nil
+	}
+	if esc.DeletionTimestamp == nil {
+		return nil
+	}
+	return []reconcile.Request{{NamespacedName: types.NamespacedName{Name: esc.Name}}}
+}
+
+// Reconcile dispatches the ESC FSM, or runs the destructive teardown when
+// the ElasticStorageClass is being deleted (see reconcileDeleteESC).
 func (r *ElasticStorageClassReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.Result, error) {
 	r.Log.Info(fmt.Sprintf("[Reconcile] start for ElasticStorageClass %q", req.Name))
 
@@ -210,18 +244,12 @@ func (r *ElasticStorageClassReconciler) Reconcile(ctx context.Context, req ctrl.
 		return ctrl.Result{}, err
 	}
 	if esc.DeletionTimestamp != nil {
-		// Mirror the EC reconciler's deletion contract: MVP intentionally
-		// leaks the downstream CephBlockPool / CephFilesystem / csi-ceph
-		// CephStorageClass on ESC deletion. Finalizer-based GC is part of
-		// B20; this log line is the only operator-visible signal of the
-		// contract at runtime.
-		r.Log.Warning(fmt.Sprintf(
-			"[Reconcile] ElasticStorageClass %q is being deleted; downstream resources are NOT garbage-collected (B20)",
-			esc.Name,
-		))
-		return ctrl.Result{}, nil
+		return r.reconcileDeleteESC(ctx, esc)
 	}
 
+	if err := r.ensureESCFinalizer(ctx, esc); err != nil {
+		return ctrl.Result{}, err
+	}
 	return r.reconcileNormal(ctx, esc)
 }
 

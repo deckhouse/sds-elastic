@@ -104,7 +104,7 @@ var _ = Describe("ElasticClusterReconciler.Reconcile", func() {
 					ObjectMeta: metav1.ObjectMeta{Name: testECName},
 					Spec:       v1alpha1.ElasticClusterCredentialSpec{AdminSecret: "admin-key"},
 				},
-				newCephClusterConnectionUnstructured(testECName, "Created"),
+				newCephClusterConnectionUnstructured(),
 			)
 			r := newElasticClusterReconciler(cl)
 
@@ -179,7 +179,7 @@ var _ = Describe("ElasticClusterReconciler.Reconcile", func() {
 					ObjectMeta: metav1.ObjectMeta{Name: testECName},
 					Spec:       v1alpha1.ElasticClusterCredentialSpec{AdminSecret: "admin-key"},
 				},
-				newCephClusterConnectionUnstructured(testECName, "Created"),
+				newCephClusterConnectionUnstructured(),
 			)
 			r := newElasticClusterReconciler(cl)
 
@@ -296,7 +296,7 @@ var _ = Describe("ElasticClusterReconciler.Reconcile", func() {
 					ObjectMeta: metav1.ObjectMeta{Name: testECName},
 					Spec:       v1alpha1.ElasticClusterCredentialSpec{AdminSecret: "admin-key"},
 				},
-				newCephClusterConnectionUnstructured(testECName, "Created"),
+				newCephClusterConnectionUnstructured(),
 			)
 			r := newElasticClusterReconciler(cl)
 
@@ -334,7 +334,7 @@ var _ = Describe("ElasticClusterReconciler.Reconcile", func() {
 			Expect(upg).NotTo(BeNil(), "UpgradeInProgress must be published by ensureCephCluster even while gating")
 			Expect(upg.Status).To(Equal(metav1.ConditionTrue))
 			Expect(upg.Reason).To(Equal("Upgrading"))
-			Expect(upg.Message).To(ContainSubstring("Rook rolling pods"))
+			Expect(upg.Message).To(ContainSubstring("rolling update in progress"))
 
 			// Lagging version on the printcolumn so callers see the
 			// still-rolling daemons' version, not Rook's target marker.

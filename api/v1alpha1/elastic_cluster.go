@@ -480,6 +480,21 @@ const (
 	// operator must clear the label manually (or delete the
 	// conflicting EC) before this EC can adopt the BD.
 	ECReasonOwnershipConflict = "OwnershipConflict"
+
+	// Deletion (teardown) reasons set on the aggregate Ready condition
+	// while an ElasticCluster is being deleted. Domain-level on purpose:
+	// they never name the underlying vendor (Rook/csi-ceph) resources.
+	//
+	//   - ECReasonStorageClassesExist: dependent ElasticStorageClasses
+	//     still reference this cluster; the operator must delete them
+	//     first. Non-bypassable guard.
+	//   - ECReasonVolumesExist: the storage backend still has bound
+	//     PersistentVolumes; the operator must delete the remaining PVs.
+	//   - ECReasonTerminating: teardown is in progress (backend
+	//     resources are being removed).
+	ECReasonStorageClassesExist = "StorageClassesExist"
+	ECReasonVolumesExist        = "VolumesExist"
+	ECReasonTerminating         = "Terminating"
 )
 
 // Well-known UpgradeProgress phases.

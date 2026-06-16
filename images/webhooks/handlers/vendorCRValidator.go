@@ -38,7 +38,17 @@ const (
 		"Please use ElasticCluster / ElasticStorageClass (storage.deckhouse.io/v1alpha1) to manage the cluster."
 )
 
-var vendorAPIGroups = []string{"ceph.rook.io", "objectbucket.io"}
+// vendorAPIGroups lists the API groups whose CRs are managed exclusively by
+// the sds-elastic controller and the vendored Rook operator. The Rook group
+// is internal.sdselastic.deckhouse.io (renamed from upstream ceph.rook.io
+// by the vendored operator build, see images/operator/patches/) so that
+// sds-elastic does not collide with a user-installed upstream Rook on the
+// same cluster.
+//
+// objectbucket.io is intentionally absent: this release ships with the Rook
+// OBC controller disabled (ROOK_DISABLE_OBJECT_BUCKET_CLAIM=true) and does
+// not vendor the objectbucket.io CRDs, so there is nothing to guard.
+var vendorAPIGroups = []string{"internal.sdselastic.deckhouse.io"}
 
 var allowedUsers = []string{allowedControllerUser, allowedOperatorUser}
 

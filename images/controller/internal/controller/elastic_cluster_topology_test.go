@@ -39,7 +39,7 @@ func newTestESC(name, clusterRef string, repl v1alpha1.ReplicationMode) *v1alpha
 
 var _ = Describe("computeCephTopology", func() {
 	ctx := context.Background()
-	ec := func() *v1alpha1.ElasticCluster { return newTestElasticCluster() }
+	ec := newTestElasticCluster
 
 	It("returns the standard profile (3, 2) when no ESC exists", func() {
 		cl := newFakeClient(ec())
@@ -153,7 +153,7 @@ var _ = Describe("computeCephTopology", func() {
 })
 
 var _ = Describe("buildCephTopologyStatus", func() {
-	ec := func() *v1alpha1.ElasticCluster { return newTestElasticCluster() }
+	ec := newTestElasticCluster
 
 	It("does NOT stamp LastPromotedAt for a first reconcile that lands at the standard profile", func() {
 		out := buildCephTopologyStatus(ec(), 3, 2, v1alpha1.CephTopologyReasonStandard)

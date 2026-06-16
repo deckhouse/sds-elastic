@@ -179,16 +179,11 @@ var _ = Describe("builders", func() {
 	})
 
 	Describe("ECCephClusterConnection", func() {
-		It("includes cephFS stanza when hasCephFS is true", func() {
-			conn := ECCephClusterConnection(ec, "fsid", "key", []string{"10.0.0.1:6789"}, true)
-			_, found, _ := unstructuredNestedMap(conn, "spec", "cephFS")
-			Expect(found).To(BeTrue())
-		})
-
-		It("omits cephFS stanza when hasCephFS is false", func() {
-			conn := ECCephClusterConnection(ec, "fsid", "key", []string{"10.0.0.1:6789"}, false)
-			_, found, _ := unstructuredNestedMap(conn, "spec", "cephFS")
-			Expect(found).To(BeFalse())
+		It("always emits the immutable cephFS stanza with the pinned subvolume group", func() {
+			conn := ECCephClusterConnection(ec, "fsid", "key", []string{"10.0.0.1:6789"})
+			cephFS, found, _ := unstructuredNestedMap(conn, "spec", "cephFS")
+			Expect(found).To(BeTrue(), "cephFS must always be present so csi-ceph's immutable field never has to change")
+			Expect(cephFS["subvolumeGroup"]).To(Equal(CephFSSubvolumeGroup))
 		})
 	})
 

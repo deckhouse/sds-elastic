@@ -63,7 +63,10 @@ const (
 // ReplicationMode encodes the high-level replication strategy.
 // The controller translates each value into pool-level settings (see
 // constants below for the precise semantics).
-// +kubebuilder:validation:Enum=AvailabilityWithoutConsistency;ConsistencyAndAvailability;HighRedundancy;ErasureCodedCompact
+//
+// ErasureCodedCompact is intentionally absent from the enum: it is
+// temporarily disabled and cannot be selected (see the constant below).
+// +kubebuilder:validation:Enum=AvailabilityWithoutConsistency;ConsistencyAndAvailability;HighRedundancy
 type ReplicationMode string
 
 const (
@@ -101,9 +104,13 @@ const (
 
 	// ReplicationErasureCodedCompact uses k=2,m=2 with jerasure/reed_sol_van
 	// and allow_ec_overwrites=true. Storage-efficient (1.5x overhead vs 3x
-	// for replicated), requires at least 4 storage nodes, and is rejected
-	// when combined with type=RBD (csi-ceph does not yet provision RBD on
-	// erasure-coded pools).
+	// for replicated), requires at least 4 storage nodes.
+	//
+	// TEMPORARILY DISABLED: the value is intentionally omitted from the
+	// ReplicationMode enum (CRD + kubebuilder marker) and rejected by the
+	// validating webhook, so it cannot be selected on any ElasticStorageClass.
+	// The constant and the builder branches that consume it are kept so the
+	// mode can be re-enabled later once CephFS-on-EC is fully supported.
 	ReplicationErasureCodedCompact ReplicationMode = "ErasureCodedCompact"
 )
 
@@ -154,6 +161,27 @@ const (
 	ESCConditionPoolReady            = "PoolReady"
 	ESCConditionCsiStorageClassReady = "CsiStorageClassReady"
 	ESCConditionReady                = "Ready"
+)
+
+// Deletion (teardown) reasons set on the aggregate Ready condition while
+// an ElasticStorageClass is being deleted. Domain-level on purpose: they
+// never name the underlying vendor (Rook/csi-ceph) resources.
+//
+//   - ESCReasonBoundVolumesExist: PersistentVolumes provisioned from this
+//     StorageClass are still bound; the operator must delete the PVCs
+//     first. Non-bypassable guard (force never lifts it).
+//   - ESCReasonDataPresentInPool: the RBD pool still holds data; deleting
+//     it is destructive, so it requires the force-deletion annotation.
+//   - ESCReasonFilesystemNotEmpty: the filesystem still has volumes; the
+//     operator must delete the remaining PersistentVolumes first (there is
+//     no force path for CephFS).
+//   - ESCReasonTerminating: teardown is in progress (backend resources are
+//     being removed).
+const (
+	ESCReasonBoundVolumesExist  = "BoundVolumesExist"
+	ESCReasonDataPresentInPool  = "DataPresentInPool"
+	ESCReasonFilesystemNotEmpty = "FilesystemNotEmpty"
+	ESCReasonTerminating        = "Terminating"
 )
 
 // ElasticStorageClassKind is the kind constant used for OwnerReferences and

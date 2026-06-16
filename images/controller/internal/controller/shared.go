@@ -17,10 +17,28 @@ limitations under the License.
 package controller
 
 import (
+	"errors"
 	"sort"
 	"strings"
 
 	apimeta "k8s.io/apimachinery/pkg/api/meta"
+	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
+)
+
+// Domain-level sentinel errors surfaced on EC/ESC .status.conditions.
+//
+// Stage helpers return these instead of the raw client-go / Rook /
+// csi-ceph errors so the user-facing condition message never leaks the
+// underlying vendor resource kind/name or a raw API error. Whenever one
+// of these sentinels is returned, the original error is logged first
+// (r.Log.Error), so operators retain full debuggability.
+var (
+	errProvisionStorageBackend    = errors.New("failed to provision storage backend")
+	errConfigureStorageConnection = errors.New("failed to configure storage connection")
+	errReadCredentials            = errors.New("failed to read cluster credentials")
+	errProvisionStoragePool       = errors.New("failed to provision storage pool")
+	errProvisionStorageFS         = errors.New("failed to provision storage filesystem")
+	errCreateStorageClass         = errors.New("failed to create storage class")
 )
 
 // mergeLabels returns a new map containing every key from `existing`
@@ -67,6 +85,31 @@ func parseMonEndpoints(data string) []string {
 	}
 	sort.Strings(out)
 	return out
+}
+
+// unstructuredConditionTrue reports whether the given vendor resource
+// carries a status condition of the requested type with status "True".
+// Used by the teardown paths to translate Rook's blocking conditions
+// (CephCluster/CephFilesystem "DeletionIsBlocked", CephBlockPool
+// "PoolDeletionIsBlocked") into domain-level reasons without taking a
+// build dependency on the Rook Go module.
+func unstructuredConditionTrue(u *unstructured.Unstructured, condType string) bool {
+	conds, found, err := unstructured.NestedSlice(u.Object, "status", "conditions")
+	if !found || err != nil {
+		return false
+	}
+	for _, raw := range conds {
+		m, ok := raw.(map[string]interface{})
+		if !ok {
+			continue
+		}
+		t, _, _ := unstructured.NestedString(m, "type")
+		s, _, _ := unstructured.NestedString(m, "status")
+		if t == condType && s == "True" {
+			return true
+		}
+	}
+	return false
 }
 
 // isNoMatchErr returns true when the apimachinery error indicates that
