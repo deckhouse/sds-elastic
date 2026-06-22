@@ -1,6 +1,6 @@
 module github.com/deckhouse/sds-elastic/images/webhooks
 
-go 1.25.10
+go 1.25.11
 require (
 	github.com/onsi/ginkgo/v2 v2.23.1
 	github.com/onsi/gomega v1.36.2
