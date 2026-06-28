@@ -33,6 +33,10 @@ const (
 
 	allowedControllerUser = "system:serviceaccount:d8-sds-elastic:controller"
 	allowedOperatorUser   = "system:serviceaccount:d8-sds-elastic:rook-ceph-system"
+	// allowedObjectUser is the sds-object controller, which manages
+	// CephObjectStore / CephObjectStoreUser for its Heavy profile (S3 / RGW)
+	// on top of an sds-elastic cluster.
+	allowedObjectUser = "system:serviceaccount:d8-sds-object:controller"
 
 	vendorCRDenyMessage = "Direct modifications to Rook Ceph resources are not allowed. " +
 		"Please use ElasticCluster / ElasticStorageClass (storage.deckhouse.io/v1alpha1) to manage the cluster."
@@ -50,7 +54,7 @@ const (
 // not vendor the objectbucket.io CRDs, so there is nothing to guard.
 var vendorAPIGroups = []string{"internal.sdselastic.deckhouse.io"}
 
-var allowedUsers = []string{allowedControllerUser, allowedOperatorUser}
+var allowedUsers = []string{allowedControllerUser, allowedOperatorUser, allowedObjectUser}
 
 func VendorCRValidate(_ context.Context, arReview *model.AdmissionReview, obj metav1.Object) (*kwhvalidating.ValidatorResult, error) {
 	u, ok := obj.(*unstructured.Unstructured)
