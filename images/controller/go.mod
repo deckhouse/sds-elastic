@@ -1,6 +1,6 @@
 module github.com/deckhouse/sds-elastic/images/controller
 
-go 1.25.10
+go 1.26.4
 require (
 	github.com/deckhouse/sds-elastic/api v0.0.0
 	github.com/go-logr/logr v1.4.2
