@@ -1,5 +1,7 @@
 name: "sds-elastic"
 stage: "Experimental"
+subsystems:
+  - storage
 descriptions:
   en: "Manages distributed block storage on top of the Rook Ceph operator."
   ru: "Управляет распределённым блочным хранилищем на базе оператора Rook Ceph."
