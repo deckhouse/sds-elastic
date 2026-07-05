@@ -103,6 +103,10 @@ const (
 	probeContainerName = "probe"
 	probeMountPath     = "/data"
 	probeFilePath      = "/data/probe.txt"
+
+	// probeDevicePath is where a Block-mode PVC is exposed inside the probe
+	// Pod (via volumeDevices) for the snapshot / RWX block specs.
+	probeDevicePath = "/dev/block"
 )
 
 const (
@@ -137,6 +141,12 @@ var (
 	}
 	persistentVolumeGVR = schema.GroupVersionResource{
 		Group: "", Version: "v1", Resource: "persistentvolumes",
+	}
+	volumeSnapshotGVR = schema.GroupVersionResource{
+		Group: "snapshot.storage.k8s.io", Version: "v1", Resource: "volumesnapshots",
+	}
+	volumeSnapshotContentGVR = schema.GroupVersionResource{
+		Group: "snapshot.storage.k8s.io", Version: "v1", Resource: "volumesnapshotcontents",
 	}
 
 	// upstreamRookGVRs are the original ceph.rook.io resources that MUST NOT
@@ -485,6 +495,55 @@ func waitResourceGone(ctx context.Context, gvr schema.GroupVersionResource, ns, 
 			return ctx.Err()
 		}
 	}
+}
+
+// waitPVCGone waits until the PVC and its bound PV are both gone. With the
+// default reclaimPolicy=Delete this proves the csi-ceph external provisioner
+// destroyed the backing RBD image / CephFS subvolume, keeping the pool /
+// filesystem empty for the later delete-guard specs (a lingering image would
+// flip BoundVolumesExist into DataPresentInPool). Best-effort captures the
+// bound PV name before it disappears; if the PVC is already gone and no PV was
+// observed, it returns nil.
+func waitPVCGone(ctx context.Context, pvcName string, timeout time.Duration) error {
+	deadline := time.Now().Add(timeout)
+	var pvName string
+	var pvc corev1.PersistentVolumeClaim
+	if err := suiteK8s.Get(ctx, client.ObjectKey{Namespace: suiteCfg.namespace, Name: pvcName}, &pvc); err == nil {
+		pvName = pvc.Spec.VolumeName
+	}
+	for {
+		var cur corev1.PersistentVolumeClaim
+		errPVC := suiteK8s.Get(ctx, client.ObjectKey{Namespace: suiteCfg.namespace, Name: pvcName}, &cur)
+		if errPVC == nil && pvName == "" {
+			pvName = cur.Spec.VolumeName
+		}
+		if apierrors.IsNotFound(errPVC) {
+			if pvName == "" {
+				return nil
+			}
+			var pv corev1.PersistentVolume
+			errPV := suiteK8s.Get(ctx, client.ObjectKey{Name: pvName}, &pv)
+			if apierrors.IsNotFound(errPV) {
+				return nil
+			}
+		}
+		if time.Now().After(deadline) {
+			return fmt.Errorf("timeout waiting for pvc %s/%s (pv %q) to be reclaimed", suiteCfg.namespace, pvcName, pvName)
+		}
+		if !sleepCtx(ctx, pollInterval) {
+			return ctx.Err()
+		}
+	}
+}
+
+// podNodeName returns spec.nodeName of the given Pod. Used by the RWX specs to
+// assert that two multi-attach consumers really landed on different nodes.
+func podNodeName(ctx context.Context, podName string) (string, error) {
+	var pod corev1.Pod
+	if err := suiteK8s.Get(ctx, client.ObjectKey{Namespace: suiteCfg.namespace, Name: podName}, &pod); err != nil {
+		return "", err
+	}
+	return pod.Spec.NodeName, nil
 }
 
 // --- Rook verifiers --------------------------------------------------------
