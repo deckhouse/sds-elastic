@@ -1,8 +1,9 @@
 # E2E tests for sds-elastic
 
 End-to-end coverage for the documented `ElasticCluster` / `ElasticStorageClass`
-lifecycle: creation + data round-trip, the data-safety deletion guards, and the
-module disable guard (the `ModuleConfig` validating webhook).
+lifecycle: creation + data round-trip, `VolumeSnapshot` snapshot/restore,
+`ReadWriteMany` multi-attach across nodes, the data-safety deletion guards, and
+the module disable guard (the `ModuleConfig` validating webhook).
 
 1. `storage-e2e` brings up a nested cluster from `tests/cluster_config.yml`
    (1 master + 5 storage workers).
@@ -12,7 +13,8 @@ module disable guard (the `ModuleConfig` validating webhook).
    `storage-e2e/pkg/testkit.EnsureElasticOSDBlockDevices`.
 3. A single shared `ElasticCluster` is created (it bootstraps the vendored Rook
    `CephCluster` — ~15-25 min) and the ordered specs exercise create → data
-   round-trip → deletion guards → module disable on top of it.
+   round-trip → snapshots → RWX multi-attach → deletion guards → module disable
+   on top of it.
 4. `AfterSuite` cleans up leftovers and hands the cluster back to `storage-e2e`.
 
 All Elastic/Rook CR provisioning lives in `storage-e2e/pkg/testkit` (the
@@ -32,9 +34,39 @@ Creating an `ElasticCluster` runs a full Rook bootstrap and is far too slow to
 repeat per spec, so the suite uses a **single shared EC** inside one
 `Describe(..., Ordered)`. Spec registration goes through builder functions
 called in explicit order from the root container
-(`createSpecs → moduleDisableBlockedSpec → deleteSpecs → moduleDisableForceSpec
-→ finalManualCleanupSpec`); the EC-destroying specs run last.
-`RandomizeAllSpecs` stays **off**.
+(`createSpecs → snapshotSpecs → rwxSpecs → moduleDisableBlockedSpec →
+deleteSpecs → moduleDisableForceSpec → finalManualCleanupSpec`); the
+EC-destroying specs run last. `RandomizeAllSpecs` stays **off**.
+
+`snapshotSpecs` (`snapshot_test.go`) and `rwxSpecs` (`rwx_test.go`) run between
+create and delete because they need the shared RBD/CephFS `ElasticStorageClass`
+objects Ready. Both are careful to **fully reclaim** every PVC/PV, restore
+PVC/PV and `VolumeSnapshot` they create (default `reclaimPolicy=Delete`), so the
+later delete-guard specs still see only the createSpecs probes bound — a
+leftover RBD image would flip `BoundVolumesExist` into `DataPresentInPool`, and a
+leftover CephFS subvolume would break the `FilesystemNotEmpty` guard.
+
+### Snapshot specs (`snapshot_test.go`)
+
+For each of RBD Filesystem, RBD Block and CephFS Filesystem (CephFS+Block is
+skipped — `cephfs.csi.ceph.com` is Filesystem-only) the suite: writes data
+(several files, or a random prefix of a raw block device) and records a
+checksum; creates a `VolumeSnapshot` (using the `VolumeSnapshotClass` csi-ceph
+auto-creates per `ElasticStorageClass`, named identically to it) and waits for
+`readyToUse`; restores a new PVC from the snapshot and asserts the checksum
+matches; writes new data to the source and asserts the restored copy is
+unchanged (isolation); then deletes the source and proves the restored volume is
+still writable.
+
+### RWX specs (`rwx_test.go`)
+
+For RBD Block and CephFS Filesystem the suite provisions a `ReadWriteMany` PVC,
+schedules two Pods with **required** pod anti-affinity
+(`topologyKey: kubernetes.io/hostname`) so they land on different nodes, asserts
+`spec.nodeName` differs, and proves bidirectional shared access (write from one
+Pod, read back from the other; Block reads use `dd iflag=direct` to bypass the
+reader node's page cache). RBD RWX is Block-only (a shared filesystem on one RBD
+image is unsafe).
 
 ## Supported run mode
 
@@ -123,8 +155,9 @@ Only the nested-cluster mode driven by `storage-e2e` is supported.
 - `E2E_OSD_DISK_SIZE`:
   size of each raw OSD VirtualDisk, defaults to `20Gi`.
 - `E2E_PROBE_IMAGE`:
-  container image (must ship `sh` + `cat`) for the PVC round-trip probe Pods,
-  defaults to `busybox:1.36`.
+  container image for the PVC round-trip / snapshot / RWX probe Pods, defaults
+  to `busybox:1.36`. Must ship `sh`, `cat`, `dd` (with `iflag=direct`/`oflag`
+  support), `sha256sum`, `sync`, `find`, `sort` and `head`.
 - `E2E_KEEP_CLUSTER_ON_FAILURE`:
   when truthy (`true`/`1`/`yes`), and at least one spec failed, the nested
   cluster is **not** torn down in `AfterSuite`, so you can inspect the live

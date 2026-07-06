@@ -1,4 +1,8 @@
 linters-settings:
+  no-cyrillic:
+    exclude-rules:
+      directories:
+        - hack/
   openapi:
     exclude-rules:
       # Vendor Rook CRDs (crds/vendor/*) now live under the

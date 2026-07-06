@@ -92,6 +92,8 @@ var _ = Describe("sds-elastic e2e", Ordered, ContinueOnFailure, func() {
 	})
 
 	createSpecs()              // create_test.go: EC + RBD/CephFS/HR ESC + data round-trip + no-leak
+	snapshotSpecs()            // snapshot_test.go: VolumeSnapshot round-trip (RBD FS/Block, CephFS FS)
+	rwxSpecs()                 // rwx_test.go: ReadWriteMany multi-attach across nodes (RBD Block, CephFS FS)
 	moduleDisableBlockedSpec() // module_disable_test.go: disable denied while EC exists
 	deleteSpecs()              // delete_test.go: ESC/EC deletion guards (data safety)
 	moduleDisableForceSpec()   // module_disable_test.go: bare EC -> force-disable -> module uninstalled
