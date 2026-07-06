@@ -130,6 +130,13 @@ spec:
 EOF
 ```
 
+> **Both `public` and `cluster` must be host subnets, not the Pod network.** The module runs Ceph with `network.provider: host`, so every daemon (mon/mgr/osd) binds directly to a host interface and must own an IP inside the CIDR you specify. Putting the Pod subnet into either field is invalid — the daemons have no interface in that range and will fail to bind. The two fields are *not* "where clients live" vs "where Ceph Pods live"; both are networks the Ceph daemons themselves sit on:
+>
+> - **`public`** — carries client traffic (Kubernetes Pods reaching mon/osd through csi-ceph) plus all inter-daemon traffic except OSD replication.
+> - **`cluster`** — OSD-to-OSD backend only: replication, backfill, recovery and heartbeat.
+>
+> Use a dedicated storage NIC subnet for `cluster` if you have one; otherwise set `cluster` to the same CIDR as `public` (as in the example above). Clients must be able to route to the `public` subnet.
+
 Wait until the `ElasticCluster` reports `Ready`:
 
 ```shell
