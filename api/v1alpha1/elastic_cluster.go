@@ -76,14 +76,19 @@ type ElasticClusterStorageSpec struct {
 
 // +k8s:deepcopy-gen=true
 type ElasticClusterNetwork struct {
-	// Public is the CIDR of the public network used for client traffic.
+	// Public lists the CIDR(s) of the public (host) network carrying client
+	// traffic plus all inter-daemon traffic except OSD replication. Multiple
+	// CIDRs are allowed when storage nodes span several host subnets.
 	// +kubebuilder:validation:Required
-	Public string `json:"public"`
+	// +kubebuilder:validation:MinItems=1
+	Public []string `json:"public"`
 
-	// Cluster is the CIDR of the cluster network used for replication
-	// and heartbeat traffic.
+	// Cluster lists the CIDR(s) of the cluster (host) network used only for
+	// OSD-to-OSD traffic (replication, backfill, recovery, heartbeat).
+	// Multiple CIDRs are allowed when storage nodes span several host subnets.
 	// +kubebuilder:validation:Required
-	Cluster string `json:"cluster"`
+	// +kubebuilder:validation:MinItems=1
+	Cluster []string `json:"cluster"`
 }
 
 // +k8s:deepcopy-gen=true
