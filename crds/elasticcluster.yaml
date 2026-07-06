@@ -134,6 +134,11 @@ spec:
                     IP of storage nodes (host networking). When set, both `public` and
                     `cluster` must be provided together (all-or-nothing pair).
 
+                    Ceph runs with `network.provider: host`, so both CIDRs must be host
+                    subnets — every daemon (mon/mgr/osd) binds directly to a host interface
+                    and must own an IP inside the given range. The Pod network is not a
+                    valid value for either field.
+
                     Both fields are immutable after creation.
                   required:
                     - public
@@ -142,16 +147,19 @@ spec:
                     public:
                       type: string
                       description: |
-                        CIDR of the public network used for client traffic
-                        (for example, `10.0.0.0/24`).
+                        CIDR of the public (host) network carrying client traffic
+                        (Pods reaching mon/osd) plus all inter-daemon traffic except OSD
+                        replication (for example, `10.0.0.0/24`).
                       pattern: '^([0-9]{1,3}\.){3}[0-9]{1,3}\/[0-9]{1,2}$'
                       minLength: 9
                       maxLength: 18
                     cluster:
                       type: string
                       description: |
-                        CIDR of the cluster network used for replication and heartbeat traffic
-                        (for example, `10.0.1.0/24`).
+                        CIDR of the cluster (host) network used only for OSD-to-OSD traffic
+                        (replication, backfill, recovery, heartbeat). Set it to a dedicated
+                        storage-NIC subnet, or to the same value as `public` when there is no
+                        separate one (for example, `10.0.1.0/24`).
                       pattern: '^([0-9]{1,3}\.){3}[0-9]{1,3}\/[0-9]{1,2}$'
                       minLength: 9
                       maxLength: 18
