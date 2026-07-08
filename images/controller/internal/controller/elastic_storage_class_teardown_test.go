@@ -21,7 +21,6 @@ import (
 
 	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
-
 	corev1 "k8s.io/api/core/v1"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	apimeta "k8s.io/apimachinery/pkg/api/meta"
@@ -39,8 +38,8 @@ import (
 const escTestName = "pool-demo"
 
 // escWithFinalizer returns a test ESC of the given type carrying ESCFinalizer.
-func escWithFinalizer(name string, scType v1alpha1.StorageClassType) *v1alpha1.ElasticStorageClass {
-	esc := newTestElasticStorageClass(name, scType)
+func escWithFinalizer(scType v1alpha1.StorageClassType) *v1alpha1.ElasticStorageClass {
+	esc := newTestElasticStorageClass(escTestName, scType)
 	esc.Finalizers = []string{external.ESCFinalizer}
 	return esc
 }
@@ -48,19 +47,19 @@ func escWithFinalizer(name string, scType v1alpha1.StorageClassType) *v1alpha1.E
 // markDeletingESC deletes the ESC so the fake client stamps a
 // DeletionTimestamp (the finalizer keeps it around), then returns the
 // refreshed copy.
-func markDeletingESC(ctx context.Context, cl client.Client, name string) *v1alpha1.ElasticStorageClass {
+func markDeletingESC(ctx context.Context, cl client.Client) *v1alpha1.ElasticStorageClass {
 	stale := &v1alpha1.ElasticStorageClass{}
-	ExpectWithOffset(1, cl.Get(ctx, types.NamespacedName{Name: name}, stale)).To(Succeed())
+	ExpectWithOffset(1, cl.Get(ctx, types.NamespacedName{Name: escTestName}, stale)).To(Succeed())
 	ExpectWithOffset(1, cl.Delete(ctx, stale)).To(Succeed())
 	latest := &v1alpha1.ElasticStorageClass{}
-	ExpectWithOffset(1, cl.Get(ctx, types.NamespacedName{Name: name}, latest)).To(Succeed())
+	ExpectWithOffset(1, cl.Get(ctx, types.NamespacedName{Name: escTestName}, latest)).To(Succeed())
 	ExpectWithOffset(1, latest.DeletionTimestamp).NotTo(BeNil())
 	return latest
 }
 
-func escReadyReason(ctx context.Context, cl client.Client, name string) string {
+func escReadyReason(ctx context.Context, cl client.Client) string {
 	latest := &v1alpha1.ElasticStorageClass{}
-	ExpectWithOffset(1, cl.Get(ctx, types.NamespacedName{Name: name}, latest)).To(Succeed())
+	ExpectWithOffset(1, cl.Get(ctx, types.NamespacedName{Name: escTestName}, latest)).To(Succeed())
 	if latest.Status == nil {
 		return ""
 	}
@@ -91,7 +90,7 @@ func releasedPV(name, scName string) *corev1.PersistentVolume {
 // holds (its own finalizer keeps it around after Delete), optionally
 // carrying the PoolDeletionIsBlocked=True condition (non-empty pool).
 func rookHeldCephBlockPool(name string, blocked bool) *unstructured.Unstructured {
-	pool := newCephBlockPoolUnstructured(name, testNamespace, "Ready")
+	pool := newCephBlockPoolUnstructured(name)
 	pool.SetFinalizers([]string{"cephblockpool.ceph.rook.io"})
 	if blocked {
 		_ = unstructured.SetNestedSlice(pool.Object, []interface{}{
@@ -150,7 +149,7 @@ var _ = Describe("ElasticStorageClass teardown", func() {
 		})
 
 		It("is a no-op when already present", func() {
-			esc := escWithFinalizer(escTestName, v1alpha1.StorageClassTypeRBD)
+			esc := escWithFinalizer(v1alpha1.StorageClassTypeRBD)
 			cl := newFakeClient(esc)
 			r := newElasticStorageClassReconciler(cl)
 
@@ -174,18 +173,18 @@ var _ = Describe("ElasticStorageClass teardown", func() {
 		})
 
 		It("hard-blocks while a bound PV references the StorageClass", func() {
-			esc := escWithFinalizer(escTestName, v1alpha1.StorageClassTypeRBD)
-			pool := newCephBlockPoolUnstructured(escTestName, testNamespace, "Ready")
-			csc := newCephStorageClassUnstructured(escTestName, "Created")
+			esc := escWithFinalizer(v1alpha1.StorageClassTypeRBD)
+			pool := newCephBlockPoolUnstructured(escTestName)
+			csc := newCephStorageClassUnstructured(escTestName)
 			cl := newFakeClient(esc, pool, csc, boundPV("pv-bound", escTestName))
 			r := newElasticStorageClassReconciler(cl)
 
-			latest := markDeletingESC(ctx, cl, escTestName)
+			latest := markDeletingESC(ctx, cl)
 			res, err := r.reconcileDeleteESC(ctx, latest)
 			Expect(err).NotTo(HaveOccurred())
 			Expect(res.RequeueAfter).To(BeNumerically(">", 0))
 
-			Expect(escReadyReason(ctx, cl, escTestName)).To(Equal(v1alpha1.ESCReasonBoundVolumesExist))
+			Expect(escReadyReason(ctx, cl)).To(Equal(v1alpha1.ESCReasonBoundVolumesExist))
 			// Guard fires before anything is deleted.
 			_, poolFound := getExternalForTest(ctx, cl, external.CephBlockPoolGVK, types.NamespacedName{Namespace: testNamespace, Name: escTestName})
 			Expect(poolFound).To(BeTrue())
@@ -194,17 +193,17 @@ var _ = Describe("ElasticStorageClass teardown", func() {
 		})
 
 		It("does not let the force annotation bypass the bound-PV guard", func() {
-			esc := escWithFinalizer(escTestName, v1alpha1.StorageClassTypeRBD)
+			esc := escWithFinalizer(v1alpha1.StorageClassTypeRBD)
 			esc.Annotations = map[string]string{external.ESCForceDeleteAnnotation: "true"}
 			pool := rookHeldCephBlockPool(escTestName, true)
 			cl := newFakeClient(esc, pool, boundPV("pv-bound", escTestName))
 			r := newElasticStorageClassReconciler(cl)
 
-			latest := markDeletingESC(ctx, cl, escTestName)
+			latest := markDeletingESC(ctx, cl)
 			_, err := r.reconcileDeleteESC(ctx, latest)
 			Expect(err).NotTo(HaveOccurred())
 
-			Expect(escReadyReason(ctx, cl, escTestName)).To(Equal(v1alpha1.ESCReasonBoundVolumesExist))
+			Expect(escReadyReason(ctx, cl)).To(Equal(v1alpha1.ESCReasonBoundVolumesExist))
 			// Force annotation must NOT have been propagated while bound.
 			got, found := getExternalForTest(ctx, cl, external.CephBlockPoolGVK, types.NamespacedName{Namespace: testNamespace, Name: escTestName})
 			Expect(found).To(BeTrue())
@@ -212,11 +211,11 @@ var _ = Describe("ElasticStorageClass teardown", func() {
 		})
 
 		It("does not block on Released PVs", func() {
-			esc := escWithFinalizer(escTestName, v1alpha1.StorageClassTypeRBD)
+			esc := escWithFinalizer(v1alpha1.StorageClassTypeRBD)
 			cl := newFakeClient(esc, releasedPV("pv-released", escTestName))
 			r := newElasticStorageClassReconciler(cl)
 
-			latest := markDeletingESC(ctx, cl, escTestName)
+			latest := markDeletingESC(ctx, cl)
 			res, err := r.reconcileDeleteESC(ctx, latest)
 			Expect(err).NotTo(HaveOccurred())
 			Expect(res.RequeueAfter).To(BeZero())
@@ -227,13 +226,13 @@ var _ = Describe("ElasticStorageClass teardown", func() {
 		})
 
 		It("deletes an empty RBD pool without force and drops the finalizer", func() {
-			esc := escWithFinalizer(escTestName, v1alpha1.StorageClassTypeRBD)
-			pool := newCephBlockPoolUnstructured(escTestName, testNamespace, "Ready")
-			csc := newCephStorageClassUnstructured(escTestName, "Created")
+			esc := escWithFinalizer(v1alpha1.StorageClassTypeRBD)
+			pool := newCephBlockPoolUnstructured(escTestName)
+			csc := newCephStorageClassUnstructured(escTestName)
 			cl := newFakeClient(esc, pool, csc)
 			r := newElasticStorageClassReconciler(cl)
 
-			latest := markDeletingESC(ctx, cl, escTestName)
+			latest := markDeletingESC(ctx, cl)
 			res, err := r.reconcileDeleteESC(ctx, latest)
 			Expect(err).NotTo(HaveOccurred())
 			Expect(res.RequeueAfter).To(BeZero())
@@ -249,17 +248,17 @@ var _ = Describe("ElasticStorageClass teardown", func() {
 		})
 
 		It("surfaces DataPresentInPool for a non-empty RBD pool without force", func() {
-			esc := escWithFinalizer(escTestName, v1alpha1.StorageClassTypeRBD)
+			esc := escWithFinalizer(v1alpha1.StorageClassTypeRBD)
 			pool := rookHeldCephBlockPool(escTestName, true)
 			cl := newFakeClient(esc, pool)
 			r := newElasticStorageClassReconciler(cl)
 
-			latest := markDeletingESC(ctx, cl, escTestName)
+			latest := markDeletingESC(ctx, cl)
 			res, err := r.reconcileDeleteESC(ctx, latest)
 			Expect(err).NotTo(HaveOccurred())
 			Expect(res.RequeueAfter).To(BeNumerically(">", 0))
 
-			Expect(escReadyReason(ctx, cl, escTestName)).To(Equal(v1alpha1.ESCReasonDataPresentInPool))
+			Expect(escReadyReason(ctx, cl)).To(Equal(v1alpha1.ESCReasonDataPresentInPool))
 			// No force annotation propagated; pool retained.
 			got, found := getExternalForTest(ctx, cl, external.CephBlockPoolGVK, types.NamespacedName{Namespace: testNamespace, Name: escTestName})
 			Expect(found).To(BeTrue())
@@ -272,13 +271,13 @@ var _ = Describe("ElasticStorageClass teardown", func() {
 		})
 
 		It("propagates rook.io/force-deletion when the force annotation is set", func() {
-			esc := escWithFinalizer(escTestName, v1alpha1.StorageClassTypeRBD)
+			esc := escWithFinalizer(v1alpha1.StorageClassTypeRBD)
 			esc.Annotations = map[string]string{external.ESCForceDeleteAnnotation: "true"}
 			pool := rookHeldCephBlockPool(escTestName, true)
 			cl := newFakeClient(esc, pool)
 			r := newElasticStorageClassReconciler(cl)
 
-			latest := markDeletingESC(ctx, cl, escTestName)
+			latest := markDeletingESC(ctx, cl)
 			res, err := r.reconcileDeleteESC(ctx, latest)
 			Expect(err).NotTo(HaveOccurred())
 			Expect(res.RequeueAfter).To(BeNumerically(">", 0))
@@ -287,16 +286,16 @@ var _ = Describe("ElasticStorageClass teardown", func() {
 			Expect(found).To(BeTrue())
 			Expect(got.GetAnnotations()).To(HaveKeyWithValue(external.RookForceDeletionAnnotation, "true"))
 			// With force in flight the reason is the neutral Terminating.
-			Expect(escReadyReason(ctx, cl, escTestName)).To(Equal(v1alpha1.ESCReasonTerminating))
+			Expect(escReadyReason(ctx, cl)).To(Equal(v1alpha1.ESCReasonTerminating))
 		})
 
 		It("flips CephFS to destroy-on-delete and tears it down", func() {
-			esc := escWithFinalizer(escTestName, v1alpha1.StorageClassTypeCephFS)
+			esc := escWithFinalizer(v1alpha1.StorageClassTypeCephFS)
 			fs := rookHeldCephFilesystem(escTestName, false)
 			cl := newFakeClient(esc, fs)
 			r := newElasticStorageClassReconciler(cl)
 
-			latest := markDeletingESC(ctx, cl, escTestName)
+			latest := markDeletingESC(ctx, cl)
 			res, err := r.reconcileDeleteESC(ctx, latest)
 			Expect(err).NotTo(HaveOccurred())
 			Expect(res.RequeueAfter).To(BeNumerically(">", 0))
@@ -308,28 +307,28 @@ var _ = Describe("ElasticStorageClass teardown", func() {
 			Expect(preserve).To(BeFalse())
 			preservePools, _, _ := unstructured.NestedBool(got.Object, "spec", "preservePoolsOnDelete")
 			Expect(preservePools).To(BeFalse())
-			Expect(escReadyReason(ctx, cl, escTestName)).To(Equal(v1alpha1.ESCReasonTerminating))
+			Expect(escReadyReason(ctx, cl)).To(Equal(v1alpha1.ESCReasonTerminating))
 		})
 
 		It("surfaces FilesystemNotEmpty when the filesystem still has volumes", func() {
-			esc := escWithFinalizer(escTestName, v1alpha1.StorageClassTypeCephFS)
+			esc := escWithFinalizer(v1alpha1.StorageClassTypeCephFS)
 			fs := rookHeldCephFilesystem(escTestName, true)
 			cl := newFakeClient(esc, fs)
 			r := newElasticStorageClassReconciler(cl)
 
-			latest := markDeletingESC(ctx, cl, escTestName)
+			latest := markDeletingESC(ctx, cl)
 			res, err := r.reconcileDeleteESC(ctx, latest)
 			Expect(err).NotTo(HaveOccurred())
 			Expect(res.RequeueAfter).To(BeNumerically(">", 0))
 
-			Expect(escReadyReason(ctx, cl, escTestName)).To(Equal(v1alpha1.ESCReasonFilesystemNotEmpty))
+			Expect(escReadyReason(ctx, cl)).To(Equal(v1alpha1.ESCReasonFilesystemNotEmpty))
 			held := &v1alpha1.ElasticStorageClass{}
 			Expect(cl.Get(ctx, types.NamespacedName{Name: escTestName}, held)).To(Succeed())
 			expectNoVendorLeak(apimeta.FindStatusCondition(held.Status.Conditions, v1alpha1.ESCConditionReady).Message)
 		})
 
 		It("deletes an empty CephFS filesystem and drops the finalizer", func() {
-			esc := escWithFinalizer(escTestName, v1alpha1.StorageClassTypeCephFS)
+			esc := escWithFinalizer(v1alpha1.StorageClassTypeCephFS)
 			fs := &unstructured.Unstructured{}
 			fs.SetGroupVersionKind(external.CephFilesystemGVK)
 			fs.SetName(escTestName)
@@ -338,7 +337,7 @@ var _ = Describe("ElasticStorageClass teardown", func() {
 			cl := newFakeClient(esc, fs)
 			r := newElasticStorageClassReconciler(cl)
 
-			latest := markDeletingESC(ctx, cl, escTestName)
+			latest := markDeletingESC(ctx, cl)
 			res, err := r.reconcileDeleteESC(ctx, latest)
 			Expect(err).NotTo(HaveOccurred())
 			Expect(res.RequeueAfter).To(BeZero())
@@ -351,11 +350,11 @@ var _ = Describe("ElasticStorageClass teardown", func() {
 		})
 
 		It("is idempotent once the backend is gone", func() {
-			esc := escWithFinalizer(escTestName, v1alpha1.StorageClassTypeRBD)
+			esc := escWithFinalizer(v1alpha1.StorageClassTypeRBD)
 			cl := newFakeClient(esc)
 			r := newElasticStorageClassReconciler(cl)
 
-			latest := markDeletingESC(ctx, cl, escTestName)
+			latest := markDeletingESC(ctx, cl)
 			_, err := r.reconcileDeleteESC(ctx, latest)
 			Expect(err).NotTo(HaveOccurred())
 
@@ -381,15 +380,15 @@ var _ = Describe("ElasticStorageClass teardown", func() {
 		})
 
 		It("routes a terminating ESC to reconcileDeleteESC (bound-PV guard)", func() {
-			esc := escWithFinalizer(escTestName, v1alpha1.StorageClassTypeRBD)
+			esc := escWithFinalizer(v1alpha1.StorageClassTypeRBD)
 			cl := newFakeClient(esc, boundPV("pv-bound", escTestName))
 			r := newElasticStorageClassReconciler(cl)
 
-			markDeletingESC(ctx, cl, escTestName)
+			markDeletingESC(ctx, cl)
 			res, err := r.Reconcile(ctx, ctrl.Request{NamespacedName: types.NamespacedName{Name: escTestName}})
 			Expect(err).NotTo(HaveOccurred())
 			Expect(res.RequeueAfter).To(BeNumerically(">", 0))
-			Expect(escReadyReason(ctx, cl, escTestName)).To(Equal(v1alpha1.ESCReasonBoundVolumesExist))
+			Expect(escReadyReason(ctx, cl)).To(Equal(v1alpha1.ESCReasonBoundVolumesExist))
 		})
 	})
 })
@@ -417,10 +416,10 @@ var _ = Describe("enqueueDeletingESCByPV", func() {
 	ctx := context.Background()
 
 	It("enqueues the matching ESC only while it is terminating", func() {
-		esc := escWithFinalizer(escTestName, v1alpha1.StorageClassTypeRBD)
+		esc := escWithFinalizer(v1alpha1.StorageClassTypeRBD)
 		cl := newFakeClient(esc)
 		r := newElasticStorageClassReconciler(cl)
-		markDeletingESC(ctx, cl, escTestName)
+		markDeletingESC(ctx, cl)
 
 		reqs := r.enqueueDeletingESCByPV(ctx, boundPV("pv-1", escTestName))
 		Expect(reqs).To(HaveLen(1))
@@ -461,32 +460,32 @@ var _ = Describe("ElasticStorageClass teardown — residual branches", func() {
 	ctx := context.Background()
 
 	It("surfaces Terminating while only the CephStorageClass is still being removed", func() {
-		esc := escWithFinalizer(escTestName, v1alpha1.StorageClassTypeRBD)
+		esc := escWithFinalizer(v1alpha1.StorageClassTypeRBD)
 		// CephStorageClass held by csi-ceph finalizer (still terminating);
 		// the RBD pool never existed.
-		csc := newCephStorageClassUnstructured(escTestName, "Created")
+		csc := newCephStorageClassUnstructured(escTestName)
 		csc.SetFinalizers([]string{"storage.deckhouse.io/csi-ceph"})
 		cl := newFakeClient(esc, csc)
 		r := newElasticStorageClassReconciler(cl)
 
-		latest := markDeletingESC(ctx, cl, escTestName)
+		latest := markDeletingESC(ctx, cl)
 		res, err := r.reconcileDeleteESC(ctx, latest)
 		Expect(err).NotTo(HaveOccurred())
 		Expect(res.RequeueAfter).To(BeNumerically(">", 0))
 
-		Expect(escReadyReason(ctx, cl, escTestName)).To(Equal(v1alpha1.ESCReasonTerminating))
+		Expect(escReadyReason(ctx, cl)).To(Equal(v1alpha1.ESCReasonTerminating))
 		held := &v1alpha1.ElasticStorageClass{}
 		Expect(cl.Get(ctx, types.NamespacedName{Name: escTestName}, held)).To(Succeed())
 		Expect(held.Finalizers).To(ContainElement(external.ESCFinalizer))
 	})
 
 	It("drops the finalizer for an unsupported type once the CephStorageClass is gone", func() {
-		esc := escWithFinalizer(escTestName, v1alpha1.StorageClassType("Bogus"))
-		csc := newCephStorageClassUnstructured(escTestName, "Created")
+		esc := escWithFinalizer(v1alpha1.StorageClassType("Bogus"))
+		csc := newCephStorageClassUnstructured(escTestName)
 		cl := newFakeClient(esc, csc)
 		r := newElasticStorageClassReconciler(cl)
 
-		latest := markDeletingESC(ctx, cl, escTestName)
+		latest := markDeletingESC(ctx, cl)
 		res, err := r.reconcileDeleteESC(ctx, latest)
 		Expect(err).NotTo(HaveOccurred())
 		Expect(res.RequeueAfter).To(BeZero())

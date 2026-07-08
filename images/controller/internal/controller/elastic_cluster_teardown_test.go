@@ -21,7 +21,6 @@ import (
 
 	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
-
 	corev1 "k8s.io/api/core/v1"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	apimeta "k8s.io/apimachinery/pkg/api/meta"
@@ -45,12 +44,12 @@ func ecWithFinalizer() *v1alpha1.ElasticCluster {
 // markDeleting deletes the object so the fake client stamps a
 // DeletionTimestamp (the finalizer keeps it around), then returns the
 // refreshed copy.
-func markDeleting(ctx context.Context, cl client.Client, name string) *v1alpha1.ElasticCluster {
+func markDeleting(ctx context.Context, cl client.Client) *v1alpha1.ElasticCluster {
 	stale := &v1alpha1.ElasticCluster{}
-	ExpectWithOffset(1, cl.Get(ctx, types.NamespacedName{Name: name}, stale)).To(Succeed())
+	ExpectWithOffset(1, cl.Get(ctx, types.NamespacedName{Name: testECName}, stale)).To(Succeed())
 	ExpectWithOffset(1, cl.Delete(ctx, stale)).To(Succeed())
 	latest := &v1alpha1.ElasticCluster{}
-	ExpectWithOffset(1, cl.Get(ctx, types.NamespacedName{Name: name}, latest)).To(Succeed())
+	ExpectWithOffset(1, cl.Get(ctx, types.NamespacedName{Name: testECName}, latest)).To(Succeed())
 	ExpectWithOffset(1, latest.DeletionTimestamp).NotTo(BeNil())
 	return latest
 }
@@ -82,9 +81,9 @@ func rookHeldCephClusterConnection() *unstructured.Unstructured {
 	return conn
 }
 
-func ecReadyReason(ctx context.Context, cl client.Client, name string) string {
+func ecReadyReason(ctx context.Context, cl client.Client) string {
 	latest := &v1alpha1.ElasticCluster{}
-	ExpectWithOffset(1, cl.Get(ctx, types.NamespacedName{Name: name}, latest)).To(Succeed())
+	ExpectWithOffset(1, cl.Get(ctx, types.NamespacedName{Name: testECName}, latest)).To(Succeed())
 	if latest.Status == nil {
 		return ""
 	}
@@ -161,7 +160,7 @@ var _ = Describe("ElasticCluster teardown", func() {
 				cl := newFakeClient(objs...)
 				r := newElasticClusterReconciler(cl)
 
-				latest := markDeleting(ctx, cl, testECName)
+				latest := markDeleting(ctx, cl)
 				res, err := r.reconcileDelete(ctx, latest)
 				Expect(err).NotTo(HaveOccurred())
 				Expect(res.RequeueAfter).To(BeNumerically(">", 0))
@@ -169,7 +168,7 @@ var _ = Describe("ElasticCluster teardown", func() {
 				// Guard fires BEFORE any vendor resource is deleted.
 				Expect(cephClusterExists(ctx, cl)).To(BeTrue())
 				Expect(cephClusterConnectionExists(ctx, cl)).To(BeTrue())
-				Expect(ecReadyReason(ctx, cl, testECName)).To(Equal(v1alpha1.ECReasonStorageClassesExist))
+				Expect(ecReadyReason(ctx, cl)).To(Equal(v1alpha1.ECReasonStorageClassesExist))
 
 				// Finalizer still held.
 				held := &v1alpha1.ElasticCluster{}
@@ -198,7 +197,7 @@ var _ = Describe("ElasticCluster teardown", func() {
 			)
 			r := newElasticClusterReconciler(cl)
 
-			latest := markDeleting(ctx, cl, testECName)
+			latest := markDeleting(ctx, cl)
 			_, err := r.reconcileDelete(ctx, latest)
 			Expect(err).NotTo(HaveOccurred())
 
@@ -224,7 +223,7 @@ var _ = Describe("ElasticCluster teardown", func() {
 			)
 			r := newElasticClusterReconciler(cl)
 
-			latest := markDeleting(ctx, cl, testECName)
+			latest := markDeleting(ctx, cl)
 			res, err := r.reconcileDelete(ctx, latest)
 			Expect(err).NotTo(HaveOccurred())
 			Expect(res.RequeueAfter).To(BeZero())
@@ -246,12 +245,12 @@ var _ = Describe("ElasticCluster teardown", func() {
 			cl := newFakeClient(ec, rookHeldCephCluster(ec, true))
 			r := newElasticClusterReconciler(cl)
 
-			latest := markDeleting(ctx, cl, testECName)
+			latest := markDeleting(ctx, cl)
 			res, err := r.reconcileDelete(ctx, latest)
 			Expect(err).NotTo(HaveOccurred())
 			Expect(res.RequeueAfter).To(BeNumerically(">", 0))
 
-			Expect(ecReadyReason(ctx, cl, testECName)).To(Equal(v1alpha1.ECReasonVolumesExist))
+			Expect(ecReadyReason(ctx, cl)).To(Equal(v1alpha1.ECReasonVolumesExist))
 
 			// Finalizer retained until the backend is actually gone.
 			held := &v1alpha1.ElasticCluster{}
@@ -269,7 +268,7 @@ var _ = Describe("ElasticCluster teardown", func() {
 			cl := newFakeClient(ec, rookHeldCephClusterConnection())
 			r := newElasticClusterReconciler(cl)
 
-			latest := markDeleting(ctx, cl, testECName)
+			latest := markDeleting(ctx, cl)
 			res, err := r.reconcileDelete(ctx, latest)
 			Expect(err).NotTo(HaveOccurred())
 			Expect(res.RequeueAfter).To(BeNumerically(">", 0))
@@ -277,7 +276,7 @@ var _ = Describe("ElasticCluster teardown", func() {
 			// CephCluster never existed; the connection is still held,
 			// so the finalizer must be retained.
 			Expect(cephClusterConnectionExists(ctx, cl)).To(BeTrue())
-			Expect(ecReadyReason(ctx, cl, testECName)).To(Equal(v1alpha1.ECReasonTerminating))
+			Expect(ecReadyReason(ctx, cl)).To(Equal(v1alpha1.ECReasonTerminating))
 			held := &v1alpha1.ElasticCluster{}
 			Expect(cl.Get(ctx, types.NamespacedName{Name: testECName}, held)).To(Succeed())
 			Expect(held.Finalizers).To(ContainElement(external.ECFinalizer))
@@ -288,11 +287,11 @@ var _ = Describe("ElasticCluster teardown", func() {
 			cl := newFakeClient(ec, rookHeldCephCluster(ec, false))
 			r := newElasticClusterReconciler(cl)
 
-			latest := markDeleting(ctx, cl, testECName)
+			latest := markDeleting(ctx, cl)
 			res, err := r.reconcileDelete(ctx, latest)
 			Expect(err).NotTo(HaveOccurred())
 			Expect(res.RequeueAfter).To(BeNumerically(">", 0))
-			Expect(ecReadyReason(ctx, cl, testECName)).To(Equal(v1alpha1.ECReasonTerminating))
+			Expect(ecReadyReason(ctx, cl)).To(Equal(v1alpha1.ECReasonTerminating))
 		})
 
 		It("is idempotent once the backend is gone", func() {
@@ -300,7 +299,7 @@ var _ = Describe("ElasticCluster teardown", func() {
 			cl := newFakeClient(ec)
 			r := newElasticClusterReconciler(cl)
 
-			latest := markDeleting(ctx, cl, testECName)
+			latest := markDeleting(ctx, cl)
 			_, err := r.reconcileDelete(ctx, latest)
 			Expect(err).NotTo(HaveOccurred())
 
@@ -333,11 +332,11 @@ var _ = Describe("ElasticCluster teardown", func() {
 			cl := newFakeClient(ec, esc)
 			r := newElasticClusterReconciler(cl)
 
-			markDeleting(ctx, cl, testECName)
+			markDeleting(ctx, cl)
 			res, err := r.Reconcile(ctx, ctrl.Request{NamespacedName: types.NamespacedName{Name: testECName}})
 			Expect(err).NotTo(HaveOccurred())
 			Expect(res.RequeueAfter).To(BeNumerically(">", 0))
-			Expect(ecReadyReason(ctx, cl, testECName)).To(Equal(v1alpha1.ECReasonStorageClassesExist))
+			Expect(ecReadyReason(ctx, cl)).To(Equal(v1alpha1.ECReasonStorageClassesExist))
 			Expect(cephClusterExists(ctx, cl)).To(BeFalse())
 		})
 	})
