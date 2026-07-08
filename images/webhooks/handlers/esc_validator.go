@@ -70,6 +70,30 @@ var elasticClusterGVR = schema.GroupVersionResource{
 	Resource: "elasticclusters",
 }
 
+// elasticStorageClassGVR is the dynamic-client GVR for the
+// ElasticStorageClass CR, used by the PG-budget preflight to sum the
+// manually-pinned pg_num of sibling ESCs on the same cluster. The plural
+// form is `elasticstorageclasses` per the CRD's spec.names.plural.
+var elasticStorageClassGVR = schema.GroupVersionResource{
+	Group:    "storage.deckhouse.io",
+	Version:  "v1alpha1",
+	Resource: "elasticstorageclasses",
+}
+
+// maxManualPGPerOSD is the ceiling this webhook enforces on the projected
+// number of manually-pinned placement-group replicas per OSD, summed across
+// every ElasticStorageClass of a cluster.
+//
+// Ceph warns ("too many PGs per OSD") at mon_max_pg_per_osd (default ~250)
+// and an OSD *stops creating PGs* — the affected PGs go inactive and I/O
+// stalls — once it serves osd_max_pg_per_osd_hard_ratio (default 3.0) x
+// mon_max_pg_per_osd = ~750 PGs. Pinning pg_num with the autoscaler off
+// removes Ceph's own safety valve, and raising pg_num on a pool that already
+// holds data triggers a memory-hungry PG split that has OOM-killed OSDs in
+// the field. 200 leaves headroom below the ~250 warning for autoscaled
+// pools, the CephFS metadata pool, and recovery overhead.
+const maxManualPGPerOSD = 200
+
 // NewElasticStorageClassValidator builds a kwhvalidating.ValidatorFunc
 // that enforces the ESC invariants the CRD's x-kubernetes-validations
 // already encode plus a topology preflight for HighRedundancy:
@@ -141,6 +165,13 @@ func NewElasticStorageClassValidator(
 			if v := validateHighRedundancyTopology(ctx, dyn, newObj); v != nil {
 				return v, nil
 			}
+		}
+
+		// PG-budget preflight runs on CREATE and UPDATE: pgNum is mutable, so
+		// a bump on an existing ESC (the exact move that OOM-kills OSDs via a
+		// PG split) must be gated too. It is a no-op unless spec.pgNum is set.
+		if v := validatePGBudget(ctx, dyn, newObj); v != nil {
+			return v, nil
 		}
 
 		if ar.Operation != model.OperationUpdate {
@@ -293,6 +324,127 @@ func countDistinctOSDNodes(
 	}
 
 	return len(seen), nil
+}
+
+// validatePGBudget rejects an ESC whose pinned spec.pgNum would push the
+// cluster's projected PGs-per-OSD past maxManualPGPerOSD.
+//
+// It is a no-op unless spec.pgNum is set (an unpinned pool is governed by
+// the autoscaler, which self-limits). The projection sums pg_num x replica
+// size over every manually-pinned ESC of the same cluster — including this
+// one — and divides by the OSD count. OSD count is the number of
+// BlockDevices adopted by the cluster (one OSD per adopted BD, matching the
+// controller's storageClassDeviceSet sizing).
+//
+// When the cluster has no adopted BlockDevices yet (not provisioned, or
+// clusterRef points at a not-yet-created EC) the OSD count is unknown, so
+// the check is skipped rather than blocking a legitimate apply — Ceph's own
+// limits remain the backstop once OSDs appear.
+func validatePGBudget(
+	ctx context.Context,
+	dyn dynamic.Interface,
+	escObj *unstructured.Unstructured,
+) *kwhvalidating.ValidatorResult {
+	pgNum, found, _ := unstructured.NestedInt64(escObj.Object, "spec", "pgNum")
+	if !found || pgNum <= 0 {
+		return nil
+	}
+	clusterRef, _, _ := unstructured.NestedString(escObj.Object, "spec", "clusterRef")
+	if clusterRef == "" {
+		// CRD requires clusterRef; without it there is no cluster to budget
+		// against. Other validation layers surface the missing field.
+		return nil
+	}
+	replication, _, _ := unstructured.NestedString(escObj.Object, "spec", "replication")
+
+	osdCount, vr := countAdoptedOSDs(ctx, dyn, clusterRef)
+	if vr != nil {
+		return vr
+	}
+	if osdCount == 0 {
+		klog.V(2).Infof("[esc-validate] PG budget skipped for %q: ElasticCluster %q has no adopted BlockDevices yet", escObj.GetName(), clusterRef)
+		return nil
+	}
+
+	// This ESC's contribution, plus every sibling that also pins pg_num on
+	// the same cluster (autoscaled siblings self-limit and are excluded).
+	totalPGReplicas := pgNum * int64(replicaSizeForReplication(replication))
+
+	siblings, err := dyn.Resource(elasticStorageClassGVR).List(ctx, metav1.ListOptions{})
+	if err != nil {
+		klog.Errorf("[esc-validate] list ElasticStorageClasses for PG budget: %v", err)
+		return reject(fmt.Sprintf("failed to enumerate ElasticStorageClasses of cluster %q for the PG budget check: %v", clusterRef, err))
+	}
+	self := escObj.GetName()
+	for i := range siblings.Items {
+		s := &siblings.Items[i]
+		if s.GetName() == self {
+			continue
+		}
+		ref, _, _ := unstructured.NestedString(s.Object, "spec", "clusterRef")
+		if ref != clusterRef {
+			continue
+		}
+		sPG, ok, _ := unstructured.NestedInt64(s.Object, "spec", "pgNum")
+		if !ok || sPG <= 0 {
+			continue
+		}
+		sRepl, _, _ := unstructured.NestedString(s.Object, "spec", "replication")
+		totalPGReplicas += sPG * int64(replicaSizeForReplication(sRepl))
+	}
+
+	// Round up: a fractional PG-per-OSD still consumes a whole PG on some OSD.
+	perOSD := (totalPGReplicas + int64(osdCount) - 1) / int64(osdCount)
+	if perOSD > maxManualPGPerOSD {
+		return reject(fmt.Sprintf(
+			"ElasticStorageClass %q pins pg_num=%d (replication=%s, %d replicas); combined with the other manually-pinned pools on ElasticCluster %q this projects to ~%d PG replicas per OSD across %d OSD(s), above the safe ceiling of %d. "+
+				"Ceph warns at ~250 PGs/OSD and stops creating PGs (I/O stalls) near ~750. Lower pgNum, add OSDs to the cluster, or leave pgAutoscaleMode unset so the autoscaler manages pg_num.",
+			self, pgNum, replicationForMessage(replication), replicaSizeForReplication(replication),
+			clusterRef, perOSD, osdCount, maxManualPGPerOSD,
+		))
+	}
+	return nil
+}
+
+// countAdoptedOSDs returns the number of BlockDevices adopted by the
+// referenced EC (label sds-elastic.deckhouse.io/cluster=<ec>). Each adopted
+// BD backs exactly one OSD, so the count equals the cluster's OSD count.
+func countAdoptedOSDs(
+	ctx context.Context,
+	dyn dynamic.Interface,
+	ecName string,
+) (int, *kwhvalidating.ValidatorResult) {
+	owned, err := dyn.Resource(blockDeviceGVR).List(ctx, metav1.ListOptions{
+		LabelSelector: fmt.Sprintf("%s=%s", ecClusterLabel, ecName),
+	})
+	if err != nil {
+		klog.Errorf("[esc-validate] list adopted BlockDevices for %s: %v", ecName, err)
+		return 0, reject(fmt.Sprintf("failed to enumerate adopted BlockDevices for ElasticCluster %q: %v", ecName, err))
+	}
+	return len(owned.Items), nil
+}
+
+// replicaSizeForReplication maps a spec.replication value to the pool's
+// replica count. Mirrors the controller's rbdReplicated/cephfsDataPool
+// mapping; the empty string is the CRD default (ConsistencyAndAvailability).
+func replicaSizeForReplication(replication string) int32 {
+	switch replication {
+	case "AvailabilityWithoutConsistency":
+		return 2
+	case replicationHighRedundancy:
+		return 4
+	default: // ConsistencyAndAvailability and "" (CRD default)
+		return 3
+	}
+}
+
+// replicationForMessage renders spec.replication for a human-readable
+// message, substituting the CRD default when the field is omitted.
+func replicationForMessage(replication string) string {
+	if replication == "" {
+		return "ConsistencyAndAvailability"
+	}
+	return replication
 }
 
 // mustImmutable returns a reject result iff `spec.<field>` differs

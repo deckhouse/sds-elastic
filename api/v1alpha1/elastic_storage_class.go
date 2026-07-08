@@ -160,8 +160,14 @@ type ElasticStorageClassSpec struct {
 	// PgNum, when set, pins the pool's target pg_num. Rook renders it into the
 	// pool `parameters.pg_num`. Omitted (0) leaves PG sizing to Ceph. To keep
 	// the count fixed, set PgAutoscaleMode=off as well — otherwise the
-	// autoscaler may override this value. Powers of two are recommended.
-	// +kubebuilder:validation:Minimum=1
+	// autoscaler may override this value.
+	//
+	// Restricted to powers of two (Ceph distributes PGs evenly only for
+	// powers of two) with a 512 ceiling. This is only a shape guard: the
+	// validating webhook additionally rejects a pgNum that would push the
+	// projected PGs-per-OSD of the target cluster past a safe threshold,
+	// since a safe maximum depends on the cluster's OSD count.
+	// +kubebuilder:validation:Enum=16;32;64;128;256;512
 	// +optional
 	PgNum int32 `json:"pgNum,omitempty"`
 

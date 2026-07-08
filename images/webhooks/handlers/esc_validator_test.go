@@ -237,6 +237,113 @@ var _ = Describe("ElasticStorageClassValidate", func() {
 			Expect(valid).To(BeTrue())
 		})
 	})
+
+	Describe("PG budget preflight", func() {
+		ecName := "ec-pg"
+
+		// makeBDs adopts n BlockDevices for ecName (one OSD per BD).
+		makeBDs := func(n int) []runtime.Object {
+			out := make([]runtime.Object, 0, n)
+			for i := 0; i < n; i++ {
+				out = append(out, bdUnstructured(bdNameOf(i), ecName, nodeNameOf(i), nil))
+			}
+			return out
+		}
+
+		It("accepts CREATE when pgNum stays within the PGs-per-OSD budget", func() {
+			// 128 x size 3 / 3 OSD = 128 PG/OSD (<= 200).
+			seed := makeBDs(3)
+			esc := newESCUnstructured("pool", escSpecWithPG(ecName, "ConsistencyAndAvailability", 128))
+			valid, msg, err := validateWith(seed, model.OperationCreate, nil, esc)
+			Expect(err).NotTo(HaveOccurred(), "msg=%s", msg)
+			Expect(valid).To(BeTrue(), "msg=%s", msg)
+		})
+
+		It("rejects CREATE when a single pool's pgNum blows the budget", func() {
+			// 512 x size 3 / 3 OSD = 512 PG/OSD (> 200).
+			seed := makeBDs(3)
+			esc := newESCUnstructured("pool", escSpecWithPG(ecName, "ConsistencyAndAvailability", 512))
+			valid, msg, err := validateWith(seed, model.OperationCreate, nil, esc)
+			Expect(err).NotTo(HaveOccurred())
+			Expect(valid).To(BeFalse())
+			Expect(msg).To(ContainSubstring("per OSD"))
+			Expect(msg).To(ContainSubstring("512"))
+			Expect(msg).To(ContainSubstring(ecName))
+		})
+
+		It("uses the replication factor: size-2 pool fits where size-3 would not", func() {
+			// AvailabilityWithoutConsistency is size 2: 256 x 2 / 3 = 171
+			// PG/OSD (<= 200). The same pgNum at size 3 would be 256 (> 200),
+			// so this proves the replica factor feeds the projection.
+			seed := makeBDs(3)
+			esc := newESCUnstructured("pool", escSpecWithPG(ecName, "AvailabilityWithoutConsistency", 256))
+			valid, msg, err := validateWith(seed, model.OperationCreate, nil, esc)
+			Expect(err).NotTo(HaveOccurred(), "msg=%s", msg)
+			Expect(valid).To(BeTrue(), "msg=%s", msg)
+		})
+
+		It("rejects CREATE when the aggregate across sibling pinned pools blows the budget", func() {
+			// Existing sibling pins 128 (x3), the new pool pins 128 (x3):
+			// (128+128) x 3 / 3 OSD = 256 PG/OSD (> 200).
+			seed := makeBDs(3)
+			seed = append(seed, newESCUnstructured("sibling", escSpecWithPG(ecName, "ConsistencyAndAvailability", 128)))
+			esc := newESCUnstructured("pool", escSpecWithPG(ecName, "ConsistencyAndAvailability", 128))
+			valid, msg, err := validateWith(seed, model.OperationCreate, nil, esc)
+			Expect(err).NotTo(HaveOccurred())
+			Expect(valid).To(BeFalse())
+			Expect(msg).To(ContainSubstring("per OSD"))
+		})
+
+		It("ignores pinned pools of a different cluster", func() {
+			// Sibling on another cluster pins 512, but it must not count
+			// against ec-pg's budget: 128 x 3 / 3 OSD = 128 (<= 200).
+			seed := makeBDs(3)
+			seed = append(seed, newESCUnstructured("other-pool", escSpecWithPG("other-cluster", "ConsistencyAndAvailability", 512)))
+			esc := newESCUnstructured("pool", escSpecWithPG(ecName, "ConsistencyAndAvailability", 128))
+			valid, msg, err := validateWith(seed, model.OperationCreate, nil, esc)
+			Expect(err).NotTo(HaveOccurred(), "msg=%s", msg)
+			Expect(valid).To(BeTrue(), "msg=%s", msg)
+		})
+
+		It("skips the budget check when the cluster has no adopted OSDs yet", func() {
+			// No BlockDevices seeded: OSD count is unknown, so even an
+			// oversized pgNum is deferred to Ceph rather than blocked.
+			esc := newESCUnstructured("pool", escSpecWithPG(ecName, "ConsistencyAndAvailability", 512))
+			valid, msg, err := validateWith(nil, model.OperationCreate, nil, esc)
+			Expect(err).NotTo(HaveOccurred(), "msg=%s", msg)
+			Expect(valid).To(BeTrue(), "msg=%s", msg)
+		})
+
+		It("excludes the ESC's own stored pgNum on UPDATE (uses the new value)", func() {
+			// Stored self pins 256; the UPDATE lowers it to 128. Counting
+			// the stored 256 too would yield (128+256) x 3 / 3 = 384 (> 200)
+			// and wrongly reject; excluding self gives 128 (<= 200).
+			spec := func(pg int64) map[string]interface{} {
+				return escSpecWithPG(ecName, "ConsistencyAndAvailability", pg)
+			}
+			seed := makeBDs(3)
+			seed = append(seed, newESCUnstructured("pool", spec(256)))
+			oldObj := newESCUnstructured("pool", spec(256))
+			updated := newESCUnstructured("pool", spec(128))
+			valid, msg, err := validateWith(seed, model.OperationUpdate, oldObj, updated)
+			Expect(err).NotTo(HaveOccurred(), "msg=%s", msg)
+			Expect(valid).To(BeTrue(), "msg=%s", msg)
+		})
+
+		It("rejects an UPDATE that bumps pgNum past the budget", func() {
+			spec := func(pg int64) map[string]interface{} {
+				return escSpecWithPG(ecName, "ConsistencyAndAvailability", pg)
+			}
+			seed := makeBDs(3)
+			seed = append(seed, newESCUnstructured("pool", spec(128)))
+			oldObj := newESCUnstructured("pool", spec(128))
+			updated := newESCUnstructured("pool", spec(512))
+			valid, msg, err := validateWith(seed, model.OperationUpdate, oldObj, updated)
+			Expect(err).NotTo(HaveOccurred())
+			Expect(valid).To(BeFalse())
+			Expect(msg).To(ContainSubstring("per OSD"))
+		})
+	})
 })
 
 // nodeNameOf and bdNameOf produce stable, ordering-friendly names for

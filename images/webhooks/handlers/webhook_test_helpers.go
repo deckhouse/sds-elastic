@@ -93,6 +93,17 @@ func escSpec(clusterRef, scType, replication string) map[string]interface{} {
 	return spec
 }
 
+// escSpecWithPG builds an RBD ESC spec that pins pg_num, for the PG-budget
+// preflight tests. The budget projection is independent of the pool type
+// (it counts pg_num x replica size), so the type is fixed to RBD. pgNum is
+// stored as int64 to match what the API server hands the webhook
+// (unstructured.NestedInt64).
+func escSpecWithPG(clusterRef, replication string, pgNum int64) map[string]interface{} {
+	spec := escSpec(clusterRef, storageClassTypeRBD, replication)
+	spec["pgNum"] = pgNum
+	return spec
+}
+
 func eccSpec(fsid, monSecret, adminSecret string) map[string]interface{} {
 	return map[string]interface{}{
 		"fsid":        fsid,

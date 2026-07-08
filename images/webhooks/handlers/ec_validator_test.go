@@ -39,9 +39,10 @@ import (
 func dynClient(objs ...runtime.Object) dynamic.Interface {
 	sch := runtime.NewScheme()
 	gvrToListKind := map[schema.GroupVersionResource]string{
-		blockDeviceGVR:    "BlockDeviceList",
-		nodeGVR:           "NodeList",
-		elasticClusterGVR: "ElasticClusterList",
+		blockDeviceGVR:         "BlockDeviceList",
+		nodeGVR:                "NodeList",
+		elasticClusterGVR:      "ElasticClusterList",
+		elasticStorageClassGVR: "ElasticStorageClassList",
 	}
 	return dynamicfake.NewSimpleDynamicClientWithCustomListKinds(sch, gvrToListKind, objs...)
 }

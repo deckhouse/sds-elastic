@@ -105,14 +105,22 @@ spec:
                 pgNum:
                   type: integer
                   format: int32
-                  minimum: 1
+                  enum: [16, 32, 64, 128, 256, 512]
                   description: |
                     Optional target `pg_num` for the pool. When set, it is
                     rendered into the Rook pool `parameters.pg_num`. When
                     omitted, PG sizing is left to Ceph. To keep the count
                     fixed, set `pgAutoscaleMode: off` as well — otherwise the
-                    autoscaler may override this value. Powers of two are
-                    recommended.
+                    autoscaler may override this value.
+
+                    Restricted to powers of two (Ceph distributes PGs evenly
+                    only for powers of two) with a 512 ceiling. This is only a
+                    shape guard: the validating webhook additionally rejects a
+                    value that would push the projected PGs-per-OSD of the
+                    target cluster past a safe threshold (Ceph warns at
+                    ~250 PGs/OSD and stops creating PGs — I/O stalls — near
+                    ~750), since a safe maximum depends on the cluster's OSD
+                    count.
 
                     Applies to the RBD pool and the CephFS data pool; the
                     CephFS metadata pool keeps Ceph defaults.
