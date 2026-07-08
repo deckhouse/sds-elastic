@@ -96,6 +96,38 @@ var _ = Describe("builders", func() {
 			Expect(found).To(BeTrue())
 			Expect(safe).To(BeTrue())
 		})
+
+		It("omits spec.parameters when no PG overrides are set", func() {
+			esc := &v1alpha1.ElasticStorageClass{
+				ObjectMeta: metav1.ObjectMeta{Name: "sc"},
+				Spec: v1alpha1.ElasticStorageClassSpec{
+					Type:        v1alpha1.StorageClassTypeRBD,
+					Replication: v1alpha1.ReplicationConsistencyAndAvailability,
+				},
+			}
+			pool, err := ESCCephBlockPool(esc, "ns")
+			Expect(err).NotTo(HaveOccurred())
+			_, found, _ := unstructured.NestedMap(pool.Object, "spec", "parameters")
+			Expect(found).To(BeFalse())
+		})
+
+		It("renders pg_num and pg_autoscale_mode into spec.parameters", func() {
+			esc := &v1alpha1.ElasticStorageClass{
+				ObjectMeta: metav1.ObjectMeta{Name: "sc"},
+				Spec: v1alpha1.ElasticStorageClassSpec{
+					Type:            v1alpha1.StorageClassTypeRBD,
+					Replication:     v1alpha1.ReplicationConsistencyAndAvailability,
+					PgNum:           128,
+					PgAutoscaleMode: v1alpha1.PgAutoscaleModeOff,
+				},
+			}
+			pool, err := ESCCephBlockPool(esc, "ns")
+			Expect(err).NotTo(HaveOccurred())
+			pgNum, _, _ := unstructuredNestedString(pool, "spec", "parameters", "pg_num")
+			Expect(pgNum).To(Equal("128"))
+			mode, _, _ := unstructuredNestedString(pool, "spec", "parameters", "pg_autoscale_mode")
+			Expect(mode).To(Equal("off"))
+		})
 	})
 
 	Describe("ESCCephFilesystem", func() {
@@ -138,6 +170,30 @@ var _ = Describe("builders", func() {
 			Expect(ok).To(BeTrue(), "HighRedundancy data pool must be replicated, not erasureCoded")
 			Expect(repl["size"]).To(Equal(int64(4)))
 			Expect(repl["requireSafeReplicaSize"]).To(Equal(true))
+		})
+
+		It("renders PG overrides on the CephFS data pool but not the metadata pool", func() {
+			esc := &v1alpha1.ElasticStorageClass{
+				ObjectMeta: metav1.ObjectMeta{Name: "fs-pg"},
+				Spec: v1alpha1.ElasticStorageClassSpec{
+					Type:            v1alpha1.StorageClassTypeCephFS,
+					Replication:     v1alpha1.ReplicationConsistencyAndAvailability,
+					PgNum:           128,
+					PgAutoscaleMode: v1alpha1.PgAutoscaleModeOff,
+				},
+			}
+			fs, err := ESCCephFilesystem(esc, "ns")
+			Expect(err).NotTo(HaveOccurred())
+
+			pools, _, _ := unstructuredNestedSlice(fs, "spec", "dataPools")
+			Expect(pools).To(HaveLen(1))
+			params, ok := pools[0].(map[string]interface{})["parameters"].(map[string]interface{})
+			Expect(ok).To(BeTrue())
+			Expect(params["pg_num"]).To(Equal("128"))
+			Expect(params["pg_autoscale_mode"]).To(Equal("off"))
+
+			_, found, _ := unstructured.NestedMap(fs.Object, "spec", "metadataPool", "parameters")
+			Expect(found).To(BeFalse(), "metadata pool must keep Ceph defaults")
 		})
 	})
 

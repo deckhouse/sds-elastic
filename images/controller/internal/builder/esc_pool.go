@@ -78,6 +78,9 @@ func ESCCephFSDataPoolName(_ *v1alpha1.ElasticStorageClass) string {
 //
 // min_size is not set explicitly: Ceph derives it from the cluster's
 // osd_pool_default_min_size (typically size-1).
+//
+// Optional spec.pgNum / spec.pgAutoscaleMode are rendered into the pool
+// `parameters` map (see pgPoolParameters).
 func ESCCephBlockPool(esc *v1alpha1.ElasticStorageClass, namespace string) (*unstructured.Unstructured, error) {
 	repl, err := rbdReplicated(esc.Spec.Replication)
 	if err != nil {
@@ -86,6 +89,9 @@ func ESCCephBlockPool(esc *v1alpha1.ElasticStorageClass, namespace string) (*uns
 	spec := map[string]interface{}{
 		"failureDomain": "host",
 		"replicated":    repl,
+	}
+	if params := pgPoolParameters(esc); params != nil {
+		spec["parameters"] = params
 	}
 
 	obj := &unstructured.Unstructured{}
@@ -105,6 +111,19 @@ func ESCCephFilesystem(esc *v1alpha1.ElasticStorageClass, namespace string) (*un
 	}
 	dataPool["name"] = ESCCephFSDataPoolName(esc)
 	dataPool["failureDomain"] = "host"
+	if params := pgPoolParameters(esc); params != nil {
+		// The erasure-coded branch of cephfsDataPool already seeds
+		// `parameters` (allow_ec_overwrites); merge the PG overrides on top
+		// rather than clobbering it.
+		existing, _ := dataPool["parameters"].(map[string]interface{})
+		if existing == nil {
+			existing = map[string]interface{}{}
+		}
+		for k, v := range params {
+			existing[k] = v
+		}
+		dataPool["parameters"] = existing
+	}
 
 	spec := map[string]interface{}{
 		"metadataPool": map[string]interface{}{
@@ -129,6 +148,30 @@ func ESCCephFilesystem(esc *v1alpha1.ElasticStorageClass, namespace string) (*un
 	obj.SetLabels(ESCManagedLabels(esc))
 	obj.Object["spec"] = spec
 	return obj, nil
+}
+
+// pgPoolParameters returns the Rook pool `parameters` entries derived from the
+// ESC's optional placement-group overrides (spec.pgNum, spec.pgAutoscaleMode),
+// or nil when neither is set. Rook forwards these to `ceph osd pool set`, so
+// pg_num must be a string. Setting pg_autoscale_mode=off together with a fixed
+// pg_num pins the PG count and stops the autoscaler from rebalancing OSDs —
+// the intended configuration for test/nested clusters.
+//
+// Applied to the RBD CephBlockPool and the CephFS data pool. The CephFS
+// metadata pool keeps Ceph defaults: it is small and stable, so autoscaling it
+// does not drive the OSD data movement these overrides exist to avoid.
+func pgPoolParameters(esc *v1alpha1.ElasticStorageClass) map[string]interface{} {
+	params := map[string]interface{}{}
+	if esc.Spec.PgNum > 0 {
+		params["pg_num"] = fmt.Sprintf("%d", esc.Spec.PgNum)
+	}
+	if esc.Spec.PgAutoscaleMode != "" {
+		params["pg_autoscale_mode"] = string(esc.Spec.PgAutoscaleMode)
+	}
+	if len(params) == 0 {
+		return nil
+	}
+	return params
 }
 
 func rbdReplicated(mode v1alpha1.ReplicationMode) (map[string]interface{}, error) {

@@ -102,6 +102,36 @@ spec:
                     - ConsistencyAndAvailability
                     - HighRedundancy
                   default: ConsistencyAndAvailability
+                pgNum:
+                  type: integer
+                  format: int32
+                  minimum: 1
+                  description: |
+                    Optional target `pg_num` for the pool. When set, it is
+                    rendered into the Rook pool `parameters.pg_num`. When
+                    omitted, PG sizing is left to Ceph. To keep the count
+                    fixed, set `pgAutoscaleMode: off` as well — otherwise the
+                    autoscaler may override this value. Powers of two are
+                    recommended.
+
+                    Applies to the RBD pool and the CephFS data pool; the
+                    CephFS metadata pool keeps Ceph defaults.
+                pgAutoscaleMode:
+                  type: string
+                  enum:
+                    - "on"
+                    - "off"
+                    - warn
+                  description: |
+                    Optional pool `pg_autoscale_mode`. Set to `off` to stop the
+                    PG autoscaler from moving data between OSDs — the intended
+                    setup for test/nested clusters that must not rebalance.
+                    Combine with `pgNum` to pin the PG count. When omitted, the
+                    pool inherits the cluster default (`on`; the pg_autoscaler
+                    mgr module is enabled cluster-wide).
+
+                    Applies to the RBD pool and the CephFS data pool; the
+                    CephFS metadata pool keeps Ceph defaults.
             status:
               type: object
               description: |

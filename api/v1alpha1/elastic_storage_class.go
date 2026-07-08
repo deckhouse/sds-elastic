@@ -117,6 +117,30 @@ const (
 // DefaultReplication is applied when spec.replication is omitted.
 const DefaultReplication = ReplicationConsistencyAndAvailability
 
+// PgAutoscaleMode selects the Ceph pg_autoscale_mode applied to the pool.
+// It maps 1:1 to the Rook pool `parameters.pg_autoscale_mode` value.
+//
+// Leaving spec.pgAutoscaleMode empty inherits the cluster default (the
+// pg_autoscaler mgr module is enabled cluster-wide, so the effective default
+// is "on").
+// +kubebuilder:validation:Enum=on;off;warn
+type PgAutoscaleMode string
+
+const (
+	// PgAutoscaleModeOn lets the pg_autoscaler manage pg_num automatically.
+	PgAutoscaleModeOn PgAutoscaleMode = "on"
+
+	// PgAutoscaleModeOff freezes pg_num at its current value. Combined with an
+	// explicit spec.pgNum this pins the PG count and stops the autoscaler from
+	// triggering OSD data movement — the intended setup for test/nested
+	// clusters that must not rebalance.
+	PgAutoscaleModeOff PgAutoscaleMode = "off"
+
+	// PgAutoscaleModeWarn only emits a health warning with the suggested
+	// pg_num instead of changing it.
+	PgAutoscaleModeWarn PgAutoscaleMode = "warn"
+)
+
 // +k8s:deepcopy-gen=true
 type ElasticStorageClassSpec struct {
 	// ClusterRef is the name of the ElasticCluster this storage class
@@ -132,6 +156,21 @@ type ElasticStorageClassSpec struct {
 	// Replication picks the high-level replication strategy.
 	// +kubebuilder:default=ConsistencyAndAvailability
 	Replication ReplicationMode `json:"replication,omitempty"`
+
+	// PgNum, when set, pins the pool's target pg_num. Rook renders it into the
+	// pool `parameters.pg_num`. Omitted (0) leaves PG sizing to Ceph. To keep
+	// the count fixed, set PgAutoscaleMode=off as well — otherwise the
+	// autoscaler may override this value. Powers of two are recommended.
+	// +kubebuilder:validation:Minimum=1
+	// +optional
+	PgNum int32 `json:"pgNum,omitempty"`
+
+	// PgAutoscaleMode, when set, controls the pool's pg_autoscale_mode
+	// (on/off/warn). Set it to off to stop the autoscaler from moving data
+	// between OSDs — useful for test/nested clusters. Omitted inherits the
+	// cluster default ("on").
+	// +optional
+	PgAutoscaleMode PgAutoscaleMode `json:"pgAutoscaleMode,omitempty"`
 }
 
 // +k8s:deepcopy-gen=true
