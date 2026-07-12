@@ -261,23 +261,23 @@ func newCephClusterConnectionUnstructured() *unstructured.Unstructured {
 	return obj
 }
 
-func newCephBlockPoolUnstructured(name, namespace, phase string) *unstructured.Unstructured {
+func newCephBlockPoolUnstructured(name string) *unstructured.Unstructured {
 	obj := &unstructured.Unstructured{}
 	obj.SetGroupVersionKind(external.CephBlockPoolGVK)
 	obj.SetName(name)
-	obj.SetNamespace(namespace)
+	obj.SetNamespace(testNamespace)
 	obj.Object["status"] = map[string]interface{}{
-		"phase": phase,
+		"phase": "Ready",
 	}
 	return obj
 }
 
-func newCephStorageClassUnstructured(name, phase string) *unstructured.Unstructured {
+func newCephStorageClassUnstructured(name string) *unstructured.Unstructured {
 	obj := &unstructured.Unstructured{}
 	obj.SetGroupVersionKind(external.CephStorageClassGVK)
 	obj.SetName(name)
 	obj.Object["status"] = map[string]interface{}{
-		"phase": phase,
+		"phase": "Created",
 	}
 	return obj
 }

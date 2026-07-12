@@ -197,6 +197,18 @@ For local debugging you can run a subset of specs:
 make test-focus FOCUS="create the shared ElasticCluster"
 ```
 
+## CI
+
+`.github/workflows/e2e-tests.yml` is a thin caller for the reusable
+`deckhouse/storage-e2e/.github/workflows/e2e.yml@main` pipeline
+(`cluster_provider: commander`, `cluster_config: e2e/tests/cluster_config.ci.yml`).
+It only fires when the PR carries the `e2e/commander/run` label. Other labels:
+`e2e/keep-cluster` (skip teardown), `e2e/label:<suite>` (Ginkgo label filter).
+The Commander template pre-provisions the storage workers and their raw OSD
+block devices (>=4), so in the commander flow `BeforeSuite` skips the runtime
+VirtualDisk attach and adopts the devices the template already exposes. The
+module image under test is the PR's `pr<N>` tag published by `build_dev`.
+
 ## Compile check (no cluster)
 
 ```bash

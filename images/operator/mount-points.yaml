@@ -1,0 +1,4 @@
+dirs:
+  - /var/lib/rook
+  - /etc/ceph
+  - /etc/webhook

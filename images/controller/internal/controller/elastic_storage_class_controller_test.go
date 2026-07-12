@@ -111,8 +111,8 @@ var _ = Describe("ElasticStorageClass FSM and Reconcile", func() {
 			cl := newFakeClient(
 				esc,
 				ec,
-				newCephBlockPoolUnstructured(escName, testNamespace, "Ready"),
-				newCephStorageClassUnstructured(escName, "Created"),
+				newCephBlockPoolUnstructured(escName),
+				newCephStorageClassUnstructured(escName),
 			)
 			r := newElasticStorageClassReconciler(cl)
 
