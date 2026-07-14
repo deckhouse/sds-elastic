@@ -5,94 +5,224 @@
   built in .werf/images.yaml from oss.yaml. For each entry produces one werf
   image named "<ImageName>-<condition value, dots->dashes>", e.g.:
 
-    ceph-v19-2-3
-    ceph-v20-3-0
+    ceph-v19-3-0
+    ceph-v20-2-2
 
-  Build steps are adapted from the upstream container/Containerfile at the
-  matching git tag (https://github.com/ceph/ceph/blob/<tag>/container/Containerfile).
-  Compared to upstream we:
-    - target stable release repos at download.ceph.com/rpm-<X.Y.Z>/el9 instead of
-      the shaman.ceph.com CI mirror and the prerelease/* path with secret creds;
-    - drop the CEPH_REF/CEPH_SHA1/OSD_FLAVOR ARG indirection (the variant is
-      pinned at template render time);
-    - keep the package list, lvm/udev tweaks and cleanup steps in one shell
-      stage so the resulting image matches upstream byte-for-byte where possible.
+  The image is assembled from the Deckhouse container-base package catalog with
+  `pm` instead of building Ceph from source: the `ceph@<ver>` metapackage pulls
+  the mon/osd/mds/mgr/rgw daemons, the client tools (rbd, rados, ceph-fuse,
+  mount.ceph, ...) and librbd/librados/libcephfs, and `ceph-volume@<ver>` adds
+  the OSD provisioning tool Rook shells out to. Only the versions published in
+  the catalog can be built; oss.yaml pins the stable releases 19.2.3 (squid) and
+  20.2.2 (tentacle). Use a stable ceph_release: a dev build (e.g. 19.3.0) does
+  not complete RADOS ops for a newer stable client, so Rook's `rbd pool init`
+  hangs.
+
+  ceph-volume is pure Python (python3.12) and needs PyYAML, packaging and
+  pkg_resources (setuptools) at runtime; all ship as wheels in the `python-wheel`
+  package under /wheels and are installed with pip into the python3.12
+  site-packages (see the setup step for why setuptools is pinned to 69.0.3).
 */ -}}
 {{- range $cephVer, $rawVer := index $.cephVersions $.ImageName }}
-  {{- $tagDash    := $cephVer  | replace "." "-" }}
+  {{- $tagDash     := $cephVer | replace "." "-" }}
   {{- $verNoPrefix := $rawVer  | trimPrefix "v" }}
 ---
 image: {{ $.ModuleNamePrefix }}{{ $.ImageName }}-{{ $tagDash }}
-from: quay.io/centos/centos:stream9
+from: {{ index $.Images "builder/distroless" }}
 
 shell:
-  beforeInstall:
-    # Disable docs to keep the image lean (mirrors upstream tsflags=nodocs tweak).
-    - if grep -q 'tsflags' /etc/dnf/dnf.conf; then sed -i 's/tsflags=.*/tsflags=nodocs/g' /etc/dnf/dnf.conf; else echo 'tsflags=nodocs' >> /etc/dnf/dnf.conf; fi
-    # Pre-reqs.
-    - dnf install -y --setopt=install_weak_deps=False epel-release jq dnf-plugins-core
-    # NFS-Ganesha repo (upstream default baseurl).
-    - |
-      cat > /etc/yum.repos.d/ganesha.repo <<'EOF'
-      [ganesha]
-      name=ganesha
-      baseurl=https://buildlogs.centos.org/centos/$releasever-stream/storage/$basearch/nfsganesha-5/
-      gpgcheck=0
-      enabled=1
-      EOF
-    # ISCSI repos: tcmu-runner (shaman main) + ceph-iscsi (download.ceph.com el9).
-    - curl -fsSL "https://shaman.ceph.com/api/repos/tcmu-runner/main/latest/centos/9/repo?arch=$(arch)" -o /etc/yum.repos.d/tcmu-runner.repo
-    - curl -fsSL https://download.ceph.com/ceph-iscsi/3/rpm/el9/ceph-iscsi.repo -o /etc/yum.repos.d/ceph-iscsi.repo
-    # Ceph release repo for {{ $rawVer }} (rpm-{{ $verNoPrefix }} on the stable mirror).
-    - rpm --import 'https://download.ceph.com/keys/release.asc'
-    - rpm -Uvh https://download.ceph.com/rpm-{{ $verNoPrefix }}/el9/noarch/ceph-release-1-1.el9.noarch.rpm
-    # COPR scikit-learn (used by ceph-mgr-diskprediction-local).
-    - dnf copr enable -y tchaikov/python-scikit-learn
-    # Refresh after enabling all repos.
-    - dnf update -y --setopt=install_weak_deps=False
-  install:
-    # Package list mirrors upstream Containerfile (general + ceph + ganesha +
-    # iscsi + ceph-csi helpers + util packages). Version-specific tweaks live
-    # in EXTRA_PKGS below.
-    - |
-      EXTRA_PKGS=""
-      case "{{ $verNoPrefix }}" in
-        20.*|21.*|22.*) EXTRA_PKGS="libcephfs-daemon" ;;
-      esac
-      dnf install -y --setopt=install_weak_deps=False --setopt=skip_missing_names_on_install=False --enablerepo=crb \
-        ca-certificates \
-        ceph-common ceph-exporter ceph-grafana-dashboards ceph-immutable-object-cache \
-        ceph-mds ceph-mgr-cephadm ceph-mgr-dashboard ceph-mgr-diskprediction-local \
-        ceph-mgr-k8sevents ceph-mgr-rook ceph-mgr ceph-mon ceph-osd \
-        ceph-radosgw lua-devel luarocks ceph-volume cephfs-mirror cephfs-top \
-        kmod libradosstriper1 rbd-mirror \
-        nvme-cli python3-saml smartmontools \
-        dbus-daemon nfs-ganesha-ceph nfs-ganesha-rados-grace nfs-ganesha-rados-urls nfs-ganesha-rgw nfs-ganesha rpcbind sssd-client \
-        ceph-iscsi tcmu-runner python3-rtslib \
-        attr ceph-fuse rbd-nbd \
-        systemd-udev \
-        gdisk hostname procps-ng sg3_utils e2fsprogs lvm2 gcc \
-        python3-scikit-learn \
-        ceph-node-proxy \
-        $EXTRA_PKGS
   setup:
-    # ganesha runtime dir (upstream does this explicitly because the rpm doesn't).
-    - mkdir -p /var/run/ganesha
-    # Disable udev sync; the container has no udev socket.
-    - sed -i -e 's/udev_rules = 1/udev_rules = 0/' -e 's/udev_sync = 1/udev_sync = 0/' -e 's/obtain_device_list_from_udev = 1/obtain_device_list_from_udev = 0/' /etc/lvm/lvm.conf
-    - grep -sqo 'udev_sync = 0'                       /etc/lvm/lvm.conf
-    - grep -sqo 'udev_rules = 0'                      /etc/lvm/lvm.conf
-    - grep -sqo 'obtain_device_list_from_udev = 0'    /etc/lvm/lvm.conf
-    # Aggressive cleanup to match upstream image size.
-    - dnf clean all
-    - rm -rf /var/cache/dnf/* /var/lib/dnf/* /var/lib/rpm/__db*
-    - rm -rf /etc/selinux /usr/share/selinux
-    - rm -f /etc/yum.repos.d/ceph.repo /etc/yum.repos.d/ganesha.repo /etc/yum.repos.d/tcmu-runner.repo /etc/yum.repos.d/ceph-iscsi.repo
+    - |
+      pm install \
+        gnu-glibc \
+        ceph@{{ $verNoPrefix }} \
+        ceph-volume@{{ $verNoPrefix }} \
+        python@3.12 \
+        lvm2 \
+        gptfdisk \
+        util-linux \
+        udev \
+        e2fsprogs \
+        kmod \
+        nvme-cli \
+        cryptsetup \
+        coreutils \
+        bash \
+        ca-certificates \
+        libquadmath \
+        python-wheel
+    # Without the bash package, container-base's /bin/bash is a busybox symlink
+    # (ash), but Rook's OSD blkdevmapper init container runs a bash script that
+    # uses arrays (CP_ARGS=(--archive ...), "${CP_ARGS[@]}"); busybox cannot parse
+    # the "(" and dies with "syntax error: unexpected '('", so every osd-prepare
+    # job fails and no OSD is provisioned. `pm install bash` (above) provides GNU
+    # bash and already owns /bin/bash (no repoint needed — an `ln` would fail with
+    # "same file"). The array test is a build-time assertion that /bin/bash is
+    # real bash.
+    - |
+      /bin/bash -c 'a=(ok); echo "bash arrays work: ${a[0]}"'
+    # ceph-mgr's always-on python modules (pg_autoscaler, prometheus, balancer,
+    # ...) pull in numpy, whose native libs need libquadmath.so.0. The
+    # container-base `ceph` package does not depend on it, so without the
+    # `libquadmath` package (pm install, above) all mgr modules fail with
+    # "libquadmath.so.0: cannot open shared object file" (HEALTH_WARN
+    # MGR_MODULE_DEPENDENCY). That disables the prometheus module, so Rook's
+    # CephBlockPool reconcile never completes ("failed to get rbd_stats_pools:
+    # ... mgr/prometheus/rbd_stats_pools ... exit status 2") and the pool stays
+    # Progressing. Assert the dynamic loader resolves it (catches a wrong libdir).
+    - |
+      python3.12 -c "import ctypes; ctypes.CDLL('libquadmath.so.0'); print('libquadmath OK')"
+    # The udev package installs udevadm (and its probe helpers) under
+    # /usr/lib/udev, which is NOT on PATH. ceph-volume's OSD prepare enumerates
+    # block devices via `udevadm info --query=property` (disk.get_devices()), so
+    # with udevadm off PATH every osd-prepare crashes with
+    # "FileNotFoundError: [Errno 2] No such file or directory: 'udevadm'".
+    # Symlink it onto PATH (/usr/sbin is on ceph-volume's PATH). The command -v
+    # is a build-time assertion.
+    - |
+      ln -sf /usr/lib/udev/udevadm /usr/sbin/udevadm
+      command -v udevadm
+    # ceph-volume (python3.12) runtime deps, shipped as wheels by python-wheel and
+    # resolved from the /wheels find-links dir (--no-index, offline).
+    # PyYAML + packaging: imported directly by ceph_volume.
+    # setuptools: ceph_volume/main.py does `import pkg_resources` (entry-point
+    #   discovery) at startup, but the container-base `ceph` package strips
+    #   setuptools/pkg_resources from the runtime site-packages as build-only, so
+    #   every osd-prepare job dies with "ModuleNotFoundError: No module named
+    #   'pkg_resources'" and no OSD is ever provisioned. Reinstall it from the
+    #   wheel. Pin 69.0.3 specifically: it still bundles pkg_resources'
+    #   dependencies under pkg_resources/_vendor (packaging, platformdirs,
+    #   jaraco, more_itertools), so `import pkg_resources` resolves standalone;
+    #   setuptools >=71 un-vendored them and would then need those installed too.
+    - |
+      python3.12 -m pip install --no-cache-dir --no-index -f file:///wheels \
+        PyYAML \
+        packaging \
+        'setuptools==69.0.3'
+    # container-base python3.12 is built WITHOUT the stdlib _sqlite3 C extension
+    # (its Modules/Setup omits _sqlite3), but ceph-mgr's mgr_module.py does
+    # `import sqlite3` at load time, so every python mgr module fails its
+    # dependency check ("N mgr modules have failed dependencies", HEALTH_WARN)
+    # and sqlite-backed features (devicehealth, ...) go unavailable. There is no
+    # wheel for the stdlib _sqlite3 and the catalog ships no python build with it.
+    # pysqlite3-binary bundles a drop-in _sqlite3 C extension (module init
+    # PyInit__sqlite3); its pysqlite3/ build links sqlite statically, so the one
+    # .so needs only libc/libm/libpthread. Unpack the cp312 pysqlite3-binary wheel
+    # shipped by the python-wheel catalog and install that .so as the stdlib
+    # _sqlite3. The trailing import is a build-time assertion. Drop this once the
+    # python package ships _sqlite3.
+    - |
+      python3.12 -m zipfile -e /wheels/pysqlite3_binary-*-cp312-cp312-*.whl /tmp/pysq
+      cp /tmp/pysq/pysqlite3/_sqlite3.cpython-312-x86_64-linux-gnu.so \
+         /usr/lib/python3.12/lib-dynload/_sqlite3.cpython-312-x86_64-linux-gnu.so
+      rm -rf /tmp/pysq
+      # pysqlite3's _sqlite3 is a fork and does not export the private
+      # `_deprecated_version` symbol that CPython 3.12's stdlib sqlite3/dbapi2.py
+      # imports (it backs the deprecated `sqlite3.version`). Guard that one import
+      # so the stdlib package loads on top of the pysqlite3 extension; ceph never
+      # reads sqlite3.version.
+      python3.12 -c "p='/usr/lib/python3.12/sqlite3/dbapi2.py'; s=open(p).read(); o='from _sqlite3 import _deprecated_version'; n='try:\n    from _sqlite3 import _deprecated_version\nexcept ImportError:\n    _deprecated_version = \"2.6.0\"'; open(p,'w').write(s.replace(o,n,1))"
+      python3.12 -c 'import sqlite3; print("sqlite3 OK:", sqlite3.sqlite_version)'
+    # ceph-volume in stable squid 19.2.3 is not Python 3.12 compatible: its
+    # main.py get_entry_points() does `entry_points().get(group, [])`, but under
+    # python3.12 importlib.metadata.entry_points() returns a non-dict EntryPoints
+    # (no .get()), so every osd-prepare job crashes with
+    # "AttributeError: 'EntryPoints' object has no attribute 'get'" and no OSD is
+    # provisioned. Switch to the py3.10+ selectable API `entry_points(group=group)`
+    # (the dev 19.3.0 tree sidesteps this via pkg_resources). Idempotent — becomes
+    # a no-op once the packaged ceph-volume ships the fix; drop this then.
+    - |
+      python3.12 -c "p='/usr/lib/python3.12/site-packages/ceph_volume/main.py'; s=open(p).read(); o='return entry_points().get(group, [])'; n='return entry_points(group=group)'; open(p,'w').write(s.replace(o,n,1)) if o in s else print('ceph_volume get_entry_points: pattern absent, skipping')"
+      python3.12 -c "s=open('/usr/lib/python3.12/site-packages/ceph_volume/main.py').read(); import ast; ast.parse(s); assert 'entry_points().get(' not in s, 'ceph_volume main.py still uses py<3.10 entry_points().get()'; print('ceph_volume get_entry_points OK for py3.12')"
+    # ceph-mgr loads each python module in its own CPython subinterpreter, but
+    # bcrypt is a Rust/PyO3 extension that refuses to load there ("PyO3 modules
+    # do not yet support subinterpreters"). Stable squid 19.2.3's mgr_util.py
+    # imports bcrypt at top level and nearly every mgr module imports mgr_util,
+    # so prometheus/volumes/pg_autoscaler/... fail their dependency check and are
+    # disabled: with prometheus down Rook cannot read
+    # mgr/prometheus/rbd_stats_pools (RBD CephBlockPool stalls), and with volumes
+    # down CephFS subvolume removal never completes (CephFilesystem/ESC deletion
+    # hangs). Guard the top-level import (fall back to bcrypt=None) so those
+    # modules load, and re-import lazily inside password_hash() so only the
+    # dashboard/restful hashing paths (not always-on) are affected. NB: a lazy
+    # *proxy* is worse — it re-attempts the PyO3 import on every attribute access
+    # at runtime and crash-loops the mgr ("no active mgr"). Same change as
+    # container-base MR 211; drop this once the packaged mgr ships it.
+    # Tolerant/idempotent; the ast.parse + assert are build-time checks.
+    - |
+      python3.12 -c "p='/usr/share/ceph/mgr/mgr_util.py'; s=open(p).read(); o1='import bcrypt\n'; n1='try:\n    import bcrypt\nexcept Exception:\n    bcrypt = None\n'; o2='    if not password:\n        return None\n    if not salt_password:\n'; n2='    if not password:\n        return None\n    global bcrypt\n    if bcrypt is None:\n        import bcrypt\n    if not salt_password:\n'; s=(s.replace(o1,n1,1) if o1 in s else s); s=(s.replace(o2,n2,1) if o2 in s else s); open(p,'w').write(s)"
+      python3.12 -c "import ast; s=open('/usr/share/ceph/mgr/mgr_util.py').read(); ast.parse(s); assert 'import bcrypt' not in s.splitlines(), 'mgr_util.py still has an unguarded top-level import bcrypt'; print('mgr_util.py: no unguarded top-level import bcrypt')"
+    - rm -rf /wheels
+    # Rook launches the ceph daemons with `--setuser ceph --setgroup ceph`, and
+    # its chown-container-data-dir init container runs `chown ceph:ceph` using
+    # this image, but the distroless base has no ceph user/group so both fail
+    # ("chown: invalid user: 'ceph:ceph'"). Create ceph (uid/gid 167 — the
+    # upstream ceph packaging convention) and its runtime dirs so chown resolves
+    # and the daemons can drop privileges. Idempotent.
+    - |
+      if ! grep -q '^ceph:' /etc/group 2>/dev/null; then
+        echo 'ceph:x:167:' >> /etc/group
+      fi
+      if ! grep -q '^ceph:' /etc/passwd 2>/dev/null; then
+        echo 'ceph:x:167:167:Ceph daemons:/var/lib/ceph:/sbin/nologin' >> /etc/passwd
+      fi
+      # The distroless base has no `/var/run -> /run` symlink (stock RPM/deb
+      # images do). Ceph defaults its admin socket to /var/run/ceph/$cluster-
+      # $name.asok, but Rook mounts the socket emptyDir at /run/ceph and its
+      # startup/liveness probes read /run/ceph/<daemon>.asok. Without the
+      # symlink the daemon writes the socket into a real /var/run/ceph the probe
+      # never sees -> `admin_socket: ... [Errno 2] No such file or directory` ->
+      # probe fails -> kubelet kills every mon/mgr -> CrashLoopBackOff and the
+      # cluster never forms quorum. Restore the upstream /var/run -> /run layout
+      # so both paths resolve to the same mounted volume. Idempotent.
+      if [ ! -L /var/run ]; then rm -rf /var/run && ln -s /run /var/run; fi
+      # /var/lib/ceph/osd must pre-exist: ceph-volume's raw OSD prepare creates
+      # the per-OSD dir with system.mkdir_p(), which is a single os.mkdir (NOT
+      # makedirs), so a missing parent aborts prepare with
+      # "FileNotFoundError: ... '/var/lib/ceph/osd/ceph-N'" and no OSD is built.
+      # Stock ceph packages ship /var/lib/ceph/osd; the pm ceph package does not.
+      mkdir -p /var/lib/ceph/osd /var/log/ceph /run/ceph
+      chown 167:167 /var/lib/ceph /var/lib/ceph/osd /var/log/ceph /run/ceph
+    # container-base's ceph packages ship UNSTAMPED version constants
+    # (CEPH_GIT_NICE_VER="Development", CEPH_GIT_VER="no_version"), so both
+    # `ceph --version` (python CLI) and the C++ daemons (via libceph-common)
+    # report `ceph version Development (no_version) <name> (dev)`. Rook cannot
+    # parse that ("failed to extract ceph version: failed to parse version
+    # from ...") and the CephCluster reconcile fails its version check. Stamp the
+    # real X.Y.Z (from oss.yaml) into the python CLI and into libceph-common's
+    # null-terminated version token (length-preserving, so ELF offsets stay
+    # intact). Idempotent: once container-base stamps the version itself the
+    # token is absent and this becomes a no-op (then this block can be removed).
+    - |
+      CEPH_VER="{{ $verNoPrefix }}"
+      if [ -f /usr/bin/ceph ]; then
+        sed -i "s/^CEPH_GIT_NICE_VER = .*/CEPH_GIT_NICE_VER = \"${CEPH_VER}\"/" /usr/bin/ceph
+      fi
+      for SO in $(find /usr/lib /usr/lib64 /lib /lib64 -name 'libceph-common.so.2' 2>/dev/null); do
+        python3.12 -c 'import sys; p,vers=sys.argv[1],sys.argv[2]; ver=vers.encode(); old=b"Development\x00"; sys.exit("ceph version too long to stamp") if len(ver)>=len(old) else None; d=open(p,"rb").read(); open(p,"wb").write(d.replace(old, ver+b"\x00"*(len(old)-len(ver)), 1)) if old in d else print(p+": version token absent, assuming already stamped")' "$SO" "$CEPH_VER"
+      done
+    # Disable lvm udev sync/rules: OSD containers have no udevd, so ceph-volume's
+    # lvm calls would otherwise hang (mirrors the upstream ceph container tweak).
+    - |
+      if [ -f /etc/lvm/lvm.conf ]; then
+        sed -i \
+          -e 's/udev_rules = 1/udev_rules = 0/' \
+          -e 's/udev_sync = 1/udev_sync = 0/' \
+          -e 's/obtain_device_list_from_udev = 1/obtain_device_list_from_udev = 0/' \
+          /etc/lvm/lvm.conf
+      fi
 
 imageSpec:
   config:
+    # builder/distroless defaults to a non-root user (64535). Rook runs the mon
+    # with ROOK_CEPH_MON_RUN_AS_ROOT=false, so it does not set a pod RunAsUser and
+    # the containers inherit the image default — the chown-container-data-dir init
+    # container then runs as 64535 and fails to chown the root-owned mounts
+    # ("chown: ... Operation not permitted"). The ceph daemons are designed to
+    # start as root and drop to the ceph user via `--setuser ceph --setgroup ceph`
+    # (matching the upstream ceph image), so default this image to root.
+    user: "0:0"
     env:
       CEPH_VERSION: "{{ $cephVer }}"
       CEPH_REF: "{{ $cephVer }}"
-      FROM_IMAGE: "quay.io/centos/centos:stream9"
 {{- end }}

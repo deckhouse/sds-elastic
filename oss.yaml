@@ -8,7 +8,7 @@
 
 - name: Ceph
   link: https://github.com/ceph/ceph
-  description: Ceph distributed storage system; provides the OSD, MON, MGR, MDS, and RGW daemons consumed by Rook-managed clusters. Each version is built from the upstream container/Containerfile at the matching tag.
+  description: Ceph distributed storage system; provides the OSD, MON, MGR, MDS, and RGW daemons consumed by Rook-managed clusters. Each version is assembled from the Deckhouse container-base package catalog via pm.
   logo: https://avatars.githubusercontent.com/u/1015767?s=200&v=4
   license: GNU Lesser General Public License v2.1
   id: ceph
@@ -17,5 +17,5 @@
         ceph: ["v19.2.3"]
       version: v19.2.3
     - condition:
-        ceph: ["v20.2.1"]
-      version: v20.2.1
+        ceph: ["v20.2.2"]
+      version: v20.2.2

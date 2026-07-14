@@ -1,7 +1,20 @@
 {{- $rook_version := include "get_oss_version_by_id" (list "rook" .) }}
+{{- /* Base the operator's final image on our own Ceph 20 (tentacle) build
+       instead of the upstream CentOS Stream 9 rook/ceph image. The v20 ceph
+       werf image name is derived from oss.yaml (cephVersions), so bumping the
+       pinned v20 patch in oss.yaml keeps this reference valid without editing
+       here. rook/ceph is only the ceph image plus the rook binary, which we
+       import below — so this reproduces it on our curated, distroless base. */ -}}
+{{- $cephBaseImage := "" }}
+{{- range $cephVer, $rawVer := index $.cephVersions "ceph" }}
+  {{- if hasPrefix "v20" $cephVer }}
+    {{- $cephBaseImage = printf "%sceph-%s" $.ModuleNamePrefix ($cephVer | replace "." "-") }}
+  {{- end }}
+{{- end }}
+{{- if not $cephBaseImage }}{{ fail "operator: no ceph v20 (tentacle) variant found in oss.yaml cephVersions" }}{{- end }}
 ---
 image: {{ .ModuleNamePrefix }}{{ .ImageName }}-src-artifact
-fromImage: builder/src
+from: {{ index $.Images "builder/src" }}
 final: false
 
 git:
@@ -32,7 +45,7 @@ shell:
 
 ---
 image: {{ .ModuleNamePrefix }}{{ .ImageName }}-binary-artifact
-fromImage: {{ eq .SVACE_ENABLED "false" | ternary "builder/golang-alt" "builder/golang-alt-svace" }}
+from: {{ index $.Images (eq .SVACE_ENABLED "false" | ternary "builder/golang-alt" "builder/alpine-svace") }}
 final: false
 
 import:
@@ -59,7 +72,7 @@ shell:
 
 ---
 image: {{ .ModuleNamePrefix }}{{ .ImageName }}
-from: rook/ceph:v{{ $rook_version }}
+fromImage: {{ $cephBaseImage }}
 
 import:
   - image: {{ .ModuleNamePrefix }}{{ .ImageName }}-binary-artifact

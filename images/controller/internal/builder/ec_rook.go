@@ -168,10 +168,14 @@ func ECCephCluster(
 			"mgr": "system-cluster-critical",
 		},
 		"crashCollector": map[string]interface{}{"disable": false},
+		// The log-collector sidecar runs `logrotate` from the ceph image, but the
+		// container-base pm ceph image ships no logrotate binary (and there is no
+		// logrotate package in the catalog), so the sidecar crashloops
+		// ("sed: /etc/logrotate.d/ceph: No such file") and keeps every daemon pod
+		// NotReady. Disable it until logrotate is packaged; ceph daemon logs still
+		// go to the container stdout/stderr.
 		"logCollector": map[string]interface{}{
-			"enabled":     true,
-			"periodicity": "daily",
-			"maxLogSize":  "100M",
+			"enabled": false,
 		},
 		"cleanupPolicy": map[string]interface{}{
 			"confirmation": "",
