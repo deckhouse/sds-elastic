@@ -55,8 +55,9 @@ func ECCephClusterDataDirHostPath(ec *v1alpha1.ElasticCluster) string {
 //     volumeClaimTemplate (mon data sits on the host path; survival
 //     across namespace deletion is achieved by ElasticClusterCredential).
 //   - mgr modules: pg_autoscaler enabled.
-//   - network.provider=host. addressRanges populated only when
-//     ec.Spec.Network is set; otherwise Rook listens on every host IP.
+//   - network.provider=host. addressRanges (public/cluster, each a list of
+//     one or more CIDRs) populated only when ec.Spec.Network is set;
+//     otherwise Rook listens on every host IP.
 //   - network.connections.{encryption,compression}=false, requireMsgr2=false.
 //   - dashboard.enabled=false (no public surface for the demo).
 //   - skipUpgradeChecks=false, continueUpgradeAfterChecksEvenIfNotHealthy=false.
@@ -104,8 +105,8 @@ func ECCephCluster(
 	}
 	if ec.Spec.Network != nil {
 		network["addressRanges"] = map[string]interface{}{
-			"public":  []interface{}{ec.Spec.Network.Public},
-			"cluster": []interface{}{ec.Spec.Network.Cluster},
+			"public":  toInterfaceSlice(ec.Spec.Network.Public),
+			"cluster": toInterfaceSlice(ec.Spec.Network.Cluster),
 		}
 	}
 
@@ -239,4 +240,15 @@ func ecCephClusterLabels() map[string]interface{} {
 			"prometheus.deckhouse.io/port":          "9283",
 		},
 	}
+}
+
+// toInterfaceSlice converts a []string into the []interface{} form required
+// by unstructured objects. Used for CephCluster.spec.network.addressRanges,
+// whose public/cluster entries are lists of CIDRs.
+func toInterfaceSlice(in []string) []interface{} {
+	out := make([]interface{}, len(in))
+	for i, v := range in {
+		out[i] = v
+	}
+	return out
 }
