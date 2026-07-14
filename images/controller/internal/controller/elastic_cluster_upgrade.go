@@ -262,7 +262,7 @@ func overallVersions(cc *unstructured.Unstructured) map[string]int64 {
 //
 // "Oldest" is determined lexicographically over the full version
 // strings Rook publishes ("ceph version 19.2.3 (...)" sorts before
-// "ceph version 20.2.1 (...)"). Lexicographic ordering is correct as
+// "ceph version 20.2.2 (...)"). Lexicographic ordering is correct as
 // long as the major/minor segments stay zero-padded relative to each
 // other, which is true for every Ceph release in the supported range.
 //
@@ -283,7 +283,7 @@ func pickRunningVersion(overall map[string]int64, runningFromVersionField string
 
 // formatVersionsHistogram renders a versions.overall map into a stable,
 // human-readable summary for the UpgradeInProgress condition message.
-// Output example: `19.2.3 4 → 20.2.1 5`. Sorted by version asc so the
+// Output example: `19.2.3 4 → 20.2.2 5`. Sorted by version asc so the
 // oldest (lagging) version appears first.
 func formatVersionsHistogram(overall map[string]int64) string {
 	keys := make([]string, 0, len(overall))

@@ -277,12 +277,12 @@ var _ = Describe("ElasticClusterReconciler.Reconcile", func() {
 			ec := newTestElasticCluster()
 			cephImage := newTestCfg().CephImages[v1alpha1.DefaultCephVersion]
 
-			cc := newCephClusterUnstructured(ec, "Progressing", "20.2.1-0", cephImage)
+			cc := newCephClusterUnstructured(ec, "Progressing", "20.2.2-0", cephImage)
 			withCephClusterCephStatus(cc, "HEALTH_OK", "", "", 0, 0, 0, "", nil, map[string]map[string]int32{
-				"mon":     {cephVerString2021: 3},
-				"mgr":     {cephVerString2021: 2},
-				"osd":     {cephVerString1923: 4},
-				"overall": {cephVerString1923: 4, cephVerString2021: 5},
+				"mon":     {cephVerString2022: 3},
+				"mgr":     {cephVerString2022: 2},
+				"osd":     {cephVerString1930: 4},
+				"overall": {cephVerString1930: 4, cephVerString2022: 5},
 			})
 
 			cl := newFakeClient(
@@ -339,7 +339,7 @@ var _ = Describe("ElasticClusterReconciler.Reconcile", func() {
 			// Lagging version on the printcolumn so callers see the
 			// still-rolling daemons' version, not Rook's target marker.
 			Expect(latest.Status.CephVersion).NotTo(BeNil())
-			Expect(latest.Status.CephVersion.Running).To(Equal(cephVerString1923))
+			Expect(latest.Status.CephVersion.Running).To(Equal(cephVerString1930))
 			Expect(latest.Status.CephVersion.Requested).To(Equal(v1alpha1.DefaultCephVersion))
 		})
 	})

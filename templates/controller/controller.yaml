@@ -14,7 +14,7 @@
 */ -}}
 {{- $cephImages := dict }}
 {{- $_ := set $cephImages "v19.2.3" (include "helm_lib_module_image" (list . "cephV1923")) }}
-{{- $_ := set $cephImages "v20.2.1" (include "helm_lib_module_image" (list . "cephV2021")) }}
+{{- $_ := set $cephImages "v20.2.2" (include "helm_lib_module_image" (list . "cephV2022")) }}
 {{- $config := dict
   "valuesKey" "sdsElastic"
   "onMasterNode" true

@@ -514,14 +514,14 @@ const ElasticClusterKind = "ElasticCluster"
 // (images/ceph/werf.inc.yaml, one variant per tag).
 const (
 	CephVersionV1923 = "v19.2.3"
-	CephVersionV2021 = "v20.2.1"
+	CephVersionV2022 = "v20.2.2"
 )
 
 // DefaultCephVersion is used when spec.cephVersion is omitted.
 const DefaultCephVersion = CephVersionV1923
 
 // SupportedCephVersions lists every allowed spec.cephVersion value.
-var SupportedCephVersions = []string{CephVersionV1923, CephVersionV2021}
+var SupportedCephVersions = []string{CephVersionV1923, CephVersionV2022}
 
 // Status.phase values shared across ElasticCluster and ElasticStorageClass.
 const (
