@@ -59,6 +59,32 @@ Touches `pkg/operator/ceph/controller/cleanup.go` and
 `pkg/daemon/ceph/client/image.go` only — disjoint from `001`, so apply
 order is irrelevant. Generated against upstream Rook `v1.19.5`.
 
+## 003-Bump-Go-dependencies-with-known-CVEs.patch
+
+Raises the minimums of the indirect modules that Rook `v1.19.5` pins at
+versions with fixed CVEs, all of which end up linked into the `rook`
+binary this image ships and are therefore reported by the module CVE
+gate:
+
+| module | v1.19.5 | patched | CVEs |
+| --- | --- | --- | --- |
+| `golang.org/x/crypto` | 0.45.0 | 0.53.0 | CVE-2026-39827/39828/39829/39830/39831/39832/39833/39834/39835/42508/46595/46597/46598 |
+| `golang.org/x/net` | 0.47.0 | 0.56.0 | CVE-2026-25680/25681/27136/33814/39821/42502/42506/46600 |
+| `golang.org/x/sys` | 0.38.0 | 0.46.0 | CVE-2026-39824 |
+| `golang.org/x/text` | 0.31.0 | 0.39.0 | CVE-2026-56852 |
+| `github.com/moby/spdystream` | 0.5.0 | 0.5.1 | CVE-2026-35469 |
+
+`go mod tidy` carried along the `x/sync` and `x/term` minimums those
+versions require. `pkg/apis` is a separate Go module (replaced
+locally by the root `go.mod`), so it is bumped in the same patch to keep
+both module graphs consistent — otherwise a filesystem scan of the source
+tree still flags the stale `pkg/apis/go.mod`.
+
+`go.mod`/`go.sum` only, no source change — disjoint from `001` and `002`.
+Generated against upstream Rook `v1.19.5`. Drop it once the pinned Rook
+release ships the bumps itself; until then it needs regenerating on every
+Rook bump (see below) and re-checking against a current CVE database.
+
 ## Refreshing a patch after a Rook bump
 
 When bumping the vendored Rook version, regenerate the patches against the

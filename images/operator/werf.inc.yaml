@@ -84,3 +84,10 @@ imageSpec:
   config:
     entrypoint: ["/usr/local/bin/rook"]
     cmd: [""]
+
+---
+# Attach an OpenVEX attestation to this image so trivy suppresses the unfixable
+# golang.org/x/crypto/openpgp advisory (GO-2026-5932) reported against the rook
+# binary at /usr/local/bin/rook.
+# Predicate: images/operator/known_vulnerabilities.vex (per the "vex mitigation" template).
+{{- include "vex mitigation" (list $ $.ImageName) }}

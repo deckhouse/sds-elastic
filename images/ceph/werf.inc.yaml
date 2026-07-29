@@ -18,10 +18,11 @@
   not complete RADOS ops for a newer stable client, so Rook's `rbd pool init`
   hangs.
 
-  ceph-volume is pure Python (python3.12) and needs PyYAML, packaging and
-  pkg_resources (setuptools) at runtime; all ship as wheels in the `python-wheel`
-  package under /wheels and are installed with pip into the python3.12
-  site-packages (see the setup step for why setuptools is pinned to 69.0.3).
+  ceph-volume is pure Python (python3.12) and needs PyYAML and packaging at
+  runtime; both ship as wheels in the `python-wheel` package under /wheels and
+  are installed with pip into the python3.12 site-packages. pip itself and
+  setuptools are removed again before the image is finalised (see the setup
+  step) — neither is reachable at runtime and both only add CVE reports.
 */ -}}
 {{- range $cephVer, $rawVer := index $.cephVersions $.ImageName }}
   {{- $tagDash     := $cephVer | replace "." "-" }}
@@ -48,6 +49,7 @@ shell:
         cryptsetup \
         coreutils \
         bash \
+        jq \
         ca-certificates \
         libquadmath \
         python-wheel
@@ -61,6 +63,17 @@ shell:
     # real bash.
     - |
       /bin/bash -c 'a=(ok); echo "bash arrays work: ${a[0]}"'
+    # Rook's MDS liveness probe (pkg/operator/ceph/file/mds/livenessprobe.sh, baked
+    # into the rook binary) runs `ceph fs dump --format json` and pipes it through
+    # jq to check whether this MDS id is in the fs map. Neither the distroless base
+    # nor any ceph package ships jq, so without it both jq calls produce an empty
+    # string, the script falls through to "Error: MDS ID not present in MDS map"
+    # and exits 1 — the probe can never pass, kubelet keeps restarting a perfectly
+    # healthy MDS, and the CephFilesystem never settles into Ready (observed as
+    # CephFilesystem phase=Failure and ElasticStorageClass stuck on "storage
+    # filesystem not ready"). The version check is a build-time assertion.
+    - |
+      jq --version
     # ceph-mgr's always-on python modules (pg_autoscaler, prometheus, balancer,
     # ...) pull in numpy, whose native libs need libquadmath.so.0. The
     # container-base `ceph` package does not depend on it, so without the
@@ -85,20 +98,27 @@ shell:
     # ceph-volume (python3.12) runtime deps, shipped as wheels by python-wheel and
     # resolved from the /wheels find-links dir (--no-index, offline).
     # PyYAML + packaging: imported directly by ceph_volume.
-    # setuptools: ceph_volume/main.py does `import pkg_resources` (entry-point
-    #   discovery) at startup, but the container-base `ceph` package strips
-    #   setuptools/pkg_resources from the runtime site-packages as build-only, so
-    #   every osd-prepare job dies with "ModuleNotFoundError: No module named
-    #   'pkg_resources'" and no OSD is ever provisioned. Reinstall it from the
-    #   wheel. Pin 69.0.3 specifically: it still bundles pkg_resources'
-    #   dependencies under pkg_resources/_vendor (packaging, platformdirs,
-    #   jaraco, more_itertools), so `import pkg_resources` resolves standalone;
-    #   setuptools >=71 un-vendored them and would then need those installed too.
+    # setuptools is deliberately NOT installed. ceph_volume/main.py is the only
+    # thing in the image that ever mentions pkg_resources, and it does so purely
+    # as a fallback for pythons without importlib.metadata:
+    #     try:     from importlib.metadata import entry_points
+    #     except ImportError:  from pkg_resources import iter_entry_points ...
+    # On python3.12 the try branch always wins, so the pkg_resources branch is
+    # dead code; /usr/bin/ceph-volume is a plain `from ceph_volume.main import
+    # Volume` script, and _load_library_extensions() — the one entry-point
+    # consumer — resolves through importlib.metadata. Checked both catalog
+    # versions (19.2.3 and 20.2.2) and confirmed by running ceph-volume with an
+    # otherwise empty site-packages. Installing it is not free: every setuptools
+    # wheel the python-wheel catalog ships reports CVEs against the release
+    # (CVE-2024-6345, CVE-2025-47273 on 69.0.3; CVE-2026-59890 on 80.8.0) and,
+    # from 71 onwards, against the dist-info it vendors under _vendor
+    # (jaraco.context 5.3.0 CVE-2026-23949, wheel 0.45.1 CVE-2026-24049), with
+    # no catalog version clearing all of them. The `ceph-volume --help` check
+    # further down asserts this stays true.
     - |
       python3.12 -m pip install --no-cache-dir --no-index -f file:///wheels \
         PyYAML \
-        packaging \
-        'setuptools==69.0.3'
+        packaging
     # container-base python3.12 is built WITHOUT the stdlib _sqlite3 C extension
     # (its Modules/Setup omits _sqlite3), but ceph-mgr's mgr_module.py does
     # `import sqlite3` at load time, so every python mgr module fails its
@@ -123,6 +143,26 @@ shell:
       # reads sqlite3.version.
       python3.12 -c "p='/usr/lib/python3.12/sqlite3/dbapi2.py'; s=open(p).read(); o='from _sqlite3 import _deprecated_version'; n='try:\n    from _sqlite3 import _deprecated_version\nexcept ImportError:\n    _deprecated_version = \"2.6.0\"'; open(p,'w').write(s.replace(o,n,1))"
       python3.12 -c 'import sqlite3; print("sqlite3 OK:", sqlite3.sqlite_version)'
+    # Stable squid 19.2.3 still does `from distutils.util import strtobool` in two
+    # mgr modules, but PEP 632 dropped distutils from the python3.12 stdlib; the
+    # only thing that puts it back is setuptools' _distutils_hack + the
+    # distutils-precedence.pth, which this image deliberately does not ship (see
+    # the wheel install). Without it both modules fail their dependency check
+    # ("2 mgr modules have failed dependencies", HEALTH_WARN) — and `volumes`
+    # being down is fatal for CephFS: `ceph fs subvolumegroup create` is served by
+    # it, so Rook's file-controller blocks forever on the "csi" subvolume group,
+    # the CephFilesystem stays phase=Failure and the ElasticStorageClass never
+    # leaves "storage filesystem not ready". Inline the six-line strtobool instead
+    # of dragging setuptools back in just for it; the shim is byte-compatible with
+    # distutils' (same accepted spellings, same ValueError). Tolerant/idempotent:
+    # tentacle 20.2.2 already dropped both imports, so it is a no-op there.
+    - |
+      for p in /usr/share/ceph/mgr/volumes/fs/operations/pin_util.py \
+               /usr/share/ceph/mgr/dashboard/tools.py; do
+        python3.12 -c "p='$p'; s=open(p).read(); o='from distutils.util import strtobool\n'; n='def strtobool(val):\n    val = val.lower()\n    if val in (\'y\', \'yes\', \'t\', \'true\', \'on\', \'1\'):\n        return 1\n    elif val in (\'n\', \'no\', \'f\', \'false\', \'off\', \'0\'):\n        return 0\n    else:\n        raise ValueError(\'invalid truth value %r\' % (val,))\n'; open(p,'w').write(s.replace(o,n)) if o in s else print('distutils import absent, skipping', p)"
+        python3.12 -c "import ast; p='$p'; s=open(p).read(); ast.parse(s); assert 'distutils' not in s, p + ' still imports distutils'"
+      done
+      echo 'mgr modules: no distutils imports left'
     # ceph-volume in stable squid 19.2.3 is not Python 3.12 compatible: its
     # main.py get_entry_points() does `entry_points().get(group, [])`, but under
     # python3.12 importlib.metadata.entry_points() returns a non-dict EntryPoints
@@ -147,12 +187,52 @@ shell:
     # dashboard/restful hashing paths (not always-on) are affected. NB: a lazy
     # *proxy* is worse — it re-attempts the PyO3 import on every attribute access
     # at runtime and crash-loops the mgr ("no active mgr"). Same change as
-    # container-base MR 211; drop this once the packaged mgr ships it.
-    # Tolerant/idempotent; the ast.parse + assert are build-time checks.
+    # container-base MR 211; drop this once every packaged mgr ships it.
+    # Tolerant/idempotent; the ast.parse + assert are build-time checks. The
+    # import pattern is anchored to column 0 ('\nimport bcrypt\n') so a mgr that
+    # already ships the guard is left alone: matching the bare substring would
+    # hit the indented 'import bcrypt' inside the existing try: and splice a
+    # second, unindented try: block into it (IndentationError). ceph-mgr 19.2.3
+    # from base-images v1.3.20 on ships the guard; tentacle 20.2.2 dropped the
+    # mgr_util bcrypt import entirely, so both are no-ops today.
     - |
-      python3.12 -c "p='/usr/share/ceph/mgr/mgr_util.py'; s=open(p).read(); o1='import bcrypt\n'; n1='try:\n    import bcrypt\nexcept Exception:\n    bcrypt = None\n'; o2='    if not password:\n        return None\n    if not salt_password:\n'; n2='    if not password:\n        return None\n    global bcrypt\n    if bcrypt is None:\n        import bcrypt\n    if not salt_password:\n'; s=(s.replace(o1,n1,1) if o1 in s else s); s=(s.replace(o2,n2,1) if o2 in s else s); open(p,'w').write(s)"
+      python3.12 -c "p='/usr/share/ceph/mgr/mgr_util.py'; s=open(p).read(); o1='\nimport bcrypt\n'; n1='\ntry:\n    import bcrypt\nexcept Exception:\n    bcrypt = None\n'; o2='    if not password:\n        return None\n    if not salt_password:\n'; n2='    if not password:\n        return None\n    global bcrypt\n    if bcrypt is None:\n        import bcrypt\n    if not salt_password:\n'; s=(s.replace(o1,n1,1) if o1 in s else s); s=(s.replace(o2,n2,1) if o2 in s else s); open(p,'w').write(s)"
       python3.12 -c "import ast; s=open('/usr/share/ceph/mgr/mgr_util.py').read(); ast.parse(s); assert 'import bcrypt' not in s.splitlines(), 'mgr_util.py still has an unguarded top-level import bcrypt'; print('mgr_util.py: no unguarded top-level import bcrypt')"
     - rm -rf /wheels
+    # pip is only needed for the offline wheel install above; nothing in a ceph
+    # daemon container ever installs a package at runtime, and the container-base
+    # python package ships whatever pip release it was built against (25.3 here,
+    # carrying CVE-2026-3219, CVE-2026-6357, CVE-2026-8643 and CVE-2026-1703 —
+    # all fixed only in pip 26.x, which the catalog does not have). Drop it once
+    # the wheels are in, so it is neither present nor reported. setuptools is
+    # swept up in the same step: it is not installed above (see the wheel install
+    # for why), and this keeps the image clean should a future python or ceph
+    # package start shipping it — every catalog wheel of it reports CVEs, either
+    # against setuptools itself or against its vendored dist-info. Both the
+    # uninstall (covers /usr/bin/pip3*, the dist-info and the .pth) and the rm
+    # fallback are best-effort; the import checks are the actual assertion.
+    - |
+      python3.12 -m pip uninstall -y pip setuptools || true
+      rm -rf /usr/lib/python3.12/site-packages/pip /usr/lib/python3.12/site-packages/pip-*.dist-info \
+             /usr/lib/python3.12/site-packages/setuptools /usr/lib/python3.12/site-packages/setuptools-*.dist-info \
+             /usr/lib/python3.12/site-packages/pkg_resources \
+             /usr/lib/python3.12/site-packages/_distutils_hack \
+             /usr/lib/python3.12/site-packages/distutils-precedence.pth \
+             /usr/bin/pip /usr/bin/pip3 /usr/bin/pip3.12
+      for m in pip setuptools pkg_resources; do
+        if python3.12 -c "import $m" 2>/dev/null; then echo "$m still importable after removal" >&2; exit 1; fi
+      done
+      echo 'pip, setuptools and pkg_resources removed'
+    # End-to-end check of the two decisions above (patched entry-point lookup, no
+    # setuptools in the image), run once the removal is done so it exercises the
+    # real shipped filesystem: `ceph-volume --help` imports ceph_volume.main and
+    # runs enable_plugins() -> _load_library_extensions(), i.e. exactly the path
+    # that would need pkg_resources, and prints the subcommand list osd-prepare
+    # drives (lvm, raw, simple, ...). If a future ceph-volume reintroduces a hard
+    # pkg_resources dependency this fails here instead of in an osd-prepare job.
+    - |
+      ceph-volume --help > /dev/null
+      echo 'ceph-volume --help OK (entry points resolve without setuptools)'
     # Rook launches the ceph daemons with `--setuser ceph --setgroup ceph`, and
     # its chown-container-data-dir init container runs `chown ceph:ceph` using
     # this image, but the distroless base has no ceph user/group so both fail

@@ -66,5 +66,16 @@ git:
       - templates
       - Chart.yaml
       - module.yaml
-      - hack
+      # hack/ is deliberately absent: it is build-time-only tooling, and the
+      # committed hack/generate_release_notes binary would ship in the bundle
+      # and accrue a fresh set of Go stdlib CVEs with every toolchain release.
+      # docs-generator (above) mounts it from git on its own, so nothing here
+      # needs it at runtime. sds-node-configurator, sds-local-volume, csi-nfs
+      # and snapshot-controller already omit it.
       - CHANGELOG
+
+# Attach an OpenVEX attestation to the bundle image so trivy suppresses the
+# unfixable golang.org/x/crypto/openpgp advisory (GO-2026-5932) that would
+# otherwise be reported against the go-hooks binary embedded at /hooks/go-hooks.
+# Predicate: /known_vulnerabilities.vex (repo root, per the "vex mitigation" template).
+{{- include "vex mitigation" (list $ "bundle") }}
