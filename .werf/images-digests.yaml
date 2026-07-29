@@ -5,7 +5,13 @@
 
 {{- range $ImageManifest := regexSplit "\n?---[ \t]*\n" $Images -1 }}
   {{- $ImageManifest := $ImageManifest | fromYaml }}
-  {{- if and $ImageManifest.image (ne ($ImageManifest.final | toJson) "false") }}
+  {{- /* The *-vex-artifact images produced by the "vex mitigation" template are
+         final only so werf pushes them; they carry a cosign attestation for
+         another image, not a module component. Keep them out of
+         images_digests.json: the module has no values for them, and the CVE
+         gate scans every digest listed there — which would report cosign's own
+         Go dependencies against this module. */ -}}
+  {{- if and $ImageManifest.image (ne ($ImageManifest.final | toJson) "false") (eq $ImageManifest.image (trimSuffix "-vex-artifact" $ImageManifest.image)) }}
     {{- $ImagesIDList = append $ImagesIDList $ImageManifest.image }}
   {{- end }}
 {{- end }}
