@@ -502,6 +502,9 @@ spec:
                         cluster first leaves the standard profile.
                 conditions:
                   type: array
+                  x-kubernetes-list-type: map
+                  x-kubernetes-list-map-keys:
+                    - type
                   description: |
                     Per-component conditions: `StorageReady`, `CephClusterReady`,
                     `CredentialsReady`, `CsiCephReady`, `UpgradeReady`,
