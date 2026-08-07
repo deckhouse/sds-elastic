@@ -469,6 +469,23 @@ const (
 	ECConditionReady             = "Ready"
 )
 
+// ECConditionTypes is every condition type an ElasticCluster publishes.
+//
+// A condition type that is declared but never written is worse than one that
+// does not exist: an absent condition is indistinguishable from "not yet
+// evaluated", so an operator waits for a verdict that never comes and an alert
+// on it never fires. Keeping the set in one list is what lets a test hold the
+// reconciler to it.
+var ECConditionTypes = []string{
+	ECConditionStorageReady,
+	ECConditionCephClusterReady,
+	ECConditionCredentialsReady,
+	ECConditionCsiCephReady,
+	ECConditionUpgradeReady,
+	ECConditionUpgradeInProgress,
+	ECConditionReady,
+}
+
 // Well-known condition reasons that surface on ElasticCluster.status.
 // These are the strings UI / dashboards filter on, so they are part of
 // the public contract.
