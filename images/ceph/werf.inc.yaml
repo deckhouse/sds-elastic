@@ -95,9 +95,23 @@ shell:
     - |
       ln -sf /usr/lib/udev/udevadm /usr/sbin/udevadm
       command -v udevadm
-    # ceph-volume (python3.12) runtime deps, shipped as wheels by python-wheel and
-    # resolved from the /wheels find-links dir (--no-index, offline).
+    # python3.12 runtime deps, shipped as wheels by python-wheel and resolved
+    # from the /wheels find-links dir (--no-index, offline).
     # PyYAML + packaging: imported directly by ceph_volume.
+    # requests: imported at module scope by the always-on `telemetry` mgr module
+    # (and by `feedback`). Without it ceph-mgr cannot import telemetry at all, so
+    # the cluster sits in HEALTH_WARN with MGR_MODULE_DEPENDENCY — and the reason
+    # telemetry reports renders empty ("Module 'telemetry' has failed dependency:
+    # "), which reads like a can_run() rejection rather than the missing import it
+    # actually is. Its transitive deps (urllib3, certifi, idna,
+    # charset_normalizer) come from the same /wheels dir; urllib3 is additionally
+    # imported directly by the `k8sevents` and `rook` mgr modules, which otherwise
+    # record a crash on every ceph-mgr start and raise RECENT_MGR_MODULE_CRASH.
+    # Not fixed here and deliberately left out: `diskprediction_local` needs scipy
+    # (no wheel in the catalog at all), and `restful`/`dashboard`/`cephadm` import
+    # cryptography, a PyO3 extension that refuses to load in the subinterpreter
+    # ceph-mgr runs each module in — every cryptography wheel the catalog ships is
+    # the Rust build, so no wheel choice fixes those.
     # setuptools is deliberately NOT installed. ceph_volume/main.py is the only
     # thing in the image that ever mentions pkg_resources, and it does so purely
     # as a fallback for pythons without importlib.metadata:
@@ -118,7 +132,9 @@ shell:
     - |
       python3.12 -m pip install --no-cache-dir --no-index -f file:///wheels \
         PyYAML \
-        packaging
+        packaging \
+        requests
+      python3.12 -c 'import requests, urllib3; print("requests", requests.__version__, "urllib3", urllib3.__version__)'
     # container-base python3.12 is built WITHOUT the stdlib _sqlite3 C extension
     # (its Modules/Setup omits _sqlite3), but ceph-mgr's mgr_module.py does
     # `import sqlite3` at load time, so every python mgr module fails its
