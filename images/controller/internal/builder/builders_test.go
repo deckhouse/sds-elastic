@@ -188,6 +188,23 @@ var _ = Describe("builders", func() {
 	})
 
 	Describe("ECCephCluster", func() {
+		It("enables pg_autoscaler and disables restful in spec.mgr.modules", func() {
+			cc := ECCephCluster(ec, "d8-sds-elastic", "img", int32(3), resource.MustParse("50Gi"), nil, 3, 2)
+
+			mods, found, err := unstructuredNestedSlice(cc, "spec", "mgr", "modules")
+			Expect(err).NotTo(HaveOccurred())
+			Expect(found).To(BeTrue())
+
+			got := map[string]bool{}
+			for _, m := range mods {
+				entry := m.(map[string]interface{})
+				got[entry["name"].(string)] = entry["enabled"].(bool)
+			}
+			Expect(got).To(HaveKeyWithValue("pg_autoscaler", true))
+			Expect(got).To(HaveKeyWithValue("restful", false),
+				"restful imports cryptography (PyO3), which cannot load in a ceph-mgr subinterpreter; leaving it on parks the cluster in HEALTH_WARN with MGR_MODULE_DEPENDENCY")
+		})
+
 		It("threads pvcStorageRequest into volumeClaimTemplates[0].spec.resources.requests.storage", func() {
 			pvcReq := resource.MustParse("50Gi")
 			cc := ECCephCluster(ec, "d8-sds-elastic", "registry.example.com/ceph:v19", int32(3), pvcReq, nil, 3, 2)
