@@ -163,6 +163,14 @@ const (
 	ESCConditionReady                = "Ready"
 )
 
+// ESCConditionTypes is every condition type an ElasticStorageClass publishes.
+// See ECConditionTypes for why the set is written down.
+var ESCConditionTypes = []string{
+	ESCConditionPoolReady,
+	ESCConditionCsiStorageClassReady,
+	ESCConditionReady,
+}
+
 // Deletion (teardown) reasons set on the aggregate Ready condition while
 // an ElasticStorageClass is being deleted. Domain-level on purpose: they
 // never name the underlying vendor (Rook/csi-ceph) resources.
