@@ -54,7 +54,7 @@ func ECCephClusterDataDirHostPath(ec *v1alpha1.ElasticCluster) string {
 //     daemons run with allowMultiplePerNode=false and no
 //     volumeClaimTemplate (mon data sits on the host path; survival
 //     across namespace deletion is achieved by ElasticClusterCredential).
-//   - mgr modules: pg_autoscaler enabled.
+//   - mgr modules: pg_autoscaler enabled, restful disabled.
 //   - network.provider=host. addressRanges populated only when
 //     ec.Spec.Network is set; otherwise Rook listens on every host IP.
 //   - network.connections.{encryption,compression}=false, requireMsgr2=false.
@@ -91,6 +91,18 @@ func ECCephCluster(
 		"allowMultiplePerNode": false,
 		"modules": []interface{}{
 			map[string]interface{}{"name": "pg_autoscaler", "enabled": true},
+			// Ceph's own mgr_initial_modules default turns `restful` on at cluster
+			// bootstrap. It imports pyOpenSSL -> cryptography, a PyO3 extension that
+			// refuses to initialise in the CPython subinterpreter ceph-mgr runs each
+			// module in ("PyO3 modules do not yet support subinterpreters"), so the
+			// module can never load and the cluster sits in HEALTH_WARN with
+			// MGR_MODULE_DEPENDENCY. No wheel choice fixes it: every cryptography
+			// release the container-base catalog ships is the Rust build. Nothing in
+			// Rook, csi-ceph or Deckhouse talks to restful — it is deprecated
+			// upstream in favour of the dashboard REST API — so turn it off. Rook
+			// translates enabled=false into `ceph mgr module disable restful`, which
+			// also cleans up clusters bootstrapped before this change.
+			map[string]interface{}{"name": "restful", "enabled": false},
 		},
 	}
 
