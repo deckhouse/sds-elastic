@@ -18,7 +18,6 @@ package controller
 
 import (
 	"github.com/deckhouse/sds-common-lib/conditions"
-
 	"github.com/deckhouse/sds-elastic/api/v1alpha1"
 )
 
