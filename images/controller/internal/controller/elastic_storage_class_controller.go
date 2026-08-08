@@ -19,8 +19,6 @@ package controller
 import (
 	"context"
 	"fmt"
-	"reflect"
-	"time"
 
 	corev1 "k8s.io/api/core/v1"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
@@ -29,7 +27,6 @@ import (
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
 	"k8s.io/apimachinery/pkg/runtime/schema"
 	"k8s.io/apimachinery/pkg/types"
-	"k8s.io/client-go/util/retry"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/builder"
 	"sigs.k8s.io/controller-runtime/pkg/client"
@@ -40,6 +37,7 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/predicate"
 	"sigs.k8s.io/controller-runtime/pkg/reconcile"
 
+	"github.com/deckhouse/sds-common-lib/conditions"
 	v1alpha1 "github.com/deckhouse/sds-elastic/api/v1alpha1"
 	"github.com/deckhouse/sds-elastic/images/controller/internal/external"
 	"github.com/deckhouse/sds-elastic/images/controller/pkg/config"
@@ -274,38 +272,13 @@ func (r *ElasticStorageClassReconciler) reconcileNormal(ctx context.Context, esc
 // outcome on the status builder, gates downstream conditions, and
 // returns whether the FSM may progress.
 func (r *ElasticStorageClassReconciler) advanceESC(status *escStatusBuilder, condType string, done bool, msg string, err error) bool {
-	switch {
-	case err != nil:
-		status.setCondition(condType, metav1.ConditionFalse, "Error", err.Error())
-		gateAfterESC(status, condType)
-	case !done:
-		status.setCondition(condType, metav1.ConditionFalse, "InProgress", msg)
-		gateAfterESC(status, condType)
-	default:
-		status.setCondition(condType, metav1.ConditionTrue, "Ready", msg)
-		return true
-	}
-	return false
+	return escStages().Advance(&status.conditions, status.source.Generation, condType, done, "", msg, err)
 }
 
 // gateAfterESC marks every stage strictly downstream of `afterStage` and
 // the aggregate Ready as False/WaitingForPrev.
 func gateAfterESC(status *escStatusBuilder, afterStage string) {
-	startIdx := -1
-	for i, t := range escStageOrder {
-		if t == afterStage {
-			startIdx = i + 1
-			break
-		}
-	}
-	if startIdx >= 0 {
-		for _, t := range escStageOrder[startIdx:] {
-			status.setCondition(t, metav1.ConditionFalse, "WaitingForPrev",
-				fmt.Sprintf("waiting for %s", afterStage))
-		}
-	}
-	status.setCondition(v1alpha1.ESCConditionReady, metav1.ConditionFalse,
-		"WaitingForPrev", fmt.Sprintf("waiting for %s", afterStage))
+	escStages().Gate(&status.conditions, status.source.Generation, afterStage)
 }
 
 // escStatusBuilder is the ESC sibling of ecStatusBuilder.
@@ -319,13 +292,12 @@ func newESCStatusBuilder(esc *v1alpha1.ElasticStorageClass) *escStatusBuilder {
 }
 
 func (s *escStatusBuilder) setCondition(condType string, condStatus metav1.ConditionStatus, reason, message string) {
-	s.conditions = append(s.conditions, metav1.Condition{
+	conditions.Set(&s.conditions, metav1.Condition{
 		Type:               condType,
 		Status:             condStatus,
 		Reason:             reason,
-		Message:            message,
+		Message:            conditions.TruncateMessage(message),
 		ObservedGeneration: s.source.Generation,
-		LastTransitionTime: metav1.NewTime(time.Now()),
 	})
 }
 
@@ -361,29 +333,19 @@ func isAggregateReadyESC(status *escStatusBuilder) bool {
 }
 
 func (r *ElasticStorageClassReconciler) updateESCStatus(ctx context.Context, esc *v1alpha1.ElasticStorageClass, sb *escStatusBuilder) error {
-	return retry.RetryOnConflict(retry.DefaultBackoff, func() error {
-		latest := &v1alpha1.ElasticStorageClass{}
-		if err := r.Client.Get(ctx, client.ObjectKey{Name: esc.Name}, latest); err != nil {
-			return err
-		}
+	return conditions.UpdateStatus(ctx, r.Client, esc, func(latest *v1alpha1.ElasticStorageClass) {
 		if latest.Status == nil {
 			latest.Status = &v1alpha1.ElasticStorageClassStatus{}
 		}
-		before := latest.Status.DeepCopy()
 
 		for _, cond := range sb.conditions {
-			apimeta.SetStatusCondition(&latest.Status.Conditions, cond)
+			conditions.Set(&latest.Status.Conditions, cond)
 		}
 		// ObservedGeneration tracks the spec generation we observed at
 		// the top of Reconcile (esc.Generation), matching the EC
 		// reconciler's semantics.
 		latest.Status.ObservedGeneration = esc.Generation
 		latest.Status.Phase = deriveESCPhase(latest.Status.Conditions)
-
-		if reflect.DeepEqual(before, latest.Status) {
-			return nil
-		}
-		return r.Client.Status().Update(ctx, latest)
 	})
 }
 
@@ -392,26 +354,5 @@ func (r *ElasticStorageClassReconciler) updateESCStatus(ctx context.Context, esc
 // computation correct under future ESCConditionReady direct writes —
 // matches deriveECPhase semantics.
 func deriveESCPhase(conditions []metav1.Condition) string {
-	if len(conditions) == 0 {
-		return v1alpha1.PhasePending
-	}
-	hasError := false
-	hasFalse := false
-	for _, t := range escStageOrder {
-		c := apimeta.FindStatusCondition(conditions, t)
-		if c == nil || c.Status != metav1.ConditionFalse {
-			continue
-		}
-		hasFalse = true
-		if c.Reason == "Error" {
-			hasError = true
-		}
-	}
-	if hasError {
-		return v1alpha1.PhaseError
-	}
-	if hasFalse {
-		return v1alpha1.PhaseInProgress
-	}
-	return v1alpha1.PhaseReady
+	return escStages().Phase(conditions)
 }
