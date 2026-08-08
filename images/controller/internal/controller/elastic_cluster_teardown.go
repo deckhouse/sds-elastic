@@ -19,21 +19,19 @@ package controller
 import (
 	"context"
 	"fmt"
-	"reflect"
 	"sort"
 	"strings"
 
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
-	apimeta "k8s.io/apimachinery/pkg/api/meta"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
 	"k8s.io/apimachinery/pkg/runtime/schema"
 	"k8s.io/apimachinery/pkg/types"
-	"k8s.io/client-go/util/retry"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/controller/controllerutil"
 
+	"github.com/deckhouse/sds-common-lib/conditions"
 	v1alpha1 "github.com/deckhouse/sds-elastic/api/v1alpha1"
 	"github.com/deckhouse/sds-elastic/images/controller/internal/builder"
 	"github.com/deckhouse/sds-elastic/images/controller/internal/external"
@@ -218,33 +216,26 @@ func externalDeletionBlocked(u *unstructured.Unstructured) bool {
 // changed so a blocked teardown does not churn the status. A CR that has
 // already been removed (NotFound) is treated as success.
 func (r *ElasticClusterReconciler) patchECDeleteCondition(ctx context.Context, ec *v1alpha1.ElasticCluster, reason, msg string) error {
-	return retry.RetryOnConflict(retry.DefaultBackoff, func() error {
-		latest := &v1alpha1.ElasticCluster{}
-		if err := r.Client.Get(ctx, client.ObjectKey{Name: ec.Name}, latest); err != nil {
-			if apierrors.IsNotFound(err) {
-				return nil
-			}
-			return err
-		}
+	err := conditions.UpdateStatus(ctx, r.Client, ec, func(latest *v1alpha1.ElasticCluster) {
 		if latest.Status == nil {
 			latest.Status = &v1alpha1.ElasticClusterStatus{}
 		}
-		before := latest.Status.DeepCopy()
-		apimeta.SetStatusCondition(&latest.Status.Conditions, metav1.Condition{
+		conditions.Set(&latest.Status.Conditions, metav1.Condition{
 			Type:               v1alpha1.ECConditionReady,
 			Status:             metav1.ConditionFalse,
 			Reason:             reason,
-			Message:            msg,
+			Message:            conditions.TruncateMessage(msg),
 			ObservedGeneration: latest.Generation,
 		})
 		// Phase reuses InProgress during teardown (the Phase enum has no
-		// dedicated Terminating value); the precise teardown state lives
-		// in the Ready condition reason. deriveECPhase is not involved on
-		// the deletion path, so there is no competing writer.
+		// dedicated Terminating value); the precise teardown state lives in
+		// the Ready condition reason. deriveECPhase is not involved on the
+		// deletion path, so there is no competing writer.
 		latest.Status.Phase = v1alpha1.PhaseInProgress
-		if reflect.DeepEqual(before, latest.Status) {
-			return nil
-		}
-		return r.Client.Status().Update(ctx, latest)
 	})
+	// A CR that has already been removed is not a failure to report on.
+	if apierrors.IsNotFound(err) {
+		return nil
+	}
+	return err
 }

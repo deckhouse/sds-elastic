@@ -19,21 +19,19 @@ package controller
 import (
 	"context"
 	"fmt"
-	"reflect"
 	"strings"
 
 	corev1 "k8s.io/api/core/v1"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
-	apimeta "k8s.io/apimachinery/pkg/api/meta"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
 	"k8s.io/apimachinery/pkg/runtime/schema"
 	"k8s.io/apimachinery/pkg/types"
-	"k8s.io/client-go/util/retry"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/controller/controllerutil"
 
+	"github.com/deckhouse/sds-common-lib/conditions"
 	v1alpha1 "github.com/deckhouse/sds-elastic/api/v1alpha1"
 	"github.com/deckhouse/sds-elastic/images/controller/internal/builder"
 	"github.com/deckhouse/sds-elastic/images/controller/internal/external"
@@ -322,23 +320,15 @@ func (r *ElasticStorageClassReconciler) getExternalIfExistsESC(ctx context.Conte
 // changed so a blocked teardown does not churn the status. A CR that has
 // already been removed (NotFound) is treated as success.
 func (r *ElasticStorageClassReconciler) patchESCDeleteCondition(ctx context.Context, esc *v1alpha1.ElasticStorageClass, reason, msg string) error {
-	return retry.RetryOnConflict(retry.DefaultBackoff, func() error {
-		latest := &v1alpha1.ElasticStorageClass{}
-		if err := r.Client.Get(ctx, client.ObjectKey{Name: esc.Name}, latest); err != nil {
-			if apierrors.IsNotFound(err) {
-				return nil
-			}
-			return err
-		}
+	err := conditions.UpdateStatus(ctx, r.Client, esc, func(latest *v1alpha1.ElasticStorageClass) {
 		if latest.Status == nil {
 			latest.Status = &v1alpha1.ElasticStorageClassStatus{}
 		}
-		before := latest.Status.DeepCopy()
-		apimeta.SetStatusCondition(&latest.Status.Conditions, metav1.Condition{
+		conditions.Set(&latest.Status.Conditions, metav1.Condition{
 			Type:               v1alpha1.ESCConditionReady,
 			Status:             metav1.ConditionFalse,
 			Reason:             reason,
-			Message:            msg,
+			Message:            conditions.TruncateMessage(msg),
 			ObservedGeneration: latest.Generation,
 		})
 		// Phase reuses InProgress during teardown (the Phase enum has no
@@ -346,9 +336,10 @@ func (r *ElasticStorageClassReconciler) patchESCDeleteCondition(ctx context.Cont
 		// the Ready condition reason. deriveESCPhase is not involved on the
 		// deletion path, so there is no competing writer.
 		latest.Status.Phase = v1alpha1.PhaseInProgress
-		if reflect.DeepEqual(before, latest.Status) {
-			return nil
-		}
-		return r.Client.Status().Update(ctx, latest)
 	})
+	// A CR that has already been removed is not a failure to report on.
+	if apierrors.IsNotFound(err) {
+		return nil
+	}
+	return err
 }
