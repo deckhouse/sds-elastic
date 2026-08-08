@@ -75,12 +75,32 @@ var _ = Describe("ElasticCluster pure helpers", func() {
 			Expect(deriveECPhase(conds)).To(Equal(v1alpha1.PhaseReady))
 		})
 
+		// Neither the aggregate nor the upgrade signal is a stage, so neither may
+		// move the phase. Asserted against a full set of stage conditions: with
+		// none present there is nothing for them to be ignored in favour of, and
+		// the case below covers that separately.
 		It("ignores aggregate Ready and UpgradeInProgress", func() {
+			conds := make([]metav1.Condition, 0, len(stageOrder)+2)
+			for _, t := range stageOrder {
+				conds = append(conds, metav1.Condition{Type: t, Status: metav1.ConditionTrue})
+			}
+			conds = append(conds,
+				metav1.Condition{Type: v1alpha1.ECConditionReady, Status: metav1.ConditionFalse, Reason: "Error"},
+				metav1.Condition{Type: v1alpha1.ECConditionUpgradeInProgress, Status: metav1.ConditionTrue},
+			)
+			Expect(deriveECPhase(conds)).To(Equal(v1alpha1.PhaseReady))
+		})
+
+		// A cluster carrying only those two has had no stage evaluated, and
+		// answering Ready there would call it healthy on no evidence. The
+		// previous implementation did, because it only guarded against an empty
+		// condition list rather than against an empty set of stage verdicts.
+		It("is Pending when no stage has a verdict, whatever else is set", func() {
 			conds := []metav1.Condition{
 				{Type: v1alpha1.ECConditionReady, Status: metav1.ConditionTrue},
 				{Type: v1alpha1.ECConditionUpgradeInProgress, Status: metav1.ConditionTrue},
 			}
-			Expect(deriveECPhase(conds)).To(Equal(v1alpha1.PhaseReady))
+			Expect(deriveECPhase(conds)).To(Equal(v1alpha1.PhasePending))
 		})
 	})
 })

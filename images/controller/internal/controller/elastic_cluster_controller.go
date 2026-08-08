@@ -19,8 +19,8 @@ package controller
 import (
 	"context"
 	"fmt"
-	"reflect"
-	"time"
+
+	"github.com/deckhouse/sds-common-lib/conditions"
 
 	corev1 "k8s.io/api/core/v1"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
@@ -29,7 +29,6 @@ import (
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
 	"k8s.io/apimachinery/pkg/runtime/schema"
 	"k8s.io/apimachinery/pkg/types"
-	"k8s.io/client-go/util/retry"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/builder"
 	"sigs.k8s.io/controller-runtime/pkg/client"
@@ -333,21 +332,7 @@ func (r *ElasticClusterReconciler) reconcileNormal(ctx context.Context, ec *v1al
 // outcome so the printer column never lies about cluster readiness while
 // any stage is unhealthy.
 func (r *ElasticClusterReconciler) advance(status *ecStatusBuilder, condType string, done bool, reason, msg string, err error) bool {
-	switch {
-	case err != nil:
-		status.setCondition(condType, metav1.ConditionFalse, "Error", err.Error())
-		gateAfter(status, condType)
-	case !done:
-		if reason == "" {
-			reason = "InProgress"
-		}
-		status.setCondition(condType, metav1.ConditionFalse, reason, msg)
-		gateAfter(status, condType)
-	default:
-		status.setCondition(condType, metav1.ConditionTrue, "Ready", msg)
-		return true
-	}
-	return false
+	return ecStages().Advance(&status.conditions, status.source.Generation, condType, done, reason, msg, err)
 }
 
 // gateAfter marks every stage condition strictly downstream of `gateAfter`
@@ -374,21 +359,7 @@ func (r *ElasticClusterReconciler) advance(status *ecStatusBuilder, condType str
 // UpgradeInProgress value stays sticky on the status — acceptable,
 // since we have no fresh evidence either way.
 func gateAfter(status *ecStatusBuilder, afterStage string) {
-	startIdx := -1
-	for i, t := range stageOrder {
-		if t == afterStage {
-			startIdx = i + 1
-			break
-		}
-	}
-	if startIdx >= 0 {
-		for _, t := range stageOrder[startIdx:] {
-			status.setCondition(t, metav1.ConditionFalse, "WaitingForPrev",
-				fmt.Sprintf("waiting for %s", afterStage))
-		}
-	}
-	status.setCondition(v1alpha1.ECConditionReady, metav1.ConditionFalse,
-		"WaitingForPrev", fmt.Sprintf("waiting for %s", afterStage))
+	ecStages().Gate(&status.conditions, status.source.Generation, afterStage)
 }
 
 // setUpgradeInProgress publishes the UpgradeInProgress signal condition.
@@ -502,29 +473,23 @@ func newECStatusBuilder(ec *v1alpha1.ElasticCluster) *ecStatusBuilder {
 }
 
 func (s *ecStatusBuilder) setCondition(condType string, condStatus metav1.ConditionStatus, reason, message string) {
-	s.conditions = append(s.conditions, metav1.Condition{
+	conditions.Set(&s.conditions, metav1.Condition{
 		Type:               condType,
 		Status:             condStatus,
 		Reason:             reason,
-		Message:            message,
+		Message:            conditions.TruncateMessage(message),
 		ObservedGeneration: s.source.Generation,
-		LastTransitionTime: metav1.NewTime(time.Now()),
 	})
 }
 
 func (r *ElasticClusterReconciler) updateECStatus(ctx context.Context, ec *v1alpha1.ElasticCluster, sb *ecStatusBuilder) error {
-	return retry.RetryOnConflict(retry.DefaultBackoff, func() error {
-		latest := &v1alpha1.ElasticCluster{}
-		if err := r.Client.Get(ctx, client.ObjectKey{Name: ec.Name}, latest); err != nil {
-			return err
-		}
+	return conditions.UpdateStatus(ctx, r.Client, ec, func(latest *v1alpha1.ElasticCluster) {
 		if latest.Status == nil {
 			latest.Status = &v1alpha1.ElasticClusterStatus{}
 		}
-		before := latest.Status.DeepCopy()
 
 		for _, cond := range sb.conditions {
-			apimeta.SetStatusCondition(&latest.Status.Conditions, cond)
+			conditions.Set(&latest.Status.Conditions, cond)
 		}
 		// ObservedGeneration intentionally tracks the generation we read
 		// at the top of Reconcile (ec.Generation), not latest.Generation:
@@ -562,11 +527,6 @@ func (r *ElasticClusterReconciler) updateECStatus(ctx context.Context, ec *v1alp
 			latest.Status.Mgrs = sb.mgrs
 		}
 		latest.Status.Phase = deriveECPhase(latest.Status.Conditions)
-
-		if reflect.DeepEqual(before, latest.Status) {
-			return nil
-		}
-		return r.Client.Status().Update(ctx, latest)
 	})
 }
 
@@ -582,26 +542,5 @@ func (r *ElasticClusterReconciler) updateECStatus(ctx context.Context, ec *v1alp
 //   - any stage False (other reasons, e.g. InProgress) → InProgress
 //   - all stages True (or absent)                     → Ready
 func deriveECPhase(conditions []metav1.Condition) string {
-	if len(conditions) == 0 {
-		return v1alpha1.PhasePending
-	}
-	hasError := false
-	hasFalse := false
-	for _, t := range stageOrder {
-		c := apimeta.FindStatusCondition(conditions, t)
-		if c == nil || c.Status != metav1.ConditionFalse {
-			continue
-		}
-		hasFalse = true
-		if c.Reason == "Error" {
-			hasError = true
-		}
-	}
-	if hasError {
-		return v1alpha1.PhaseError
-	}
-	if hasFalse {
-		return v1alpha1.PhaseInProgress
-	}
-	return v1alpha1.PhaseReady
+	return ecStages().Phase(conditions)
 }
