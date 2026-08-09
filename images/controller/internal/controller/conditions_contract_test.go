@@ -19,6 +19,7 @@ package controller
 import (
 	"errors"
 	"strings"
+	"unicode/utf8"
 
 	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
@@ -176,11 +177,24 @@ var _ = Describe("ElasticClusterCredential condition contract", func() {
 		Expect(cond.Message).To(Equal("the rook-ceph-mon Secret is unreadable"))
 	})
 
+	It("keeps a cause out of a passing verdict", func() {
+		cond := eccReadyCondition(1, v1alpha1.ECCPhasePopulated, errors.New("stale error"))
+
+		Expect(cond.Status).To(Equal(metav1.ConditionTrue))
+		Expect(cond.Message).NotTo(ContainSubstring("stale error"),
+			"a True condition carrying an error text reads as a failure to an operator "+
+				"and as a success to anything keyed on the status")
+	})
+
 	It("truncates a cause the schema would reject", func() {
-		huge := errors.New(strings.Repeat("x", conditions.MaxMessageLen+100))
+		// Multi-byte on purpose. The schema's maxLength is an OpenAPI string
+		// length, counted in runes, and TruncateMessage counts the same way — a
+		// byte-counting assertion here would fail on a message that is in fact
+		// within the limit.
+		huge := errors.New(strings.Repeat("я", conditions.MaxMessageLen+100))
 
 		cond := eccReadyCondition(1, v1alpha1.ECCPhaseError, huge)
 
-		Expect(len(cond.Message)).To(BeNumerically("<=", conditions.MaxMessageLen))
+		Expect(utf8.RuneCountInString(cond.Message)).To(BeNumerically("<=", conditions.MaxMessageLen))
 	})
 })

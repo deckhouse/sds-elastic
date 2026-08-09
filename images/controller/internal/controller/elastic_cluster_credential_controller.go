@@ -329,11 +329,20 @@ func (r *ElasticClusterCredentialReconciler) updateECCStatus(ctx context.Context
 		}
 		conditions.Set(&latest.Status.Conditions, eccReadyCondition(latest.Generation, phase, cause))
 
-		// equality.Semantic rather than reflect.DeepEqual: the conditions carry
-		// a metav1.Time, and two instants that are equal can differ in their
-		// monotonic reading, which reflect compares and semantic does not.
-		// Getting this wrong writes on every resync — an etcd write and a watch
-		// event per object, for a status that did not change.
+		// equality.Semantic rather than reflect.DeepEqual. This is not a fix for
+		// an observed extra write: both answer the same on today's status,
+		// because `before` is copied from an object the client decoded and
+		// nothing here produces a value that is equal but differently
+		// represented.
+		//
+		// It is the apimachinery convention for comparing API objects, and it
+		// is what stops that from being luck. reflect compares representation:
+		// a resource.Quantity of "1Gi" and one of "1024Mi" are different to it,
+		// and so is a metav1.Time carrying a monotonic reading against the same
+		// instant without one. Either would arrive here as a silent write on
+		// every resync — an etcd write and a watch event per object for a
+		// status that did not change — the first time someone adds such a field
+		// to this status.
 		if equality.Semantic.DeepEqual(before, latest.Status) {
 			return nil
 		}
@@ -362,7 +371,14 @@ func eccReadyCondition(generation int64, phase string, cause error) metav1.Condi
 	case v1alpha1.ECCPhaseError:
 		cond.Status = metav1.ConditionFalse
 		cond.Reason = conditions.ReasonReconcileFailed
+		// The cause belongs to this branch alone. Letting it override the
+		// message for any phase would allow Status=True to carry the text of an
+		// error, which reads as a failure to anyone looking at the condition and
+		// as a success to anything keyed on the status.
 		cond.Message = "the back-sync failed"
+		if cause != nil {
+			cond.Message = cause.Error()
+		}
 	default:
 		// Pending, and the empty phase a resource carries before the first pass.
 		cond.Status = metav1.ConditionFalse
@@ -370,9 +386,6 @@ func eccReadyCondition(generation int64, phase string, cause error) metav1.Condi
 		cond.Message = "waiting for the rook-ceph-mon Secret to carry every credential"
 	}
 
-	if cause != nil {
-		cond.Message = cause.Error()
-	}
 	// The schema caps the message at 32768, and an error from the API server can
 	// carry the object it rejected. Over the cap the whole status write is
 	// rejected, which would leave the resource reporting its previous verdict.
