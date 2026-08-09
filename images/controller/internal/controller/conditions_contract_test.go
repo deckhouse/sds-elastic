@@ -191,7 +191,10 @@ var _ = Describe("ElasticClusterCredential condition contract", func() {
 		// length, counted in runes, and TruncateMessage counts the same way — a
 		// byte-counting assertion here would fail on a message that is in fact
 		// within the limit.
-		huge := errors.New(strings.Repeat("я", conditions.MaxMessageLen+100))
+		//
+		// Written as an escape rather than the character itself: the module linter
+		// rejects non-ASCII bytes in Go sources.
+		huge := errors.New(strings.Repeat("\u044f", conditions.MaxMessageLen+100))
 
 		cond := eccReadyCondition(1, v1alpha1.ECCPhaseError, huge)
 
