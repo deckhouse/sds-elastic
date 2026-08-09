@@ -40,11 +40,22 @@ var _ = Describe("ElasticStorageClass FSM and Reconcile", func() {
 			Expect(deriveESCPhase(nil)).To(Equal(v1alpha1.PhasePending))
 		})
 
+		// Both stages are present: advance gates the remaining ones whenever a
+		// stage does not pass, so a half-reported set never reaches the API
+		// server, and a phase derived from one is Pending.
 		It("returns Error when a stage has Error reason", func() {
 			conds := []metav1.Condition{
 				{Type: v1alpha1.ESCConditionPoolReady, Status: metav1.ConditionFalse, Reason: "Error"},
+				{Type: v1alpha1.ESCConditionCsiStorageClassReady, Status: metav1.ConditionFalse, Reason: "WaitingForPrev"},
 			}
 			Expect(deriveESCPhase(conds)).To(Equal(v1alpha1.PhaseError))
+		})
+
+		It("is Pending while a stage has no verdict", func() {
+			conds := []metav1.Condition{
+				{Type: v1alpha1.ESCConditionPoolReady, Status: metav1.ConditionTrue},
+			}
+			Expect(deriveESCPhase(conds)).To(Equal(v1alpha1.PhasePending))
 		})
 
 		It("returns Ready when all stages are True", func() {
