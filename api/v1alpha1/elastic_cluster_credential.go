@@ -95,6 +95,14 @@ type ElasticClusterCredentialStatus struct {
 	// from the rook-ceph-mon Secret.
 	// +optional
 	LastSyncTime *metav1.Time `json:"lastSyncTime,omitempty"`
+
+	// Conditions hold the latest state. Known type: Ready.
+	// +optional
+	// +patchMergeKey=type
+	// +patchStrategy=merge
+	// +listType=map
+	// +listMapKey=type
+	Conditions []metav1.Condition `json:"conditions,omitempty" patchStrategy:"merge" patchMergeKey:"type"`
 }
 
 // Well-known phases for ElasticClusterCredential.
@@ -103,6 +111,17 @@ const (
 	ECCPhasePopulated = "Populated"
 	ECCPhaseError     = "Error"
 )
+
+// ECCConditionReady reports whether the back-sync has populated every field
+// this kind carries. It is what the phase cannot say: Error means the last
+// attempt failed, and until now the only record of why was the manager log.
+const ECCConditionReady = "Ready"
+
+// ECCConditionTypes is every condition type an ElasticClusterCredential
+// publishes. See ECConditionTypes for why the set is written down.
+var ECCConditionTypes = []string{
+	ECCConditionReady,
+}
 
 // ElasticClusterCredentialKind is the kind constant used for OwnerReferences
 // and dynamic GVK lookups.
