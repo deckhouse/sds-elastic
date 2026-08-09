@@ -536,10 +536,10 @@ func (r *ElasticClusterReconciler) updateECStatus(ctx context.Context, ec *v1alp
 // False with an Error reason directly. Aggregate Ready and the
 // UpgradeInProgress signal are intentionally excluded.
 //
-//   - empty conditions slice                          → Pending
-//   - any stage False with Reason=="Error"            → Error
+//   - any stage without a condition, or Unknown        → Pending
+//   - any stage False with Reason=="Error"             → Error
 //   - any stage False (other reasons, e.g. InProgress) → InProgress
-//   - all stages True (or absent)                     → Ready
+//   - all stages True                                  → Ready
 func deriveECPhase(conditions []metav1.Condition) string {
 	return ecStages().Phase(conditions)
 }
