@@ -24,6 +24,25 @@ import (
 	v1alpha1 "github.com/deckhouse/sds-elastic/api/v1alpha1"
 )
 
+// stageConditions builds a full set of EC stage conditions, which is what the
+// FSM always writes, so a fixture only has to state what it is about.
+func stageConditions(status metav1.ConditionStatus, reason string) []metav1.Condition {
+	conds := make([]metav1.Condition, 0, len(stageOrder))
+	for _, t := range stageOrder {
+		conds = append(conds, metav1.Condition{Type: t, Status: status, Reason: reason})
+	}
+	return conds
+}
+
+func setStageCondition(conds []metav1.Condition, condType string, status metav1.ConditionStatus, reason string) {
+	for i := range conds {
+		if conds[i].Type == condType {
+			conds[i].Status, conds[i].Reason = status, reason
+			return
+		}
+	}
+}
+
 var _ = Describe("ElasticCluster pure helpers", func() {
 	DescribeTable("versionMatches",
 		func(running, desired string, want bool) {
@@ -51,20 +70,29 @@ var _ = Describe("ElasticCluster pure helpers", func() {
 			Expect(deriveECPhase(nil)).To(Equal(v1alpha1.PhasePending))
 		})
 
+		// The fixtures carry every stage, because that is what the FSM leaves
+		// behind: advance gates the remaining stages whenever one does not pass,
+		// so a half-reported set never reaches the API server. A phase derived
+		// from an incomplete set is Pending, which is asserted separately.
 		It("returns Error when any stage has Error reason", func() {
-			conds := []metav1.Condition{
-				{Type: v1alpha1.ECConditionStorageReady, Status: metav1.ConditionFalse, Reason: "Error"},
-				{Type: v1alpha1.ECConditionCephClusterReady, Status: metav1.ConditionFalse, Reason: "InProgress"},
-			}
+			conds := stageConditions(metav1.ConditionTrue, "Ready")
+			setStageCondition(conds, v1alpha1.ECConditionStorageReady, metav1.ConditionFalse, "Error")
+			setStageCondition(conds, v1alpha1.ECConditionCephClusterReady, metav1.ConditionFalse, "InProgress")
+
 			Expect(deriveECPhase(conds)).To(Equal(v1alpha1.PhaseError))
 		})
 
 		It("returns InProgress when a stage is False but not Error", func() {
-			conds := []metav1.Condition{
-				{Type: v1alpha1.ECConditionStorageReady, Status: metav1.ConditionTrue},
-				{Type: v1alpha1.ECConditionCephClusterReady, Status: metav1.ConditionFalse, Reason: "InProgress"},
-			}
+			conds := stageConditions(metav1.ConditionTrue, "Ready")
+			setStageCondition(conds, v1alpha1.ECConditionCephClusterReady, metav1.ConditionFalse, "InProgress")
+
 			Expect(deriveECPhase(conds)).To(Equal(v1alpha1.PhaseInProgress))
+		})
+
+		It("is Pending while any stage has no verdict", func() {
+			conds := stageConditions(metav1.ConditionTrue, "Ready")[1:]
+
+			Expect(deriveECPhase(conds)).To(Equal(v1alpha1.PhasePending))
 		})
 
 		It("returns Ready when all stage conditions are True", func() {

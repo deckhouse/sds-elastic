@@ -33,16 +33,23 @@ const (
 
 // stageVocabulary is what both reconcilers report their stages with.
 //
-// SkipMissing keeps the reading these reconcilers have always had: a stage with
-// no condition is not evidence of a problem. The library defaults the other way,
-// on the grounds that a stage never evaluated is not evidence of health either;
-// moving to that changes what users see and belongs in a commit of its own.
+// SkipMissing is deliberately left off, so a stage carrying no condition
+// aggregates to Unknown and the phase reads Pending. A stage that has never been
+// evaluated is not evidence that the resource is healthy, and answering Ready on
+// a set of verdicts that is not complete is how a resource gets called usable on
+// nobody's word.
+//
+// It costs nothing today: every path that flushes the status has written the
+// whole stage set, because advance gates the remaining stages whenever one does
+// not pass. The reading only differs after a stage is added to stageOrder — the
+// resources already in the cluster then report Pending until the controller has
+// reconciled them once, which is the honest answer while the new stage has no
+// verdict.
 var stageVocabulary = conditions.Stages{
-	Passed:      reasonReady,
-	Failed:      reasonError,
-	InProgress:  reasonInProgress,
-	Blocked:     reasonWaitingForPrev,
-	SkipMissing: true,
+	Passed:     reasonReady,
+	Failed:     reasonError,
+	InProgress: reasonInProgress,
+	Blocked:    reasonWaitingForPrev,
 }
 
 // ecStages and escStages pair that vocabulary with each reconciler's stage
