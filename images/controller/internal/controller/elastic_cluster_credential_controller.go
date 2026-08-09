@@ -24,6 +24,7 @@ import (
 	"time"
 
 	corev1 "k8s.io/api/core/v1"
+	"k8s.io/apimachinery/pkg/api/equality"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/types"
@@ -37,6 +38,7 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/predicate"
 	"sigs.k8s.io/controller-runtime/pkg/reconcile"
 
+	"github.com/deckhouse/sds-common-lib/conditions"
 	v1alpha1 "github.com/deckhouse/sds-elastic/api/v1alpha1"
 	"github.com/deckhouse/sds-elastic/images/controller/internal/external"
 	"github.com/deckhouse/sds-elastic/images/controller/pkg/config"
@@ -183,10 +185,10 @@ func (r *ElasticClusterCredentialReconciler) Reconcile(ctx context.Context, req 
 	}, secret)
 	if apierrors.IsNotFound(err) {
 		return ctrl.Result{RequeueAfter: r.Cfg.RequeueInterval},
-			r.updateECCStatus(ctx, ecc, v1alpha1.ECCPhasePending, false)
+			r.updateECCStatus(ctx, ecc, v1alpha1.ECCPhasePending, false, nil)
 	}
 	if err != nil {
-		r.bestEffortPhaseError(ctx, ecc)
+		r.bestEffortPhaseError(ctx, ecc, err)
 		return ctrl.Result{}, err
 	}
 
@@ -198,8 +200,9 @@ func (r *ElasticClusterCredentialReconciler) Reconcile(ctx context.Context, req 
 		patch := client.MergeFrom(ecc.DeepCopy())
 		ecc.Spec = desired
 		if err := r.Client.Patch(ctx, ecc, patch); err != nil {
-			r.bestEffortPhaseError(ctx, ecc)
-			return ctrl.Result{}, fmt.Errorf("patch ECC.spec: %w", err)
+			wrapped := fmt.Errorf("patch ECC.spec: %w", err)
+			r.bestEffortPhaseError(ctx, ecc, wrapped)
+			return ctrl.Result{}, wrapped
 		}
 		specPatched = true
 	}
@@ -213,7 +216,7 @@ func (r *ElasticClusterCredentialReconciler) Reconcile(ctx context.Context, req 
 	// updateECCStatus enforces the "first-time" branch). On a fully
 	// converged steady-state cluster every reconcile is a no-op for the
 	// status subresource, which keeps the For watch quiet.
-	if err := r.updateECCStatus(ctx, ecc, phase, specPatched); err != nil {
+	if err := r.updateECCStatus(ctx, ecc, phase, specPatched, nil); err != nil {
 		return ctrl.Result{}, err
 	}
 
@@ -223,13 +226,15 @@ func (r *ElasticClusterCredentialReconciler) Reconcile(ctx context.Context, req 
 	return ctrl.Result{}, nil
 }
 
-// bestEffortPhaseError flips ECC.status.phase to Error so operators see
-// the controller is failing without having to inspect the manager log.
-// Intentionally swallows write errors: the parent error is what we want
-// to surface to controller-runtime; a status write loss is recoverable
-// on the next reconcile.
-func (r *ElasticClusterCredentialReconciler) bestEffortPhaseError(ctx context.Context, ecc *v1alpha1.ElasticClusterCredential) {
-	if err := r.updateECCStatus(ctx, ecc, v1alpha1.ECCPhaseError, false); err != nil {
+// bestEffortPhaseError flips ECC.status.phase to Error and publishes the cause
+// on the Ready condition, so operators see both that the controller is failing
+// and why, without having to inspect the manager log.
+//
+// Intentionally swallows write errors: the parent error is what we want to
+// surface to controller-runtime; a status write loss is recoverable on the next
+// reconcile.
+func (r *ElasticClusterCredentialReconciler) bestEffortPhaseError(ctx context.Context, ecc *v1alpha1.ElasticClusterCredential, cause error) {
+	if err := r.updateECCStatus(ctx, ecc, v1alpha1.ECCPhaseError, false, cause); err != nil {
 		r.Log.Error(err, fmt.Sprintf("[bestEffortPhaseError] unable to mark ECC %q as Error", ecc.Name))
 	}
 }
@@ -305,7 +310,7 @@ func desiredECCSpec(secret *corev1.Secret) v1alpha1.ElasticClusterCredentialSpec
 //
 // retry.RetryOnConflict shields against the rare concurrent update
 // (Reconcile racing against itself due to a watch flap).
-func (r *ElasticClusterCredentialReconciler) updateECCStatus(ctx context.Context, ecc *v1alpha1.ElasticClusterCredential, phase string, bumpLastSync bool) error {
+func (r *ElasticClusterCredentialReconciler) updateECCStatus(ctx context.Context, ecc *v1alpha1.ElasticClusterCredential, phase string, bumpLastSync bool, cause error) error {
 	now := metav1.NewTime(time.Now())
 	return retry.RetryOnConflict(retry.DefaultBackoff, func() error {
 		latest := &v1alpha1.ElasticClusterCredential{}
@@ -322,10 +327,69 @@ func (r *ElasticClusterCredentialReconciler) updateECCStatus(ctx context.Context
 		if bumpLastSync || (latest.Status.LastSyncTime == nil && phase == v1alpha1.ECCPhasePopulated) {
 			latest.Status.LastSyncTime = &now
 		}
+		conditions.Set(&latest.Status.Conditions, eccReadyCondition(latest.Generation, phase, cause))
 
-		if reflect.DeepEqual(before, latest.Status) {
+		// equality.Semantic rather than reflect.DeepEqual. This is not a fix for
+		// an observed extra write: both answer the same on today's status,
+		// because `before` is copied from an object the client decoded and
+		// nothing here produces a value that is equal but differently
+		// represented.
+		//
+		// It is the apimachinery convention for comparing API objects, and it
+		// is what stops that from being luck. reflect compares representation:
+		// a resource.Quantity of "1Gi" and one of "1024Mi" are different to it,
+		// and so is a metav1.Time carrying a monotonic reading against the same
+		// instant without one. Either would arrive here as a silent write on
+		// every resync — an etcd write and a watch event per object for a
+		// status that did not change — the first time someone adds such a field
+		// to this status.
+		if equality.Semantic.DeepEqual(before, latest.Status) {
 			return nil
 		}
 		return r.Client.Status().Update(ctx, latest)
 	})
+}
+
+// eccReadyCondition translates the phase this reconcile is about to write, and
+// the error that produced it, into the Ready condition that goes with it.
+//
+// The phase came first and stays the load-bearing summary, so the condition is
+// derived from it rather than the other way round — one place to look, and the
+// two cannot disagree. What the condition adds is the reason: status.phase can
+// say Error, and until now the only record of what failed was the manager log.
+func eccReadyCondition(generation int64, phase string, cause error) metav1.Condition {
+	cond := metav1.Condition{
+		Type:               v1alpha1.ECCConditionReady,
+		ObservedGeneration: generation,
+	}
+
+	switch phase {
+	case v1alpha1.ECCPhasePopulated:
+		cond.Status = metav1.ConditionTrue
+		cond.Reason = conditions.ReasonReconciled
+		cond.Message = "the credentials are populated from the rook-ceph-mon Secret"
+	case v1alpha1.ECCPhaseError:
+		cond.Status = metav1.ConditionFalse
+		cond.Reason = conditions.ReasonReconcileFailed
+		// The cause belongs to this branch alone. Letting it override the
+		// message for any phase would allow Status=True to carry the text of an
+		// error, which reads as a failure to anyone looking at the condition and
+		// as a success to anything keyed on the status.
+		cond.Message = "the back-sync failed"
+		if cause != nil {
+			cond.Message = cause.Error()
+		}
+	default:
+		// Pending, and the empty phase a resource carries before the first pass.
+		cond.Status = metav1.ConditionFalse
+		cond.Reason = conditions.ReasonPending
+		cond.Message = "waiting for the rook-ceph-mon Secret to carry every credential"
+	}
+
+	// The schema caps the message at 32768, and an error from the API server can
+	// carry the object it rejected. Over the cap the whole status write is
+	// rejected, which would leave the resource reporting its previous verdict.
+	cond.Message = conditions.TruncateMessage(cond.Message)
+
+	return cond
 }

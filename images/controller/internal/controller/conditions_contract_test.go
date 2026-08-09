@@ -18,6 +18,8 @@ package controller
 
 import (
 	"errors"
+	"strings"
+	"unicode/utf8"
 
 	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
@@ -144,5 +146,58 @@ var _ = Describe("ElasticStorageClass condition contract", func() {
 			Expect(c.Status).To(Equal(metav1.ConditionFalse), "condition "+c.Type)
 			Expect(c.Reason).NotTo(BeEmpty(), "condition "+c.Type+" needs a machine-readable reason")
 		}
+	})
+})
+
+var _ = Describe("ElasticClusterCredential condition contract", func() {
+	It("writes the declared type for every phase it can publish", func() {
+		for _, phase := range []string{
+			v1alpha1.ECCPhasePending,
+			v1alpha1.ECCPhasePopulated,
+			v1alpha1.ECCPhaseError,
+			// The phase a resource carries before the first pass. The enum
+			// admits it by leaving the field optional.
+			"",
+		} {
+			cond := eccReadyCondition(1, phase, nil)
+
+			Expect(cond.Type).To(Equal(v1alpha1.ECCConditionReady))
+			Expect(v1alpha1.ECCConditionTypes).To(ConsistOf(cond.Type))
+			Expect(cond.Reason).NotTo(BeEmpty(), "phase "+phase+" needs a machine-readable reason")
+			Expect(cond.Message).NotTo(BeEmpty(), "the CRD requires a non-empty message")
+			Expect(cond.ObservedGeneration).To(Equal(int64(1)))
+		}
+	})
+
+	It("publishes the cause instead of leaving it in the manager log", func() {
+		cond := eccReadyCondition(2, v1alpha1.ECCPhaseError, errors.New("the rook-ceph-mon Secret is unreadable"))
+
+		Expect(cond.Status).To(Equal(metav1.ConditionFalse))
+		Expect(cond.Reason).To(Equal(conditions.ReasonReconcileFailed))
+		Expect(cond.Message).To(Equal("the rook-ceph-mon Secret is unreadable"))
+	})
+
+	It("keeps a cause out of a passing verdict", func() {
+		cond := eccReadyCondition(1, v1alpha1.ECCPhasePopulated, errors.New("stale error"))
+
+		Expect(cond.Status).To(Equal(metav1.ConditionTrue))
+		Expect(cond.Message).NotTo(ContainSubstring("stale error"),
+			"a True condition carrying an error text reads as a failure to an operator "+
+				"and as a success to anything keyed on the status")
+	})
+
+	It("truncates a cause the schema would reject", func() {
+		// Multi-byte on purpose. The schema's maxLength is an OpenAPI string
+		// length, counted in runes, and TruncateMessage counts the same way — a
+		// byte-counting assertion here would fail on a message that is in fact
+		// within the limit.
+		//
+		// Written as an escape rather than the character itself: the module linter
+		// rejects non-ASCII bytes in Go sources.
+		huge := errors.New(strings.Repeat("\u044f", conditions.MaxMessageLen+100))
+
+		cond := eccReadyCondition(1, v1alpha1.ECCPhaseError, huge)
+
+		Expect(utf8.RuneCountInString(cond.Message)).To(BeNumerically("<=", conditions.MaxMessageLen))
 	})
 })
