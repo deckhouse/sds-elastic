@@ -21,6 +21,7 @@ import (
 	. "github.com/onsi/gomega"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 
+	"github.com/deckhouse/sds-common-lib/conditions"
 	v1alpha1 "github.com/deckhouse/sds-elastic/api/v1alpha1"
 )
 
@@ -75,22 +76,22 @@ var _ = Describe("ElasticCluster pure helpers", func() {
 		// so a half-reported set never reaches the API server. A phase derived
 		// from an incomplete set is Pending, which is asserted separately.
 		It("returns Error when any stage has Error reason", func() {
-			conds := stageConditions(metav1.ConditionTrue, "Ready")
-			setStageCondition(conds, v1alpha1.ECConditionStorageReady, metav1.ConditionFalse, "Error")
-			setStageCondition(conds, v1alpha1.ECConditionCephClusterReady, metav1.ConditionFalse, "InProgress")
+			conds := stageConditions(metav1.ConditionTrue, conditions.ReasonReconciled)
+			setStageCondition(conds, v1alpha1.ECConditionStorageReady, metav1.ConditionFalse, conditions.ReasonReconcileFailed)
+			setStageCondition(conds, v1alpha1.ECConditionCephClusterReady, metav1.ConditionFalse, conditions.ReasonPending)
 
 			Expect(deriveECPhase(conds)).To(Equal(v1alpha1.PhaseError))
 		})
 
 		It("returns InProgress when a stage is False but not Error", func() {
-			conds := stageConditions(metav1.ConditionTrue, "Ready")
-			setStageCondition(conds, v1alpha1.ECConditionCephClusterReady, metav1.ConditionFalse, "InProgress")
+			conds := stageConditions(metav1.ConditionTrue, conditions.ReasonReconciled)
+			setStageCondition(conds, v1alpha1.ECConditionCephClusterReady, metav1.ConditionFalse, conditions.ReasonPending)
 
 			Expect(deriveECPhase(conds)).To(Equal(v1alpha1.PhaseInProgress))
 		})
 
 		It("is Pending while any stage has no verdict", func() {
-			conds := stageConditions(metav1.ConditionTrue, "Ready")[1:]
+			conds := stageConditions(metav1.ConditionTrue, conditions.ReasonReconciled)[1:]
 
 			Expect(deriveECPhase(conds)).To(Equal(v1alpha1.PhasePending))
 		})
@@ -113,7 +114,7 @@ var _ = Describe("ElasticCluster pure helpers", func() {
 				conds = append(conds, metav1.Condition{Type: t, Status: metav1.ConditionTrue})
 			}
 			conds = append(conds,
-				metav1.Condition{Type: v1alpha1.ECConditionReady, Status: metav1.ConditionFalse, Reason: "Error"},
+				metav1.Condition{Type: v1alpha1.ECConditionReady, Status: metav1.ConditionFalse, Reason: conditions.ReasonReconcileFailed},
 				metav1.Condition{Type: v1alpha1.ECConditionUpgradeInProgress, Status: metav1.ConditionTrue},
 			)
 			Expect(deriveECPhase(conds)).To(Equal(v1alpha1.PhaseReady))

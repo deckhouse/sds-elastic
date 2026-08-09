@@ -26,6 +26,7 @@ import (
 	"k8s.io/apimachinery/pkg/types"
 	ctrl "sigs.k8s.io/controller-runtime"
 
+	"github.com/deckhouse/sds-common-lib/conditions"
 	v1alpha1 "github.com/deckhouse/sds-elastic/api/v1alpha1"
 )
 
@@ -45,8 +46,8 @@ var _ = Describe("ElasticStorageClass FSM and Reconcile", func() {
 		// server, and a phase derived from one is Pending.
 		It("returns Error when a stage has Error reason", func() {
 			conds := []metav1.Condition{
-				{Type: v1alpha1.ESCConditionPoolReady, Status: metav1.ConditionFalse, Reason: "Error"},
-				{Type: v1alpha1.ESCConditionCsiStorageClassReady, Status: metav1.ConditionFalse, Reason: "WaitingForPrev"},
+				{Type: v1alpha1.ESCConditionPoolReady, Status: metav1.ConditionFalse, Reason: conditions.ReasonReconcileFailed},
+				{Type: v1alpha1.ESCConditionCsiStorageClassReady, Status: metav1.ConditionFalse, Reason: conditions.ReasonWaitingForDependency},
 			}
 			Expect(deriveESCPhase(conds)).To(Equal(v1alpha1.PhaseError))
 		})
@@ -94,7 +95,7 @@ var _ = Describe("ElasticStorageClass FSM and Reconcile", func() {
 		It("gates CsiStorageClassReady on pool error", func() {
 			Expect(r.advanceESC(status, v1alpha1.ESCConditionPoolReady, false, "", errors.New("fail"))).To(BeFalse())
 			Expect(findCondition(status.conditions, v1alpha1.ESCConditionCsiStorageClassReady).Reason).
-				To(Equal("WaitingForPrev"))
+				To(Equal(conditions.ReasonWaitingForDependency))
 		})
 	})
 
@@ -111,9 +112,9 @@ var _ = Describe("ElasticStorageClass FSM and Reconcile", func() {
 			latest := &v1alpha1.ElasticStorageClass{}
 			Expect(cl.Get(ctx, types.NamespacedName{Name: escName}, latest)).To(Succeed())
 			Expect(findCondition(latest.Status.Conditions, v1alpha1.ESCConditionPoolReady).Reason).
-				To(Equal("InProgress"))
+				To(Equal(conditions.ReasonPending))
 			Expect(findCondition(latest.Status.Conditions, v1alpha1.ESCConditionCsiStorageClassReady).Reason).
-				To(Equal("WaitingForPrev"))
+				To(Equal(conditions.ReasonWaitingForDependency))
 		})
 
 		It("reaches Ready when pool and csi-ceph SC are Created", func() {

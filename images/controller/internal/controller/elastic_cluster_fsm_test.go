@@ -23,6 +23,7 @@ import (
 	. "github.com/onsi/gomega"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 
+	"github.com/deckhouse/sds-common-lib/conditions"
 	v1alpha1 "github.com/deckhouse/sds-elastic/api/v1alpha1"
 )
 
@@ -44,20 +45,20 @@ var _ = Describe("ElasticCluster FSM scaffolding", func() {
 			c := findCondition(status.conditions, v1alpha1.ECConditionStorageReady)
 			Expect(c).NotTo(BeNil())
 			Expect(c.Status).To(Equal(metav1.ConditionTrue))
-			Expect(c.Reason).To(Equal("Ready"))
+			Expect(c.Reason).To(Equal(conditions.ReasonReconciled))
 		})
 
 		It("gates downstream on error", func() {
 			Expect(r.advance(status, v1alpha1.ECConditionStorageReady, false, "", "", errors.New("boom"))).To(BeFalse())
-			Expect(findCondition(status.conditions, v1alpha1.ECConditionStorageReady).Reason).To(Equal("Error"))
-			Expect(findCondition(status.conditions, v1alpha1.ECConditionCephClusterReady).Reason).To(Equal("WaitingForPrev"))
+			Expect(findCondition(status.conditions, v1alpha1.ECConditionStorageReady).Reason).To(Equal(conditions.ReasonReconcileFailed))
+			Expect(findCondition(status.conditions, v1alpha1.ECConditionCephClusterReady).Reason).To(Equal(conditions.ReasonWaitingForDependency))
 			Expect(findCondition(status.conditions, v1alpha1.ECConditionReady).Status).To(Equal(metav1.ConditionFalse))
 		})
 
 		It("gates downstream on in-progress with default reason", func() {
 			Expect(r.advance(status, v1alpha1.ECConditionCephClusterReady, false, "", "waiting", nil)).To(BeFalse())
-			Expect(findCondition(status.conditions, v1alpha1.ECConditionCephClusterReady).Reason).To(Equal("InProgress"))
-			Expect(findCondition(status.conditions, v1alpha1.ECConditionCredentialsReady).Reason).To(Equal("WaitingForPrev"))
+			Expect(findCondition(status.conditions, v1alpha1.ECConditionCephClusterReady).Reason).To(Equal(conditions.ReasonPending))
+			Expect(findCondition(status.conditions, v1alpha1.ECConditionCredentialsReady).Reason).To(Equal(conditions.ReasonWaitingForDependency))
 		})
 
 		It("preserves a caller-supplied reason on in-progress", func() {
@@ -105,8 +106,8 @@ var _ = Describe("ElasticCluster FSM scaffolding", func() {
 
 	Describe("isAggregateReady", func() {
 		It("reads the last Ready condition", func() {
-			status.setCondition(v1alpha1.ECConditionReady, metav1.ConditionFalse, "WaitingForPrev", "")
-			status.setCondition(v1alpha1.ECConditionReady, metav1.ConditionTrue, "Ready", "")
+			status.setCondition(v1alpha1.ECConditionReady, metav1.ConditionFalse, conditions.ReasonWaitingForDependency, "")
+			status.setCondition(v1alpha1.ECConditionReady, metav1.ConditionTrue, conditions.ReasonReconciled, "")
 			Expect(isAggregateReady(status)).To(BeTrue())
 		})
 	})
