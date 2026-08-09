@@ -26,6 +26,7 @@ import (
 	"k8s.io/apimachinery/pkg/types"
 	ctrl "sigs.k8s.io/controller-runtime"
 
+	"github.com/deckhouse/sds-common-lib/conditions"
 	v1alpha1 "github.com/deckhouse/sds-elastic/api/v1alpha1"
 	"github.com/deckhouse/sds-elastic/images/controller/internal/external"
 )
@@ -49,7 +50,7 @@ var _ = Describe("ElasticClusterReconciler.Reconcile", func() {
 			Expect(findCondition(latest.Status.Conditions, v1alpha1.ECConditionStorageReady).Status).
 				To(Equal(metav1.ConditionFalse))
 			Expect(findCondition(latest.Status.Conditions, v1alpha1.ECConditionCephClusterReady).Reason).
-				To(Equal("WaitingForPrev"))
+				To(Equal(conditions.ReasonWaitingForDependency))
 			Expect(findCondition(latest.Status.Conditions, v1alpha1.ECConditionReady).Status).
 				To(Equal(metav1.ConditionFalse))
 		})

@@ -264,7 +264,8 @@ func (r *ElasticStorageClassReconciler) reconcileNormal(ctx context.Context, esc
 		return r.finishESCReconcile(ctx, esc, status, err)
 	}
 
-	status.setCondition(v1alpha1.ESCConditionReady, metav1.ConditionTrue, "Ready", "All stages reconciled")
+	status.setCondition(v1alpha1.ESCConditionReady, metav1.ConditionTrue, conditions.ReasonReconciled,
+		"All stages reconciled")
 	return r.finishESCReconcile(ctx, esc, status, nil)
 }
 
@@ -276,7 +277,7 @@ func (r *ElasticStorageClassReconciler) advanceESC(status *escStatusBuilder, con
 }
 
 // gateAfterESC marks every stage strictly downstream of `afterStage` and
-// the aggregate Ready as False/WaitingForPrev.
+// the aggregate Ready as False/WaitingForDependency.
 func gateAfterESC(status *escStatusBuilder, afterStage string) {
 	escStages().Gate(&status.conditions, status.source.Generation, afterStage)
 }

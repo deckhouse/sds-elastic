@@ -53,11 +53,11 @@ import (
 // (done, message, error). The reconciler funnels every stage outcome
 // through advance(), which:
 //
-//   - on err  → condition False/Error  + gates downstream + aggregate Ready=False/WaitingForPrev
-//   - on !done → condition False/InProgress + gates downstream + aggregate Ready=False/WaitingForPrev
-//   - on done  → condition True/Ready  and the FSM is allowed to progress
+//   - on err   → False/ReconcileFailed + gates downstream + aggregate Ready=False/WaitingForDependency
+//   - on !done → False/Pending         + gates downstream + aggregate Ready=False/WaitingForDependency
+//   - on done  → True/Reconciled       and the FSM is allowed to progress
 //
-// Both Error and InProgress paths share the same gating so the published
+// Both the failed and the pending paths share the same gating so the published
 // status never carries a stale "Ready=True" on a downstream stage when an
 // upstream stage is unhealthy. The aggregate Ready=True is set only after
 // every stage passes.
@@ -281,7 +281,7 @@ func (r *ElasticClusterReconciler) reconcileNormal(ctx context.Context, ec *v1al
 	// (CephCluster.status.phase=Progressing for the entire mon → mgr →
 	// osd → mds rollout window), so r.advance(...) below would otherwise
 	// trip gateAfter and the UpgradeInProgress condition would flap to
-	// False/WaitingForPrev exactly while the rollout is happening. Doing
+	// False/WaitingForDependency exactly while the rollout is happening. Doing
 	// the publish here keeps the signal True for the duration of the
 	// rollout, regardless of the FSM gate.
 	if upgradeProbe != nil {
@@ -312,20 +312,21 @@ func (r *ElasticClusterReconciler) reconcileNormal(ctx context.Context, ec *v1al
 	}
 	setUpgradeInProgress(status, inProgress, msg)
 
-	status.setCondition(v1alpha1.ECConditionReady, metav1.ConditionTrue, "Ready", "All stages reconciled")
+	status.setCondition(v1alpha1.ECConditionReady, metav1.ConditionTrue, conditions.ReasonReconciled,
+		"All stages reconciled")
 	return r.finishReconcile(ctx, ec, status, nil)
 }
 
 // advance records the outcome of a stage on the status builder and returns
 // whether the FSM is allowed to progress to the next stage.
 //
-//   - err != nil  → condition False/Error, downstream gated, return false.
-//   - !done       → condition False/<reason or InProgress>, downstream gated,
+//   - err != nil  → condition False/ReconcileFailed, downstream gated, return false.
+//   - !done       → condition False/<reason or Pending>, downstream gated,
 //     return false. `reason` lets a stage publish a richer machine-readable
 //     cause (e.g. "WaitingForLVG", "WaitingForLLV") so a UI can dispatch on
 //     reason without parsing the human-readable message. Empty `reason`
-//     falls back to the generic "InProgress".
-//   - done        → condition True/Ready, return true.
+//     falls back to the generic Pending.
+//   - done        → condition True/Reconciled, return true.
 //
 // The aggregate Ready condition is also pushed to False on every non-pass
 // outcome so the printer column never lies about cluster readiness while
@@ -335,8 +336,8 @@ func (r *ElasticClusterReconciler) advance(status *ecStatusBuilder, condType str
 }
 
 // gateAfter marks every stage condition strictly downstream of `gateAfter`
-// as False/WaitingForPrev, plus the aggregate Ready. Idempotent; safe to
-// call from both the Error and InProgress paths.
+// as False/WaitingForDependency, plus the aggregate Ready. Idempotent; safe to
+// call from both the failed and the pending paths.
 //
 // UpgradeInProgress is intentionally NOT touched here. It is a signal,
 // not a stage, and is published by two authoritative sites:
@@ -349,9 +350,9 @@ func (r *ElasticClusterReconciler) advance(status *ecStatusBuilder, condType str
 //   - ensureUpgrade — runs at the UpgradeReady stage and gates that
 //     condition; reuses the same probe.
 //
-// Forcing WaitingForPrev here used to clobber the True signal exactly
-// while a rolling upgrade was rolling, surfacing as `UPGRADING=False
-// REASON=WaitingForPrev` immediately after the upgrade started. Letting
+// Forcing the gate's blocked reason here used to clobber the True signal
+// exactly while a rolling upgrade was rolling, surfacing as
+// `UPGRADING=False` immediately after the upgrade started. Letting
 // the explicit publishers own the condition keeps the signal accurate
 // for the entire rollout. When upstream stages fail before the
 // CephCluster has been fetched (e.g. StorageReady error), the previous
@@ -536,10 +537,10 @@ func (r *ElasticClusterReconciler) updateECStatus(ctx context.Context, ec *v1alp
 // False with an Error reason directly. Aggregate Ready and the
 // UpgradeInProgress signal are intentionally excluded.
 //
-//   - any stage without a condition, or Unknown        → Pending
-//   - any stage False with Reason=="Error"             → Error
-//   - any stage False (other reasons, e.g. InProgress) → InProgress
-//   - all stages True                                  → Ready
+//   - any stage without a condition, or Unknown           → Pending
+//   - any stage False with Reason=="ReconcileFailed"      → Error
+//   - any stage False (other reasons, e.g. Pending)       → InProgress
+//   - all stages True                                     → Ready
 func deriveECPhase(conditions []metav1.Condition) string {
 	return ecStages().Phase(conditions)
 }

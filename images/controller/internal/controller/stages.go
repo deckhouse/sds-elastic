@@ -21,49 +21,39 @@ import (
 	"github.com/deckhouse/sds-elastic/api/v1alpha1"
 )
 
-// Reasons the stage FSM publishes. They are not the shared library's own —
-// dashboards and alerts are keyed on these strings — so they are stated here and
-// handed to it rather than adopted from it.
-const (
-	reasonReady          = "Ready"
-	reasonInProgress     = "InProgress"
-	reasonError          = "Error"
-	reasonWaitingForPrev = "WaitingForPrev"
-)
-
-// stageVocabulary is what both reconcilers report their stages with.
+// ecStages and escStages describe each reconciler's stage order and its own
+// aggregate condition type. Everything else is left at the shared library's
+// defaults, so both reconcilers report stages with the reasons every other
+// storage module reports them with: Reconciled, ReconcileFailed, Pending and
+// WaitingForDependency.
 //
-// SkipMissing is deliberately left off, so a stage carrying no condition
-// aggregates to Unknown and the phase reads Pending. A stage that has never been
-// evaluated is not evidence that the resource is healthy, and answering Ready on
-// a set of verdicts that is not complete is how a resource gets called usable on
-// nobody's word.
+// This module used to publish Ready, Error, InProgress and WaitingForPrev
+// instead. Those were kept when the FSM moved onto the shared type, on the
+// grounds that something outside the module might be keyed on them; nothing is
+// — the module ships no alerts or dashboards, and the strings appear in no
+// chart, CRD or document. What they did do is make an ElasticCluster and, say,
+// an LVMVolumeGroup describe the same situation in two vocabularies.
 //
-// It costs nothing today: every path that flushes the status has written the
-// whole stage set, because advance gates the remaining stages whenever one does
-// not pass. The reading only differs after a stage is added to stageOrder — the
-// resources already in the cluster then report Pending until the controller has
-// reconciled them once, which is the honest answer while the new stage has no
-// verdict.
-var stageVocabulary = conditions.Stages{
-	Passed:     reasonReady,
-	Failed:     reasonError,
-	InProgress: reasonInProgress,
-	Blocked:    reasonWaitingForPrev,
-}
+// Reasons a stage publishes for itself are not affected: a stage that reports
+// WaitingForLVMVolumeGroup names something this module knows about and no
+// shared vocabulary can say, so it stays.
+//
+// SkipMissing is deliberately left at false, so a stage carrying no condition
+// aggregates to Unknown and the phase reads Pending. A stage that has never
+// been evaluated is not evidence that the resource is healthy, and answering
+// Ready on a set of verdicts that is not complete is how a resource gets called
+// usable on nobody's word.
 
-// ecStages and escStages pair that vocabulary with each reconciler's stage
-// order and its own aggregate condition type.
 func ecStages() conditions.Stages {
-	s := stageVocabulary
-	s.Types = stageOrder
-	s.ReadyType = v1alpha1.ECConditionReady
-	return s
+	return conditions.Stages{
+		Types:     stageOrder,
+		ReadyType: v1alpha1.ECConditionReady,
+	}
 }
 
 func escStages() conditions.Stages {
-	s := stageVocabulary
-	s.Types = escStageOrder
-	s.ReadyType = v1alpha1.ESCConditionReady
-	return s
+	return conditions.Stages{
+		Types:     escStageOrder,
+		ReadyType: v1alpha1.ESCConditionReady,
+	}
 }

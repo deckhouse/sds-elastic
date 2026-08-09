@@ -23,6 +23,7 @@ import (
 	. "github.com/onsi/gomega"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 
+	"github.com/deckhouse/sds-common-lib/conditions"
 	"github.com/deckhouse/sds-elastic/api/v1alpha1"
 )
 
@@ -69,7 +70,7 @@ var _ = Describe("ElasticCluster condition contract", func() {
 				"a stage that succeeded must let the FSM proceed")
 		}
 		setUpgradeInProgress(status, false, "no upgrade in progress")
-		status.setCondition(v1alpha1.ECConditionReady, metav1.ConditionTrue, "Ready", "all stages reconciled")
+		status.setCondition(v1alpha1.ECConditionReady, metav1.ConditionTrue, conditions.ReasonReconciled, "all stages reconciled")
 
 		Expect(conditionTypesOf(status.conditions)).To(ConsistOf(v1alpha1.ECConditionTypes))
 	})
@@ -123,7 +124,7 @@ var _ = Describe("ElasticStorageClass condition contract", func() {
 		for _, stage := range escStageOrder {
 			Expect(r.advanceESC(status, stage, true, "done", nil)).To(BeTrue())
 		}
-		status.setCondition(v1alpha1.ESCConditionReady, metav1.ConditionTrue, "Ready", "all stages reconciled")
+		status.setCondition(v1alpha1.ESCConditionReady, metav1.ConditionTrue, conditions.ReasonReconciled, "all stages reconciled")
 
 		Expect(conditionTypesOf(status.conditions)).To(ConsistOf(v1alpha1.ESCConditionTypes))
 	})
