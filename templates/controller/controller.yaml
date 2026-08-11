@@ -13,8 +13,8 @@
   again here triggers the env-variables-duplicates lint rule.
 */ -}}
 {{- $cephImages := dict }}
-{{- $_ := set $cephImages "v19.2.3" (include "helm_lib_module_image" (list . "cephV1923")) }}
-{{- $_ := set $cephImages "v20.2.2" (include "helm_lib_module_image" (list . "cephV2022")) }}
+{{- $_ := set $cephImages "v19.2.5" (include "helm_lib_module_image" (list . "cephV1925")) }}
+{{- $_ := set $cephImages "v20.2.3" (include "helm_lib_module_image" (list . "cephV2023")) }}
 {{- $config := dict
   "valuesKey" "sdsElastic"
   "onMasterNode" true

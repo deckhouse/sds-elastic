@@ -261,8 +261,8 @@ func overallVersions(cc *unstructured.Unstructured) map[string]int64 {
 // OSDs), not Rook's already-bumped target marker.
 //
 // "Oldest" is determined lexicographically over the full version
-// strings Rook publishes ("ceph version 19.2.3 (...)" sorts before
-// "ceph version 20.2.2 (...)"). Lexicographic ordering is correct as
+// strings Rook publishes ("ceph version 19.2.5 (...)" sorts before
+// "ceph version 20.2.3 (...)"). Lexicographic ordering is correct as
 // long as the major/minor segments stay zero-padded relative to each
 // other, which is true for every Ceph release in the supported range.
 //
@@ -283,7 +283,7 @@ func pickRunningVersion(overall map[string]int64, runningFromVersionField string
 
 // formatVersionsHistogram renders a versions.overall map into a stable,
 // human-readable summary for the UpgradeInProgress condition message.
-// Output example: `19.2.3 4 → 20.2.2 5`. Sorted by version asc so the
+// Output example: `19.2.5 4 → 20.2.3 5`. Sorted by version asc so the
 // oldest (lagging) version appears first.
 func formatVersionsHistogram(overall map[string]int64) string {
 	keys := make([]string, 0, len(overall))
@@ -331,7 +331,7 @@ func cephHealthOK(h string) bool {
 // when both refer to the same release.
 //
 // strings.Contains alone is not safe for a pure substring match: it
-// would falsely accept "19.2.30" when desired is "v19.2.3". The check
+// would falsely accept "19.2.50" when desired is "v19.2.5". The check
 // below requires that the desired version is followed in the running
 // string either by end-of-string or by a non-digit character (".",
 // "-", " ", "(", etc.), which Rook always emits.

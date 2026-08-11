@@ -221,9 +221,9 @@ func parseCephCapacity(cc *unstructured.Unstructured) *v1alpha1.CephCapacityStat
 //	status:
 //	  ceph:
 //	    versions:
-//	      mon: { "ceph version 19.2.3 ...": 3 }
-//	      mgr: { "ceph version 19.2.3 ...": 1 }
-//	      osd: { "ceph version 19.2.3 ...": 6, "ceph version 18.2.0 ...": 3 }
+//	      mon: { "ceph version 19.2.5 ...": 3 }
+//	      mgr: { "ceph version 19.2.5 ...": 1 }
+//	      osd: { "ceph version 19.2.5 ...": 6, "ceph version 18.2.0 ...": 3 }
 //	      overall: { ... }   # ignored — we expose per-kind only
 func parseCephDaemonsByVersion(cephObj map[string]interface{}, kind string) (int32, []v1alpha1.DaemonVersionCount) {
 	versions, ok := cephObj["versions"].(map[string]interface{})

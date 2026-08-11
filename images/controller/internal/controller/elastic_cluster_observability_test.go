@@ -32,7 +32,7 @@ import (
 )
 
 const (
-	cephVerSquid    = "ceph version 19.2.3 (1ac1f3d) squid (stable)"
+	cephVerSquid    = "ceph version 19.2.5 (1ac1f3d) squid (stable)"
 	cephVerReef     = "ceph version 18.2.0 (5dd24139) reef (stable)"
 	cephVerQuincyA  = "ceph version 17.2.7 (b12291d) quincy (stable)"
 	cephVerQuincyAA = "ceph version 17.2.6 (d7ff0d10) quincy (stable)"
@@ -46,7 +46,7 @@ var _ = Describe("populateObservability", func() {
 
 	Context("CephCluster carries a fully-populated status.ceph", func() {
 		It("lifts health, Quantity capacity, check details, and per-daemon byVersion onto the EC.status builder", func() {
-			cc := newCephClusterUnstructured(ec, "Ready", "v19.2.3", "registry.example.com/ceph:v19.2.3")
+			cc := newCephClusterUnstructured(ec, "Ready", "v19.2.5", "registry.example.com/ceph:v19.2.5")
 			withCephClusterCephStatus(cc,
 				"HEALTH_WARN",
 				"1 mon down",
@@ -130,7 +130,7 @@ var _ = Describe("populateObservability", func() {
 
 	Context("partially observed CephCluster (no capacity, no versions yet)", func() {
 		It("publishes health-only without forcing a synthetic zero capacity or empty version blocks", func() {
-			cc := newCephClusterUnstructured(ec, "Progressing", "", "registry.example.com/ceph:v19.2.3")
+			cc := newCephClusterUnstructured(ec, "Progressing", "", "registry.example.com/ceph:v19.2.5")
 			withCephClusterCephStatus(cc, "HEALTH_OK", "", "", 0, 0, 0, "", nil, nil)
 			cl := newFakeClient(ec, cc)
 			r := newElasticClusterReconciler(cl)
@@ -151,7 +151,7 @@ var _ = Describe("populateObservability", func() {
 
 	Context("CephCluster.status.ceph.versions block missing for some daemon kinds", func() {
 		It("publishes only the kinds Ceph actually reported", func() {
-			cc := newCephClusterUnstructured(ec, "Ready", "v19.2.3", "registry.example.com/ceph:v19.2.3")
+			cc := newCephClusterUnstructured(ec, "Ready", "v19.2.5", "registry.example.com/ceph:v19.2.5")
 			withCephClusterCephStatus(cc,
 				"HEALTH_OK", "", "2026-05-25T10:00:00Z",
 				0, 0, 0, "", nil,
@@ -294,7 +294,7 @@ var _ = Describe("ElasticClusterReconciler.Reconcile observability surface", fun
 		ctx := context.Background()
 		ec := newTestElasticCluster()
 
-		cc := newCephClusterUnstructured(ec, "Progressing", "", "registry.example.com/ceph:v19.2.3")
+		cc := newCephClusterUnstructured(ec, "Progressing", "", "registry.example.com/ceph:v19.2.5")
 		withCephClusterCephStatus(cc,
 			"HEALTH_OK", "", "2026-05-25T10:00:00Z",
 			900*1024*1024*1024, 100*1024*1024*1024, 800*1024*1024*1024,

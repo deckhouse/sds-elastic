@@ -344,7 +344,7 @@ type DaemonStatus struct {
 // DaemonVersionCount is a single (version, count) entry of the
 // CephCluster.status.ceph.versions.<kind> histogram. The Version is
 // the full Ceph version string Rook publishes verbatim, for example
-// "ceph version 19.2.3 (...) squid (stable)".
+// "ceph version 19.2.5 (...) squid (stable)".
 //
 // +k8s:deepcopy-gen=true
 type DaemonVersionCount struct {
@@ -530,15 +530,15 @@ const ElasticClusterKind = "ElasticCluster"
 // Supported Ceph container image tags built by the sds-elastic module
 // (images/ceph/werf.inc.yaml, one variant per tag).
 const (
-	CephVersionV1923 = "v19.2.3"
-	CephVersionV2022 = "v20.2.2"
+	CephVersionV1925 = "v19.2.5"
+	CephVersionV2023 = "v20.2.3"
 )
 
 // DefaultCephVersion is used when spec.cephVersion is omitted.
-const DefaultCephVersion = CephVersionV1923
+const DefaultCephVersion = CephVersionV1925
 
 // SupportedCephVersions lists every allowed spec.cephVersion value.
-var SupportedCephVersions = []string{CephVersionV1923, CephVersionV2022}
+var SupportedCephVersions = []string{CephVersionV1925, CephVersionV2023}
 
 // Status.phase values shared across ElasticCluster and ElasticStorageClass.
 const (

@@ -212,7 +212,7 @@ spec:
                           version:
                             description: |
                               Строка версии Ceph, которую публикует Rook (как есть, например
-                              `ceph version 19.2.3 (...) squid (stable)`).
+                              `ceph version 19.2.5 (...) squid (stable)`).
                           count:
                             description: Сколько OSD-демонов сообщили эту версию.
                 mons:
