@@ -5,16 +5,16 @@
   built in .werf/images.yaml from oss.yaml. For each entry produces one werf
   image named "<ImageName>-<condition value, dots->dashes>", e.g.:
 
-    ceph-v19-3-0
-    ceph-v20-2-2
+    ceph-v19-2-5
+    ceph-v20-2-3
 
   The image is assembled from the Deckhouse container-base package catalog with
   `pm` instead of building Ceph from source: the `ceph@<ver>` metapackage pulls
   the mon/osd/mds/mgr/rgw daemons, the client tools (rbd, rados, ceph-fuse,
   mount.ceph, ...) and librbd/librados/libcephfs, and `ceph-volume@<ver>` adds
   the OSD provisioning tool Rook shells out to. Only the versions published in
-  the catalog can be built; oss.yaml pins the stable releases 19.2.3 (squid) and
-  20.2.2 (tentacle). Use a stable ceph_release: a dev build (e.g. 19.3.0) does
+  the catalog can be built; oss.yaml pins the stable releases 19.2.5 (squid) and
+  20.2.3 (tentacle). Use a stable ceph_release: a dev build (e.g. 19.3.0) does
   not complete RADOS ops for a newer stable client, so Rook's `rbd pool init`
   hangs.
 
@@ -31,6 +31,11 @@
 image: {{ $.ModuleNamePrefix }}{{ $.ImageName }}-{{ $tagDash }}
 from: {{ index $.Images "builder/distroless" }}
 
+# No ca-certificates in the pm list below: base-images v2.0.0 dropped it from
+# the pm package index because builder/distroless already ships the bundle
+# (/etc/ssl/cert.pem and /etc/ssl/certs/ca-certificates.crt, byte-identical to
+# the standalone package). Re-adding it fails the build with "no suitable
+# packet found for ca-certificates".
 shell:
   setup:
     - |
@@ -50,7 +55,6 @@ shell:
         coreutils \
         bash \
         jq \
-        ca-certificates \
         libquadmath \
         python-wheel
     # Without the bash package, container-base's /bin/bash is a busybox symlink
@@ -121,7 +125,7 @@ shell:
     # dead code; /usr/bin/ceph-volume is a plain `from ceph_volume.main import
     # Volume` script, and _load_library_extensions() — the one entry-point
     # consumer — resolves through importlib.metadata. Checked both catalog
-    # versions (19.2.3 and 20.2.2) and confirmed by running ceph-volume with an
+    # versions (19.2.5 and 20.2.3) and confirmed by running ceph-volume with an
     # otherwise empty site-packages. Installing it is not free: every setuptools
     # wheel the python-wheel catalog ships reports CVEs against the release
     # (CVE-2024-6345, CVE-2025-47273 on 69.0.3; CVE-2026-59890 on 80.8.0) and,
@@ -159,7 +163,7 @@ shell:
       # reads sqlite3.version.
       python3.12 -c "p='/usr/lib/python3.12/sqlite3/dbapi2.py'; s=open(p).read(); o='from _sqlite3 import _deprecated_version'; n='try:\n    from _sqlite3 import _deprecated_version\nexcept ImportError:\n    _deprecated_version = \"2.6.0\"'; open(p,'w').write(s.replace(o,n,1))"
       python3.12 -c 'import sqlite3; print("sqlite3 OK:", sqlite3.sqlite_version)'
-    # Stable squid 19.2.3 still does `from distutils.util import strtobool` in two
+    # Stable squid 19.2.5 still does `from distutils.util import strtobool` in two
     # mgr modules, but PEP 632 dropped distutils from the python3.12 stdlib; the
     # only thing that puts it back is setuptools' _distutils_hack + the
     # distutils-precedence.pth, which this image deliberately does not ship (see
@@ -171,7 +175,7 @@ shell:
     # leaves "storage filesystem not ready". Inline the six-line strtobool instead
     # of dragging setuptools back in just for it; the shim is byte-compatible with
     # distutils' (same accepted spellings, same ValueError). Tolerant/idempotent:
-    # tentacle 20.2.2 already dropped both imports, so it is a no-op there.
+    # tentacle 20.2.3 already dropped both imports, so it is a no-op there.
     - |
       for p in /usr/share/ceph/mgr/volumes/fs/operations/pin_util.py \
                /usr/share/ceph/mgr/dashboard/tools.py; do
@@ -179,7 +183,7 @@ shell:
         python3.12 -c "import ast; p='$p'; s=open(p).read(); ast.parse(s); assert 'distutils' not in s, p + ' still imports distutils'"
       done
       echo 'mgr modules: no distutils imports left'
-    # ceph-volume in stable squid 19.2.3 is not Python 3.12 compatible: its
+    # ceph-volume in stable squid 19.2.5 is not Python 3.12 compatible: its
     # main.py get_entry_points() does `entry_points().get(group, [])`, but under
     # python3.12 importlib.metadata.entry_points() returns a non-dict EntryPoints
     # (no .get()), so every osd-prepare job crashes with
@@ -192,8 +196,8 @@ shell:
       python3.12 -c "s=open('/usr/lib/python3.12/site-packages/ceph_volume/main.py').read(); import ast; ast.parse(s); assert 'entry_points().get(' not in s, 'ceph_volume main.py still uses py<3.10 entry_points().get()'; print('ceph_volume get_entry_points OK for py3.12')"
     # ceph-mgr loads each python module in its own CPython subinterpreter, but
     # bcrypt is a Rust/PyO3 extension that refuses to load there ("PyO3 modules
-    # do not yet support subinterpreters"). Stable squid 19.2.3's mgr_util.py
-    # imports bcrypt at top level and nearly every mgr module imports mgr_util,
+    # do not yet support subinterpreters"). Older squid mgr_util.py builds
+    # import bcrypt at top level and nearly every mgr module imports mgr_util,
     # so prometheus/volumes/pg_autoscaler/... fail their dependency check and are
     # disabled: with prometheus down Rook cannot read
     # mgr/prometheus/rbd_stats_pools (RBD CephBlockPool stalls), and with volumes
@@ -208,9 +212,9 @@ shell:
     # import pattern is anchored to column 0 ('\nimport bcrypt\n') so a mgr that
     # already ships the guard is left alone: matching the bare substring would
     # hit the indented 'import bcrypt' inside the existing try: and splice a
-    # second, unindented try: block into it (IndentationError). ceph-mgr 19.2.3
-    # from base-images v1.3.20 on ships the guard; tentacle 20.2.2 dropped the
-    # mgr_util bcrypt import entirely, so both are no-ops today.
+    # second, unindented try: block into it (IndentationError). ceph-mgr 19.2.5
+    # ships the guard; tentacle 20.2.3 dropped the mgr_util bcrypt import
+    # entirely, so both are no-ops today.
     - |
       python3.12 -c "p='/usr/share/ceph/mgr/mgr_util.py'; s=open(p).read(); o1='\nimport bcrypt\n'; n1='\ntry:\n    import bcrypt\nexcept Exception:\n    bcrypt = None\n'; o2='    if not password:\n        return None\n    if not salt_password:\n'; n2='    if not password:\n        return None\n    global bcrypt\n    if bcrypt is None:\n        import bcrypt\n    if not salt_password:\n'; s=(s.replace(o1,n1,1) if o1 in s else s); s=(s.replace(o2,n2,1) if o2 in s else s); open(p,'w').write(s)"
       python3.12 -c "import ast; s=open('/usr/share/ceph/mgr/mgr_util.py').read(); ast.parse(s); assert 'import bcrypt' not in s.splitlines(), 'mgr_util.py still has an unguarded top-level import bcrypt'; print('mgr_util.py: no unguarded top-level import bcrypt')"
@@ -279,16 +283,19 @@ shell:
       # Stock ceph packages ship /var/lib/ceph/osd; the pm ceph package does not.
       mkdir -p /var/lib/ceph/osd /var/log/ceph /run/ceph
       chown 167:167 /var/lib/ceph /var/lib/ceph/osd /var/log/ceph /run/ceph
-    # container-base's ceph packages ship UNSTAMPED version constants
+    # container-base's ceph packages used to ship UNSTAMPED version constants
     # (CEPH_GIT_NICE_VER="Development", CEPH_GIT_VER="no_version"), so both
     # `ceph --version` (python CLI) and the C++ daemons (via libceph-common)
-    # report `ceph version Development (no_version) <name> (dev)`. Rook cannot
+    # reported `ceph version Development (no_version) <name> (dev)`. Rook cannot
     # parse that ("failed to extract ceph version: failed to parse version
     # from ...") and the CephCluster reconcile fails its version check. Stamp the
     # real X.Y.Z (from oss.yaml) into the python CLI and into libceph-common's
     # null-terminated version token (length-preserving, so ELF offsets stay
-    # intact). Idempotent: once container-base stamps the version itself the
-    # token is absent and this becomes a no-op (then this block can be removed).
+    # intact). Idempotent, and a no-op on base-images v2.0.0: both 19.2.5 and
+    # 20.2.3 carry the real version in /usr/bin/ceph and in libceph-common.so.2,
+    # so the sed rewrites the constant with the identical value and the ELF token
+    # is already absent. Kept as a guard against a catalog regression; drop it
+    # once stamped packages are the settled contract.
     - |
       CEPH_VER="{{ $verNoPrefix }}"
       if [ -f /usr/bin/ceph ]; then

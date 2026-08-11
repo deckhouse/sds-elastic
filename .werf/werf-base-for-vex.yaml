@@ -2,6 +2,11 @@
 image: base/vex
 from: {{ index $.Images "builder/distroless" }}
 final: false
+# No ca-certificates here: base-images v2.0.0 dropped it from the pm package
+# index because builder/distroless already ships the bundle (/etc/ssl/cert.pem
+# and /etc/ssl/certs/ca-certificates.crt, byte-identical to the standalone
+# package). Re-adding it to `pm install` fails the build with "no suitable
+# packet found for ca-certificates".
 shell:
   install:
-    - pm install coreutils ca-certificates cosign=2.6.3 jq curl bash
+    - pm install coreutils cosign=2.6.3 jq curl bash

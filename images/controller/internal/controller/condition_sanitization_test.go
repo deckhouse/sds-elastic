@@ -33,7 +33,7 @@ import (
 // Rook/csi-ceph resource kinds and the rook-ceph-mon Secret/ConfigMap are
 // an internal implementation detail kept to the controller logs only.
 // Matched case-insensitively against the lowercased message: Rook emits
-// the full version banner ("ceph version 19.2.3 (...) squid") in
+// the full version banner ("ceph version 19.2.5 (...) squid") in
 // lowercase, so a case-sensitive "Ceph" check would miss it.
 var vendorEntitySubstrings = []string{"ceph", "rook", "rook-ceph-mon", "csi-ceph"}
 
@@ -49,28 +49,28 @@ var _ = Describe("condition message sanitization (no vendor entity leak)", func(
 	ctx := context.Background()
 
 	Describe("EC upgrade probe messages", func() {
-		desiredImage := "registry.example.com/ceph:v19.2.3"
+		desiredImage := "registry.example.com/ceph:v19.2.5"
 		desiredVersion := v1alpha1.DefaultCephVersion
-		otherImage := "registry.example.com/ceph:v20.2.2"
+		otherImage := "registry.example.com/ceph:v20.2.3"
 
 		It("single converged version", func() {
-			cc := newCephClusterUnstructured(newTestElasticCluster(), "Ready", "v19.2.3", desiredImage)
+			cc := newCephClusterUnstructured(newTestElasticCluster(), "Ready", "v19.2.5", desiredImage)
 			withCephClusterCephStatus(cc, "HEALTH_OK", "", "", 0, 0, 0, "", nil, map[string]map[string]int32{
-				"overall": {cephVerString1930: 9},
+				"overall": {cephVerStringSquid: 9},
 			})
 			expectNoVendorLeak(probeCephUpgradeState(cc, desiredImage, desiredVersion).Msg)
 		})
 
 		It("mixed versions mid-roll", func() {
-			cc := newCephClusterUnstructured(newTestElasticCluster(), "Progressing", "20.2.2-0", otherImage)
+			cc := newCephClusterUnstructured(newTestElasticCluster(), "Progressing", "20.2.3-0", otherImage)
 			withCephClusterCephStatus(cc, "HEALTH_OK", "", "", 0, 0, 0, "", nil, map[string]map[string]int32{
-				"overall": {cephVerString1930: 4, cephVerString2022: 5},
+				"overall": {cephVerStringSquid: 4, cephVerStringTentacle: 5},
 			})
-			expectNoVendorLeak(probeCephUpgradeState(cc, otherImage, "v20.2.2").Msg)
+			expectNoVendorLeak(probeCephUpgradeState(cc, otherImage, "v20.2.3").Msg)
 		})
 
 		It("queued bump on healthy cluster", func() {
-			cc := newCephClusterUnstructured(newTestElasticCluster(), "Ready", "v19.2.3", otherImage)
+			cc := newCephClusterUnstructured(newTestElasticCluster(), "Ready", "v19.2.5", otherImage)
 			withCephClusterCephStatus(cc, "HEALTH_OK", "", "", 0, 0, 0, "", nil, nil)
 			expectNoVendorLeak(probeCephUpgradeState(cc, desiredImage, desiredVersion).Msg)
 		})

@@ -30,53 +30,53 @@ const (
 	// Full ceph version strings exactly as Rook publishes them under
 	// status.ceph.versions.<kind>. Keys must include the major.minor.patch
 	// segment that versionMatches looks for.
-	cephVerString1930 = "ceph version 19.2.3 (c92aebb279828e9c3c1f5d24613efca272649e62) squid (stable)"
-	cephVerString2022 = "ceph version 20.2.2 (6a49aff47758778a5f5951e731d437c317f72fb2) tentacle (stable)"
+	cephVerStringSquid    = "ceph version 19.2.5 (abc7aa7f2701e5d46878fd5e6bb7e2955f1a395a) squid (stable)"
+	cephVerStringTentacle = "ceph version 20.2.3 (06c2f9c35b67055a8a6fb99d1be236b3c4832ace) tentacle (stable)"
 )
 
 var _ = Describe("probeCephUpgradeState", func() {
-	desiredVersion := v1alpha1.DefaultCephVersion // "v19.2.3"
+	desiredVersion := v1alpha1.DefaultCephVersion // "v19.2.5"
 	desiredImage := newTestCfg().CephImages[v1alpha1.DefaultCephVersion]
-	otherImage := "registry.example.com/ceph:v20.2.2"
+	otherImage := "registry.example.com/ceph:v20.2.3"
 
 	It("returns Done when versions.overall has a single key matching desired", func() {
-		cc := newCephClusterUnstructured(newTestElasticCluster(), "Ready", "v19.2.3", desiredImage)
+		cc := newCephClusterUnstructured(newTestElasticCluster(), "Ready", "v19.2.5", desiredImage)
 		withCephClusterCephStatus(cc, "HEALTH_OK", "", "", 0, 0, 0, "", nil, map[string]map[string]int32{
-			"overall": {cephVerString1930: 9},
+			"overall": {cephVerStringSquid: 9},
 		})
 
 		probe := probeCephUpgradeState(cc, desiredImage, desiredVersion)
 
 		Expect(probe.Done).To(BeTrue())
 		Expect(probe.InProgress).To(BeFalse())
-		Expect(probe.Running).To(Equal(cephVerString1930))
+		Expect(probe.Running).To(Equal(cephVerStringSquid))
 		Expect(probe.Msg).To(ContainSubstring("running version"))
 	})
 
 	It("returns InProgress with mixed versions.overall (mid-roll)", func() {
 		// Faithful reproduction of the user-reported snapshot: image
-		// has been bumped to v20.2.2, mon/mgr already on the new
+		// has been bumped to v20.2.3, mon/mgr already on the new
 		// version, OSDs still on the old one — versions.overall is
 		// multi-key. Probe must say InProgress=True even though
 		// status.version.version Rook publishes is the new version.
-		cc := newCephClusterUnstructured(newTestElasticCluster(), "Progressing", "20.2.2-0", otherImage)
+		cc := newCephClusterUnstructured(newTestElasticCluster(), "Progressing", "20.2.3-0", otherImage)
 		withCephClusterCephStatus(cc, "HEALTH_OK", "", "", 0, 0, 0, "", nil, map[string]map[string]int32{
-			"mon":     {cephVerString2022: 3},
-			"mgr":     {cephVerString2022: 2},
-			"osd":     {cephVerString1930: 4},
-			"overall": {cephVerString1930: 4, cephVerString2022: 5},
+			"mon":     {cephVerStringTentacle: 3},
+			"mgr":     {cephVerStringTentacle: 2},
+			"osd":     {cephVerStringSquid: 4},
+			"overall": {cephVerStringSquid: 4, cephVerStringTentacle: 5},
 		})
 
-		probe := probeCephUpgradeState(cc, otherImage, "v20.2.2")
+		probe := probeCephUpgradeState(cc, otherImage, "v20.2.3")
 
 		Expect(probe.Done).To(BeFalse())
 		Expect(probe.InProgress).To(BeTrue())
 		// Lagging version surfaced on the printcolumn so callers
 		// see the still-rolling daemons' version, not Rook's marker.
-		Expect(probe.Running).To(Equal(cephVerString1930))
+		Expect(probe.Running).To(Equal(cephVerStringSquid))
 		Expect(probe.Msg).To(ContainSubstring("rolling update in progress"))
-		Expect(probe.Msg).To(ContainSubstring("19.2.3"))
-		Expect(probe.Msg).To(ContainSubstring("20.2.2"))
+		Expect(probe.Msg).To(ContainSubstring("19.2.5"))
+		Expect(probe.Msg).To(ContainSubstring("20.2.3"))
 	})
 
 	It("returns InProgress when versions.overall has a single key that does not match desired", func() {
@@ -84,21 +84,21 @@ var _ = Describe("probeCephUpgradeState", func() {
 		// bumped (currentImage == desiredImage), but the cluster has
 		// not yet started rolling, so versions.overall still carries
 		// only the old release.
-		cc := newCephClusterUnstructured(newTestElasticCluster(), "Ready", "20.2.2-0", otherImage)
+		cc := newCephClusterUnstructured(newTestElasticCluster(), "Ready", "20.2.3-0", otherImage)
 		withCephClusterCephStatus(cc, "HEALTH_OK", "", "", 0, 0, 0, "", nil, map[string]map[string]int32{
-			"overall": {cephVerString1930: 9},
+			"overall": {cephVerStringSquid: 9},
 		})
 
-		probe := probeCephUpgradeState(cc, otherImage, "v20.2.2")
+		probe := probeCephUpgradeState(cc, otherImage, "v20.2.3")
 
 		Expect(probe.Done).To(BeFalse())
 		Expect(probe.InProgress).To(BeTrue())
 		Expect(probe.Msg).To(ContainSubstring("running="))
-		Expect(probe.Msg).To(ContainSubstring("desired=v20.2.2"))
+		Expect(probe.Msg).To(ContainSubstring("desired=v20.2.3"))
 	})
 
 	It("returns InProgress when image bump is queued and cluster is healthy", func() {
-		cc := newCephClusterUnstructured(newTestElasticCluster(), "Ready", "v19.2.3", otherImage)
+		cc := newCephClusterUnstructured(newTestElasticCluster(), "Ready", "v19.2.5", otherImage)
 		withCephClusterCephStatus(cc, "HEALTH_OK", "", "", 0, 0, 0, "", nil, nil)
 
 		probe := probeCephUpgradeState(cc, desiredImage, desiredVersion)
@@ -109,7 +109,7 @@ var _ = Describe("probeCephUpgradeState", func() {
 	})
 
 	It("blocks the bump when image differs and cluster is HEALTH_ERR (pre-upgrade gate)", func() {
-		cc := newCephClusterUnstructured(newTestElasticCluster(), "Ready", "v19.2.3", otherImage)
+		cc := newCephClusterUnstructured(newTestElasticCluster(), "Ready", "v19.2.5", otherImage)
 		withCephClusterCephStatus(cc, "HEALTH_ERR", "", "", 0, 0, 0, "", nil, nil)
 
 		probe := probeCephUpgradeState(cc, desiredImage, desiredVersion)
@@ -122,13 +122,13 @@ var _ = Describe("probeCephUpgradeState", func() {
 	It("falls back to status.version.version when versions.overall is absent", func() {
 		// Bootstrap edge case: Rook has not yet populated
 		// status.ceph.versions, so we have to trust status.version.version.
-		cc := newCephClusterUnstructured(newTestElasticCluster(), "Ready", "v19.2.3", desiredImage)
+		cc := newCephClusterUnstructured(newTestElasticCluster(), "Ready", "v19.2.5", desiredImage)
 
 		probe := probeCephUpgradeState(cc, desiredImage, desiredVersion)
 
 		Expect(probe.Done).To(BeTrue())
 		Expect(probe.InProgress).To(BeFalse())
-		Expect(probe.Running).To(Equal("v19.2.3"))
+		Expect(probe.Running).To(Equal("v19.2.5"))
 	})
 
 	It("falls back to InProgress when versions.overall is absent and version field mismatches", func() {
@@ -175,9 +175,9 @@ var _ = Describe("ensureUpgrade", func() {
 
 	It("returns done when versions.overall converges on desired", func() {
 		cephImage := newTestCfg().CephImages[v1alpha1.DefaultCephVersion]
-		cc := newCephClusterUnstructured(ec, "Ready", "v19.2.3", cephImage)
+		cc := newCephClusterUnstructured(ec, "Ready", "v19.2.5", cephImage)
 		withCephClusterCephStatus(cc, "HEALTH_OK", "", "", 0, 0, 0, "", nil, map[string]map[string]int32{
-			"overall": {cephVerString1930: 9},
+			"overall": {cephVerStringSquid: 9},
 		})
 		cl := newFakeClient(cc)
 		r = newElasticClusterReconciler(cl)
@@ -187,15 +187,15 @@ var _ = Describe("ensureUpgrade", func() {
 		Expect(done).To(BeTrue())
 		Expect(inProgress).To(BeFalse())
 		Expect(msg).To(ContainSubstring("running version"))
-		Expect(status.cephVersion.Running).To(Equal(cephVerString1930))
+		Expect(status.cephVersion.Running).To(Equal(cephVerStringSquid))
 		Expect(status.cephVersion.Requested).To(Equal(v1alpha1.DefaultCephVersion))
 	})
 
 	It("returns in-progress when versions.overall is mixed", func() {
 		cephImage := newTestCfg().CephImages[v1alpha1.DefaultCephVersion]
-		cc := newCephClusterUnstructured(ec, "Progressing", "v19.2.3", cephImage)
+		cc := newCephClusterUnstructured(ec, "Progressing", "v19.2.5", cephImage)
 		withCephClusterCephStatus(cc, "HEALTH_OK", "", "", 0, 0, 0, "", nil, map[string]map[string]int32{
-			"overall": {cephVerString1930: 4, cephVerString2022: 5},
+			"overall": {cephVerStringSquid: 4, cephVerStringTentacle: 5},
 		})
 		cl := newFakeClient(cc)
 		r = newElasticClusterReconciler(cl)
@@ -205,7 +205,7 @@ var _ = Describe("ensureUpgrade", func() {
 		Expect(done).To(BeFalse())
 		Expect(inProgress).To(BeTrue())
 		Expect(msg).To(ContainSubstring("rolling update in progress"))
-		Expect(status.cephVersion.Running).To(Equal(cephVerString1930))
+		Expect(status.cephVersion.Running).To(Equal(cephVerStringSquid))
 	})
 
 	It("returns in-progress fallback when versions.overall is absent and running version differs", func() {

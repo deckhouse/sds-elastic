@@ -382,7 +382,7 @@ spec:
                             type: string
                             description: |
                               Ceph version string Rook publishes for this bucket
-                              (verbatim — e.g. `ceph version 19.2.3 (...) squid (stable)`).
+                              (verbatim — e.g. `ceph version 19.2.5 (...) squid (stable)`).
                           count:
                             type: integer
                             format: int32

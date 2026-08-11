@@ -49,11 +49,11 @@ var _ = Describe("ElasticCluster pure helpers", func() {
 		func(running, desired string, want bool) {
 			Expect(versionMatches(running, desired)).To(Equal(want))
 		},
-		Entry("exact match", "v19.2.3", "v19.2.3", true),
-		Entry("bare vs prefixed", "19.2.3", "v19.2.3", true),
-		Entry("rook suffix", "ceph version 19.2.3 (abc)", "v19.2.3", true),
-		Entry("boundary: must not match longer patch", "19.2.30", "v19.2.3", false),
-		Entry("mismatch", "18.2.0", "v19.2.3", false),
+		Entry("exact match", "v19.2.5", "v19.2.5", true),
+		Entry("bare vs prefixed", "19.2.5", "v19.2.5", true),
+		Entry("rook suffix", "ceph version 19.2.5 (abc)", "v19.2.5", true),
+		Entry("boundary: must not match longer patch", "19.2.50", "v19.2.5", false),
+		Entry("mismatch", "18.2.0", "v19.2.5", false),
 	)
 
 	DescribeTable("cephHealthOK",
